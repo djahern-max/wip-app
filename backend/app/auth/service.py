@@ -49,7 +49,7 @@ from app.core.security import (
     totp_provisioning_uri,
     verify_password,
 )
-from app.tenancy.models import CREDENTIAL_GROUP, FirmMembership, Role, Tenant, User
+from app.tenancy.models import CREDENTIAL_GROUP, FirmMembership, Membership, Role, Tenant, User
 
 
 class AuthError(Exception):
@@ -278,12 +278,7 @@ def login(
             db.delete(old)
             db.flush()
 
-    accessible = [
-        m.tenant_id
-        for m in memberships
-        if effective_role(m, tenant_firms.get(m.tenant_id), firm_memberships) is not None
-    ]
-    active = accessible[0] if len(accessible) == 1 else None
+    active = auto_selected_tenant(memberships, tenant_firms, firm_memberships)
     token, row = create_session(
         db, user.id, active_tenant_id=active, totp_verified_at=None, now=now
     )
@@ -297,6 +292,22 @@ def login(
     if principal.totp_state == TOTP_OK:
         _complete_login(db, principal, method="password", meta=meta)
     return LoginResult(Outcome.ok, token=token, principal=principal)
+
+
+def auto_selected_tenant(
+    memberships: list[Membership],
+    tenant_firms: dict[UUID, UUID],
+    firm_memberships: list[FirmMembership],
+) -> UUID | None:
+    """The tenant a newly usable session opens in: the only one the user can enter,
+    else None (the switcher asks). One rule for password login and for the
+    enrolment-only session that becomes a normal one at TOTP confirm."""
+    accessible = [
+        m.tenant_id
+        for m in memberships
+        if effective_role(m, tenant_firms.get(m.tenant_id), firm_memberships) is not None
+    ]
+    return accessible[0] if len(accessible) == 1 else None
 
 
 def _complete_login(db: Session, principal: Principal, *, method: str, meta: RequestMeta) -> None:
@@ -474,7 +485,13 @@ def confirm_totp_enrolment(
         detail={"recovery_codes_issued": len(codes)},
         meta=meta,
     )
-    # An enrolment-only session (15 min) becomes a normal one now.
+    # An enrolment-only session (15 min) becomes a normal one now. It was opened by a
+    # link with no tenant; apply login's auto-selection before the rotation copies
+    # the row, so ``_complete_login`` records ``tenant_enter`` in this transaction.
+    if principal.session.active_tenant_id is None:
+        principal.session.active_tenant_id = auto_selected_tenant(
+            principal.memberships, principal.tenant_firm_ids, principal.firm_memberships
+        )
     token = _verified_session(
         db, principal, method="password+totp", now=now, meta=meta, fresh_expiry=True
     )

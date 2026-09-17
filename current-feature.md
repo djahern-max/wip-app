@@ -1,9 +1,9 @@
 # current-feature.md
 
 _No feature in flight (2026-09-17)._ F02.1 closed; its brief is `docs/briefs/F02.1.md`.
-Open items carried from F02.1: the owner's browser pass (CLI `create-user` → link →
-password → TOTP → recovery codes → login → tenant switcher → logout), and the owner's
-approval of the CLAUDE.md sentence naming `read_as_user()` (D-18).
+The owner's browser pass was completed on 2026-09-17 (criteria ticked in
+`docs/briefs/F02.1.md` and `docs/briefs/F02.md`); the D-18 CLAUDE.md sentence was
+approved earlier (7139397). Nothing is carried over from F02.1.
 
 Next per ROADMAP: **F03 · Ingestion framework**. Copy its block here, expand it, and
 restate the acceptance criteria before coding.
@@ -28,3 +28,8 @@ From the F02.1 enrolment idempotency fix (2026-09-17). Not fixed in passing.
 - **No rendered-browser test dependency for now** (owner, 2026-09-17): no jsdom or
   browser driver is added. Revisit when an admin UI exists. Until then the static check
   above and the owner's browser pass cover the React screens.
+- **A client user's optional enrol confirm records a second `login_success`** (and a
+  second `tenant_enter` when a tenant is active): the session was already usable after
+  the password, but `_verified_session` completes the login again because
+  `totp_verified_at` was NULL. Seen while adding auto-selection at confirm
+  (2026-09-17); no UI reaches optional client enrolment today. Not fixed in passing.

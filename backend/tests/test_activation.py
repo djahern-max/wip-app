@@ -29,7 +29,7 @@ from tests.conftest import (
     totp_code,
 )
 from tests.leaks import record_secret
-from tests.test_auth import firm_events
+from tests.test_auth import firm_events, tenant_events
 
 GATED = ["/api/session/tenants", "/api/admin/users", "/api/firm-audit"]
 
@@ -296,6 +296,66 @@ def test_admin_totp_reset_reissues_a_link_and_the_old_factors_stop_working(
         for code in r.json()["recovery_codes"]:
             record_secret("recovery_code", code)
         assert c.get("/api/session/tenants").status_code == 200
+
+
+# --- single-company auto-selection at enrol confirm (owner pass, 2026-09-17) ------------------
+
+
+def enrol_through_link(c: TestClient, token: str, tag: str) -> dict:
+    """Redeem the link, enrol, confirm. Returns the confirm response body."""
+    assert activate(c, token, new_password(tag)).json() == {"next": "totp_enrol"}
+    assert c.get("/api/session/me").json()["active_tenant_id"] is None
+    secret = start_enrolment(c)["secret"]
+    r = c.post("/api/auth/totp/enrol/confirm", json={"code": totp_code(secret)}, headers=CSRF)
+    assert r.status_code == 200, r.text
+    for code in r.json()["recovery_codes"]:
+        record_secret("recovery_code", code)
+    record_cookie(c)
+    return r.json()
+
+
+def test_enrol_confirm_auto_selects_the_single_company_and_audits_the_entry(
+    login_as: Callable[..., TestClient], seed: Seed, rw_engine: Engine
+) -> None:
+    """Same rule as login: exactly one accessible tenant → it is the active one."""
+    admin_c = login_as("firm_admin")
+    uid, _email, token = make_firm_user_via_api(admin_c, seed, "one-co")  # entry row: tenant A
+    with make_client() as c:
+        body = enrol_through_link(c, token, "one-co")
+        assert body["active_tenant_id"] == str(seed.tenant_a)
+        assert body["role"] == "firm_staff"
+        me = c.get("/api/session/me").json()
+        assert (me["totp"], me["active_tenant_id"]) == ("ok", str(seed.tenant_a))
+    entered = [
+        e for e in tenant_events(rw_engine, seed.tenant_a, "tenant_enter") if e.actor_user_id == uid
+    ]
+    assert len(entered) == 1
+    assert entered[0].detail == {"via": "auto"} and entered[0].actor_role == "firm_staff"
+    success = firm_events(rw_engine, uid, "login_success")
+    assert success[-1].detail == {
+        "method": "password+totp",
+        "active_tenant_id": str(seed.tenant_a),
+    }
+
+
+def test_enrol_confirm_selects_nothing_for_a_user_with_two_companies(
+    login_as: Callable[..., TestClient], seed: Seed, rw_engine: Engine
+) -> None:
+    admin_c = login_as("firm_admin")
+    uid, _email, token = make_firm_user_via_api(admin_c, seed, "two-co")
+    r = admin_c.post(
+        f"/api/admin/tenants/{seed.tenant_b}/memberships", json={"user_id": str(uid)}, headers=CSRF
+    )
+    assert r.status_code == 201, r.text
+    with make_client() as c:
+        body = enrol_through_link(c, token, "two-co")
+        assert body["active_tenant_id"] is None and body["role"] is None
+        assert c.get("/api/session/me").json()["active_tenant_id"] is None
+    for tid in (seed.tenant_a, seed.tenant_b):
+        assert not [
+            e for e in tenant_events(rw_engine, tid, "tenant_enter") if e.actor_user_id == uid
+        ]
+    assert firm_events(rw_engine, uid, "login_success")[-1].detail["active_tenant_id"] is None
 
 
 # --- enrolment idempotency (F02.1 fix) -----------------------------------------------------------

@@ -35,7 +35,7 @@ Repo layout (§12), config, DB session with tenant context, `firm / tenant / use
 Login, TOTP for firm roles, session cookies, role checks as dependencies, tenant switcher for firm users, append-only `audit_log`.
 **Accept**: role matrix test (5 roles × protected routes); `client_pm` cannot fetch pay-rate endpoints; audit rows written for login, tenant switch, role change.
 
-### F02.1 · Auth hardening patch  ☑ (2026-09-17; owner browser pass pending)
+### F02.1 · Auth hardening patch  ☑ (2026-09-17; owner browser pass 2026-09-17)
 Firm authority as a `firm_membership` row with entry rows in tenants (D-15), activation links that also enrol TOTP (D-16), one practice per deployment (D-17), the `app.user_id` swap helper (D-18), per-IP throttle, allow-list response schemas, settings without defaults, origin policy, probes out of the application.
 **Accept**: `docs/briefs/F02.1.md`; 211 tests. The owner's browser pass (create user via CLI → link → password → TOTP → recovery codes → login → switcher → logout) also closes the F02 frontend criterion.
 

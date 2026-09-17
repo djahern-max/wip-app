@@ -15,6 +15,15 @@ Newest first. One entry per closed feature or decision. Format:
 
 ---
 
+## 2026-09-17 · F02.1 · owner pass and enrolment auto-select
+**What**: The owner's browser pass is done (Chrome, 2026-09-17): activation link with the token cleared from the address bar, password, QR identical after a refresh, code accepted, recovery codes, sign-in with password and code, company switch, sign-out, spent link refused. Ticked on the owner's instruction, each noted "owner pass, 2026-09-17": the last criterion in `docs/briefs/F02.1.md` and the frontend criterion in `docs/briefs/F02.md`. Gap found in the pass and fixed: the single-company rule now lives in one function, `auto_selected_tenant()` in `app/auth/service.py`, called by password login and by `confirm_totp_enrolment`; at confirm it sets the tenant on the enrolment-only session before the rotation, so `_complete_login` writes `tenant_enter` (`via: auto`) to that tenant's `audit_log` in the same transaction and `login_success` carries the tenant.
+**Why**: A user with exactly one company was auto-selected at sign-in but landed on "Choose…" after enrolling through a link, because the link's session starts with no tenant and the rotation copied that.
+**Tests**: 231 pass (229 + 2): a firm user with one entry row has `active_tenant_id` set in the confirm response and in `/me`, with exactly one `tenant_enter` row (`via: auto`, `firm_staff`) and the tenant in `login_success`; a user with two entry rows lands with none selected and no `tenant_enter` row. The first was red before the change (`active_tenant_id` was `None`); the second passed before and after, and pins the rule's other half.
+**Migrations**: none. **Decisions referenced / made**: none. **Dependencies added**: none.
+**Follow-ups**: one new Discovered note in `current-feature.md` (a client user's optional enrol confirm records a second `login_success`).
+
+---
+
 ## 2026-09-17 · F02.1 · enrolment follow-ups
 **What**: `backend/tests/test_frontend_effects.py`: a static check that fails when a `useEffect` / `useLayoutEffect` body in `frontend/src` calls `api(` with a method other than GET, directly or through a function defined in the same file, unless the file is in `GUARDED` (only `pages/TotpEnrol.jsx`, with the reason). Comments are ignored; `api(` with a non-literal method and `fetch(` with a `method` option inside an effect are refused rather than interpreted; a stale `GUARDED` entry fails; the entry's guard (request held in a ref, StrictMode still on) is asserted. It does not follow helpers imported from another module. `Activate.jsx` disables its submit button while the request is in flight, like Login, TotpVerify and the TotpEnrol confirm form, which already did.
 **Why**: The enrolment bug came from a POST in a mount effect, and nothing automated looked at effects. A double click on the activation form posted the single-use token twice and showed "invalid link" over a success.
