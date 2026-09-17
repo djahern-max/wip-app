@@ -1,0 +1,155 @@
+# current-feature.md
+
+## F02 · Auth, roles, audit log
+**Roadmap phase**: A · **Blueprint refs**: §3 (principle 8), §11, §12 · **Decisions**: D-10, D-11, D-12, D-13, D-14
+**Status**: done (2026-09-17)
+
+### Goal
+Every request is tied to an authenticated user, a role, and (where needed) one tenant taken from the server-side session, never from the client. Firm roles cannot work without TOTP. Security-relevant actions leave rows in audit tables that no application role can change.
+
+### In scope
+**Authentication (D-10: hand-rolled)**
+- Email + password login. Passwords hashed with argon2id. Minimum length 12. No self-serve signup (§11).
+- Throttle: 5 failed attempts on one account within 15 minutes locks that account for 15 minutes. Same response body and timing class for "unknown email" and "wrong password".
+- TOTP (RFC 6238, 30 s step, ±1 step window, a used code cannot be replayed). Mandatory for any user holding a `firm_admin` or `firm_staff` membership; optional for client roles. A firm-role user without an enrolled TOTP can reach only the enrolment endpoints.
+- Ten one-time recovery codes issued at enrolment, stored hashed, shown once.
+- `firm_admin` can reset another user's password (one-time link displayed to the admin; no e-mail is sent in F02) and reset another user's TOTP. Both audited.
+- CLI `scripts/create_user.py` to bootstrap the first `firm_admin` and as the last-resort reset path. Documented in OPERATIONS.md.
+
+**Sessions**
+- New global table `session` (approved without `tenant_id`; it belongs to a user, not a tenant): hashed session id, `user_id`, active `tenant_id` (nullable until chosen), `totp_verified_at`, `created_at`, `last_seen_at`, `expires_at`.
+- Cookie holds a random 256-bit id; only its SHA-256 is stored. `HttpOnly`, `Secure`, `SameSite=Lax`, path `/`. Nothing auth-related in local storage (§11).
+- Session id rotates on login and again on TOTP verification. Idle timeout 60 minutes, absolute 12 hours, both from environment config. Logout deletes the row.
+- CSRF: state-changing routes require a custom header that the React client sends; test proves a request without it is rejected.
+
+**Tenant context from the session**
+- `require_tenant_id` reads the active tenant from the session. The `X-Tenant-Id` header placeholder from F01 is removed and ignored.
+- The session dependency sets `app.user_id` and, when a tenant is active, `app.tenant_id`, both with `set_config(..., true)` inside the request transaction.
+- D-11: migration helper `allow_own_membership_read()` adds one extra policy on `membership`, `FOR SELECT` only, `USING (user_id = NULLIF(current_setting('app.user_id', true), '')::uuid)`. Writes to `membership` still pass only through `tenant_isolation`.
+- `tests/test_rls.py` gains an explicit allow-list of extra policies (table, policy name, command, exact predicate). Any policy on a tenant table that is neither `tenant_isolation` nor on the allow-list fails the build. The allow-list has exactly one entry after F02.
+- Tenant switcher: `GET /api/session/tenants` lists the user's own memberships; `POST /api/session/tenant` sets the active tenant after re-checking membership. A user with exactly one membership gets it selected at login.
+
+**Roles**
+- Role dependencies in `app/core/authz.py`: `require_roles(*roles)` plus named capabilities so routers never list roles inline. At minimum `can_view_pay_rates` = `firm_admin`, `firm_staff`, `client_admin` (CLAUDE.md Security).
+- A test-only router (registered only under pytest) exposes one probe route per capability, including a pay-rate probe, so the role matrix can be proven before the real endpoints exist.
+- `firm_admin` endpoints: create user, create/change/remove membership, list users for the active tenant.
+
+**Audit (D-12, D-13)**
+- `audit_log`: tenant-scoped, `enable_tenant_rls`, leading `tenant_id` index. Columns: `id`, `tenant_id`, `occurred_at` (UTC), `actor_user_id`, `actor_role`, `action`, `entity_type`, `entity_id`, `detail` (JSONB), `ip`, `request_id`.
+- `firm_audit_log`: global (approved without `tenant_id`), keyed by `firm_id`, same columns less `tenant_id`. Readable only through a route guarded for firm roles.
+- Migration helper `make_append_only(table)`: `BEFORE UPDATE OR DELETE` row trigger and `BEFORE TRUNCATE` statement trigger that raise. Applied to both audit tables. Migrations still never name the app role.
+- `APPEND_ONLY_TABLES` constant in the backend is the register; a CI test fails if a registered table lacks the triggers, and proves `UPDATE`, `DELETE`, and `TRUNCATE` fail as `app_rw` and as `app_owner`, and that `app_rw` cannot drop or disable the triggers.
+- Events written in F02. To `firm_audit_log`: `login_success`, `login_failure`, `account_locked`, `logout`, `totp_enrolled`, `totp_reset`, `recovery_code_used`, `password_reset_issued`, `password_changed`, `user_created`. To `audit_log` of the affected tenant: `tenant_enter` (automatic selection or switcher), `membership_created`, `membership_role_changed`, `membership_removed`.
+- The audit row is written in the same transaction as the action it records. Failed logins, which have no action transaction, write in their own.
+- Passwords, TOTP secrets and codes, recovery codes, and session ids never appear in `detail`, logs, or error messages.
+
+**Crypto helper (pulled forward from F03 because TOTP secrets need it; F03 reuses it for tokens)**
+- `app/core/crypto.py`: AES-256-GCM, keys from environment, key id stored with the ciphertext so keys can rotate (§11). Used in F02 only for the TOTP secret.
+
+**Frontend**
+- Login, TOTP verify, TOTP enrolment (QR plus manual key), recovery-code display, tenant switcher in the shell header, logout. Unauthenticated users see only the login page.
+
+**Docs**
+- CLAUDE.md, Tenancy section, add: "`membership` carries one additional `FOR SELECT` policy (own rows by `app.user_id`), created by `allow_own_membership_read()` (D-11). No other table may have a policy beyond `tenant_isolation` without a new decision." and "Insert-only tables call `make_append_only()` and are listed in `APPEND_ONLY_TABLES` (D-13)."
+- CLAUDE.md, note approved global tables: `firm`, `tenant`, `user`, `session`, `firm_audit_log`.
+
+**Housekeeping carried from the F01 review**
+- Compose Postgres host port read from an environment variable with a default, not fixed at 5433.
+- CHANGELOG template gains the **Tests** and **Dependencies added** fields the F01 entry already uses.
+
+**Dependencies approved for this feature (D-10, D-14)**: backend `argon2-cffi`, `pyotp`, `cryptography`; frontend `qrcode`. Anything else: stop and ask.
+
+### Out of scope
+Hosted identity provider, SSO, WebAuthn/passkeys. Outbound e-mail and self-service password reset. Audit-log viewer UI beyond a plain firm-role JSON endpoint. Audit events for connections, crosswalk, EAC, policy, periods, exports (written by the features that own them). Pay-rate storage and real pay-rate endpoints. Worker queue, file upload, and token encryption (F03). Any domain table.
+
+### Acceptance criteria
+No Rye Beach fixture applies to F02; acceptance uses the two seeded test tenants from F01 plus seeded users, one per role.
+- [x] Role matrix test: 5 roles × every protected route (real and probe) asserts the expected 200/403 cell by cell; an unauthenticated request gets 401 on every one.
+- [x] `client_pm` and `client_viewer` get 403 on the pay-rate probe; `firm_admin`, `firm_staff`, `client_admin` get 200.
+- [x] A user with a firm role and no TOTP enrolled gets 403 on everything except the enrolment endpoints and logout. A firm-role session with password but no TOTP verification is treated the same.
+- [x] A TOTP code cannot be used twice. A recovery code works once and writes `recovery_code_used`.
+- [x] Sixth failed login inside 15 minutes returns the locked response and writes `account_locked`; "unknown email" and "wrong password" return identical bodies and status.
+- [x] `X-Tenant-Id` header has no effect: a session active in tenant A sending tenant B's id in the header reads only tenant A's rows.
+- [x] Before a tenant is chosen, the session can list its own memberships and zero rows of any other user's memberships, via ORM and via raw SQL as `app_rw`. With `app.user_id` unset, `membership` returns zero rows.
+- [x] With `app.user_id` set and no tenant context, insert, update, and delete on `membership` are rejected.
+- [x] `POST /api/session/tenant` for a tenant where the user has no membership returns 403 and leaves the session unchanged.
+- [x] RLS enumeration test fails when a second, unlisted policy is added by hand to any tenant table (mutation check, recorded in the CHANGELOG). Done twice: `sneaky` on `_rls_probe`, `own_membership_read2` on `membership`.
+- [x] `audit_log` passes the F01 enumeration test (enabled, forced, policy, leading index); tenant A cannot read tenant B's audit rows.
+- [x] Append-only test: `UPDATE`, `DELETE`, `TRUNCATE` on `audit_log` and `firm_audit_log` fail as `app_rw` and as `app_owner`; `app_rw` cannot drop or disable the triggers; a table listed in `APPEND_ONLY_TABLES` without triggers fails the build.
+- [x] Audit rows exist, in the correct table, with actor, action, and entity, for: login success, login failure, tenant switch, membership role change. The role-change row and the role change commit or roll back together.
+- [x] No client role can read `firm_audit_log` through any route.
+- [x] Session cookie is `HttpOnly`, `Secure`, `SameSite=Lax`; the database holds only the hash; the session id differs before and after login and before and after TOTP verification; idle and absolute expiry both end the session; logout deletes the row.
+- [x] A state-changing request without the CSRF header is rejected.
+- [x] TOTP secret is stored as ciphertext with a key id; decrypts after the active key is rotated while the old key remains configured. A log-capture test over the whole auth suite finds no password, TOTP secret, code, recovery code, or session id.
+- [x] `alembic upgrade head` → `downgrade base` → `upgrade head` succeeds; the new migration is reversible.
+- [x] Frontend: login → TOTP → tenant switcher → logout works against the local stack; `npm run build` succeeds. *(Verified as the API flow through the Vite proxy with the real cookie; the React screens themselves were not driven in a browser in this session. Owner: one manual pass.)*
+
+### Plan (Claude Code fills in before coding)
+
+**Acceptance criteria restated** (one line each; the checklist above is the authority)
+1. Role matrix: 5 roles × every protected route, plus 401 unauthenticated.
+2. Pay-rate probe: 403 for `client_pm`, `client_viewer`; 200 for the other three.
+3. Firm role without enrolled or verified TOTP: 403 everywhere except enrolment, verify, logout.
+4. TOTP replay rejected; recovery code single-use and audited.
+5. Lockout after 5 failures in 15 min; unknown-email and wrong-password responses identical.
+6. `X-Tenant-Id` ignored; tenant comes only from the session.
+7. Own-membership read with `app.user_id` set and no tenant; zero rows without it (ORM and raw SQL as `app_rw`).
+8. With `app.user_id` only, membership insert/update/delete have no effect (insert raises; update/delete match zero rows).
+9. Tenant switch without membership → 403, session unchanged.
+10. RLS enumeration fails on any unlisted extra policy (mutation check done by hand, recorded in CHANGELOG).
+11. `audit_log` passes the F01 enumeration; tenant A cannot read tenant B's audit rows.
+12. Append-only: UPDATE/DELETE/TRUNCATE fail as `app_rw` and `app_owner`; `app_rw` cannot drop/disable triggers; unregistered-trigger table fails the build.
+13. Audit rows for login success/failure, tenant switch, membership role change; role change and its audit row are atomic.
+14. No client role reads `firm_audit_log` through any route.
+15. Cookie flags; hash-only storage; id rotates at login and at TOTP verification; idle and absolute expiry; logout deletes the row.
+16. CSRF header required on state-changing requests.
+17. TOTP secret is ciphertext + key id; survives key rotation; log capture finds no secret.
+18. Migration up → down → up.
+19. Frontend flow works locally; `npm run build` passes.
+
+**Open question: firm-level authority in `0001_baseline`**
+- *What the schema has today*: `firm(id, name)`, `tenant(id, firm_id, …)`, `user(id, email, display_name)`, `membership(tenant_id, user_id, role)`. There is no `user.firm_id` and no firm-level membership. A user holds `firm_admin` only by having a `membership` row with that role in at least one tenant. Nothing ties a user to a firm except through a tenant.
+- *What F02 does, without a schema change*: firm authority is **derived from memberships**. `Principal.firm_role` is `firm_admin` if any of the user's memberships carries that role, else `firm_staff` if any does, else none; `Principal.firm_ids` is the set of `tenant.firm_id` over those memberships (read through the D-11 own-membership policy, so no tenant context is needed). Firm-level endpoints (`/api/admin/*`, `/api/firm-audit`) require only `firm_role`. A `firm_admin` may act on **any tenant of those firms**, including one they hold no membership in (the "first membership in a new tenant" case): the handler checks `tenant.firm_id ∈ firm_ids`, then sets `app.tenant_id` to the target tenant for the write and the audit row, so the transaction still touches one tenant.
+- *Consequences to be aware of*: (1) the first `firm_admin` needs a firm and a tenant to exist before the role can be held, so `scripts/create_user.py` can create both for bootstrap; (2) removing a `firm_admin`'s last membership removes their firm authority; (3) `firm_audit_log.firm_id` is **nullable**: a failed login for an unknown email, or a user with no membership yet, has no derivable firm. Rows with a null firm are visible to any firm-role reader (there is one firm today).
+- *Proposal for the owner (not done; needs a go-ahead)*: add a `firm_membership(firm_id, user_id, role ∈ {firm_admin, firm_staff})` table (approved-global, no `tenant_id`), or a nullable `user.firm_id`. `firm_membership` is recommended: it mirrors `membership`, lets `membership.role` be narrowed to client roles later, and makes `firm_audit_log.firm_id` NOT NULL. Candidate D-15. If approved, `Principal.firm_role` / `firm_ids` become a lookup and nothing else in F02 changes.
+
+**Deviations from the brief's wording (flagged)**
+- The `session` column for the active tenant is named `active_tenant_id`, not `tenant_id`: the F01 enumeration test treats any `tenant_id` column as tenant-scoped (NOT NULL + RLS), and the brief says not to weaken that test. The table is otherwise as specified.
+- `firm_audit_log.firm_id` is nullable (see above).
+- Credential state lives as columns on `user` (password hash, lockout counters, encrypted TOTP secret + key id, last accepted TOTP counter, recovery-code hashes, password-reset token hash). The brief names no table for these and forbids new tables beyond `session`, `audit_log`, `firm_audit_log`.
+- `login_success` is written when the session becomes fully usable: at password login for users without TOTP, at TOTP/recovery verification otherwise. `tenant_enter` for an auto-selected tenant is written at the same moment. A failed TOTP or recovery attempt writes `login_failure` and counts toward the lockout.
+- `account_locked` is written on the failure that applies the lock (the fifth); the sixth attempt returns the locked response (429).
+
+**Files**
+- Backend new: `app/core/{crypto,security,auth,authz,audit}.py`, `app/auth/{__init__,service}.py`, `app/audit/{__init__,models}.py`, `app/api/{auth,session,admin,audit,probes}.py`, `alembic/versions/0002_auth_audit.py`, `scripts/create_user.py`.
+- Backend changed: `pyproject.toml`, `app/core/{config,db}.py`, `app/tenancy/{models,rls}.py`, `app/main.py`, `alembic/env.py`, `app/api/health.py` (unchanged behaviour).
+- Tests new: `test_crypto.py`, `test_auth.py`, `test_sessions.py`, `test_roles.py`, `test_admin.py`, `test_audit.py`, `test_append_only.py`, `test_zz_log_leaks.py`, `leaks.py`; changed: `conftest.py`, `test_rls.py`, `test_migrations.py`, `test_health.py`.
+- Frontend: `package.json` (+`qrcode`), `src/{api.js,App.jsx}`, `src/pages/{Login,TotpVerify,TotpEnrol,ResetPassword,Shell}.jsx`.
+- Infra/docs: `docker-compose.yml`, `.env.example`, `.env`, `CHANGELOG.md`, `ROADMAP.md`, `CLAUDE.md`, `README.md`, `docs/OPERATIONS.md`, `docs/DECISIONS.md` (D-10…D-14 appended from `DECISIONS_D-10_to_D-14.md`).
+
+**Dependencies** (all pre-approved by the brief, D-10/D-14): backend `argon2-cffi`, `pyotp`, `cryptography`; frontend `qrcode`. Nothing else.
+
+**Tables / columns added**: `session`, `audit_log`, `firm_audit_log` (approved); columns on `user` listed above; one extra policy on `membership` (D-11); triggers on the two audit tables (D-13). `APPEND_ONLY_TABLES` lives in `app/tenancy/rls.py` next to `make_append_only`.
+
+**Design notes**
+- One transaction per request (`get_request_session`). `get_principal` reads the cookie, loads the session row, enforces idle/absolute expiry, sets `app.user_id`, and `app.tenant_id` when a tenant is active. `require_tenant_id` now reads the principal. `TenantSession` moved to `app/core/auth.py` to avoid an import cycle.
+- Expected failures that must persist (failed login, failed TOTP, lockout) are returned as results and rendered as 401/429 JSON, not raised, so the request transaction commits. Failures that must roll back (403 on tenant switch, 404 on foreign tenant) raise.
+- CSRF: an HTTP middleware requires `X-Requested-With` on every `POST/PUT/PATCH/DELETE` under `/api/`. No route can forget it.
+- TOTP replay: the accepted time-step counter is stored on `user`; a code whose counter is not greater than the stored one is rejected.
+- Test-only probe router is mounted only when `pytest` is in `sys.modules`.
+
+### Discovered (do not fix here)
+- **Owner decision (D-15 candidate)**: firm-level authority is derived from memberships (see Plan). A `firm_membership` table would make it explicit and let `firm_audit_log.firm_id` be NOT NULL. Not built.
+- **F03**: key rotation needs a re-encrypt command (walk rows by `key_id`, re-encrypt under the active key). F02 documents the manual route (TOTP reset) in OPERATIONS.md.
+- **F03**: `session.active_tenant_id` and `Principal.firm_ids` are what the worker should *not* use; tasks keep taking `tenant_id` explicitly.
+- **Security note (inherent to the brief)**: a firm-role user without TOTP can enrol TOTP with only the password. Creating users without a password (reset link) and watching `totp_enrolled` in `firm_audit_log` is the mitigation; a "TOTP must be enrolled by an admin-issued link" variant would be a new decision.
+- **Frontend**: no browser automation in this session; the React auth screens compile and call the verified endpoints but were not clicked through.
+- **Fixed in passing, flagged**: `Settings` never loaded the repo-root `.env` when run from `backend/` (F01). Fixed here because the crypto keys made it visible; noted in the CHANGELOG.
+- **Tooling**: `Column.copy()` deprecation avoided in `0002` by building fresh columns per call; the starlette/httpx deprecation from F01 remains.
+
+### Close-out
+- [x] CHANGELOG entry written
+- [x] ROADMAP status flipped
+- [x] OPERATIONS.md: bootstrap first `firm_admin`, password and TOTP reset runbook, encryption key rotation, session settings
+- [x] CLAUDE.md amendments above applied verbatim
+- [x] D-10 … D-14 appended to `docs/DECISIONS.md` (the staging file `DECISIONS_D-10_to_D-14.md` was left in place for the owner to remove)

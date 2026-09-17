@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: postgres
+      APP_OWNER_PASSWORD: ${APP_OWNER_PASSWORD:-app_owner_dev}
+      APP_RW_PASSWORD: ${APP_RW_PASSWORD:-app_rw_dev}
+    ports:
+      # Host port from the environment (F01 review); 5432 is left for a local Postgres.
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
+    volumes:
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  dbdata:

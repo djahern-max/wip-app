@@ -1,0 +1,45 @@
+[project]
+name = "wip-backend"
+version = "0.1.0"
+description = "Job cost & WIP reporting platform - API and worker"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sqlalchemy>=2.0.30",
+    "alembic>=1.13",
+    "psycopg[binary]>=3.2",
+    "pydantic-settings>=2.4",
+    # F02 (D-10, D-14): password hashing, TOTP, application-layer encryption
+    "argon2-cffi>=23.1",
+    "pyotp>=2.9",
+    "cryptography>=42",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+    "httpx>=0.27",
+    "ruff>=0.5",
+]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.lint.isort]
+# The local alembic/ directory would otherwise make ruff treat the alembic package as first-party.
+known-third-party = ["alembic"]
