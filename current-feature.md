@@ -18,11 +18,9 @@ From the F02.1 enrolment idempotency fix (2026-09-17). Not fixed in passing.
   ends every other session and clears the pending secret. Closing it means binding the
   pending secret to the session that started it (owner call; no UI reaches optional
   client enrolment today).
-- **`Activate.jsx` has no double-submit guard.** A double click posts the single-use
-  token twice; the second answer is 400 "invalid or expired link" although the first
-  succeeded. Not a mount effect. Fix: a `busy` flag like the other forms.
-- **Proposed check, no new dependency**: a static test (pytest, in the style of
-  `test_hygiene.py`) that fails when a `useEffect` body in `frontend/src` calls
-  `api(` with a method other than GET outside an allow-list of guarded files.
-  A rendered StrictMode test (jsdom or a browser driver) needs a new dependency: ask first.
-
+- ~~**`Activate.jsx` has no double-submit guard.**~~ Fixed 2026-09-17 (F02.1 · enrolment
+  follow-ups): `busy` flag, submit disabled while the request is in flight. Login,
+  TotpVerify and the TotpEnrol confirm form already had it.
+- ~~**Proposed check, no new dependency.**~~ Built 2026-09-17:
+  `backend/tests/test_frontend_effects.py`. A rendered StrictMode test (jsdom or a
+  browser driver) still needs a new dependency: ask first.

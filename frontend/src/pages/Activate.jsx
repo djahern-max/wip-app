@@ -13,6 +13,7 @@ export default function Activate({ token }) {
   const [again, setAgain] = useState("");
   const [done, setDone] = useState(false);
   const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
 
   async function submit(e) {
     e.preventDefault();
@@ -20,14 +21,18 @@ export default function Activate({ token }) {
     if (!token) return setError("This page needs the activation link. Open the link you were given.");
     if (password.length < 12) return setError("Use at least 12 characters.");
     if (password !== again) return setError("The two passwords differ.");
+    // The token works once: a second post would answer "invalid link" over a success.
+    setBusy(true);
     try {
       const r = await api("POST", "/api/auth/activate", { token, new_password: password });
       if (r && r.next === "totp_enrol") {
-        window.location.assign("/");
+        window.location.assign("/"); // stays busy while the page reloads
         return;
       }
       setDone(true);
+      setBusy(false);
     } catch (err) {
+      setBusy(false);
       setError(
         err.status === 429
           ? "Too many attempts from this address. Try again in 15 minutes."
@@ -55,7 +60,7 @@ export default function Activate({ token }) {
               <input type="password" value={again} onChange={(e) => setAgain(e.target.value)} required style={styles.input} />
             </label>
             {error && <p style={styles.error}>{error}</p>}
-            <button type="submit" style={styles.button}>Save</button>
+            <button type="submit" disabled={busy} style={styles.button}>{busy ? "Saving…" : "Save"}</button>
           </>
         )}
       </form>
