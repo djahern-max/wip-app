@@ -1,6 +1,9 @@
 """``alembic upgrade head`` then ``downgrade base`` on an empty database, and the
 ``0003`` data step on F02-shaped rows (D-15): per-tenant context, no unforcing."""
 
+import os
+import subprocess
+import sys
 import uuid
 
 import pytest
@@ -8,7 +11,7 @@ from alembic import command
 from sqlalchemy import create_engine, text
 
 from app.tenancy.rls import APPEND_ONLY_FUNCTION
-from tests.conftest import alembic_config
+from tests.conftest import BACKEND_DIR, alembic_config
 
 EXPECTED_TABLES = {
     "firm",
@@ -263,3 +266,45 @@ def test_0003_refuses_a_user_with_both_a_firm_and_a_client_role_in_one_firm(
         assert "firm_membership" not in _public_tables(scratch_db_url)
     finally:
         engine.dispose()
+
+
+# --- the migration process holds the owner URL and nothing else -----------------------------
+
+
+def _alembic_cli(*args: str, owner_url: str | None) -> subprocess.CompletedProcess:
+    """``alembic`` as CI and ``make migrate`` run it: a separate process, no env file,
+    and none of the API's required settings."""
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if not k.startswith(("DATABASE_", "CRYPTO_", "TEST_DATABASE_"))
+    }
+    env["ENV_FILE"] = "/nonexistent/.env"
+    if owner_url is not None:
+        env["DATABASE_OWNER_URL"] = owner_url
+    return subprocess.run(
+        [sys.executable, "-m", "alembic", *args],
+        cwd=BACKEND_DIR,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+
+def test_alembic_upgrade_head_needs_only_the_owner_url(scratch_db_url: str) -> None:
+    """CRYPTO_KEYS, CRYPTO_ACTIVE_KEY_ID and DATABASE_URL are unset: no migration
+    needs them, and ``alembic/env.py`` must not ask for them."""
+    up = _alembic_cli("upgrade", "head", owner_url=scratch_db_url)
+    assert up.returncode == 0, up.stderr
+    assert _public_tables(scratch_db_url) == EXPECTED_TABLES | {"alembic_version"}
+    down = _alembic_cli("downgrade", "base", owner_url=scratch_db_url)
+    assert down.returncode == 0, down.stderr
+    assert _public_tables(scratch_db_url) == {"alembic_version"}
+
+
+def test_alembic_without_the_owner_url_names_only_that_variable() -> None:
+    proc = _alembic_cli("upgrade", "head", owner_url=None)
+    assert proc.returncode != 0
+    assert "DATABASE_OWNER_URL" in proc.stderr
+    assert "CRYPTO" not in proc.stderr

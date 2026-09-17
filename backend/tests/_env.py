@@ -1,11 +1,19 @@
-"""Environment for the application under test. Imported first by ``conftest``.
+"""Environment for the application under test. Hermetic: nothing here comes from the
+developer's machine except the two TEST_DATABASE_* URLs.
 
-Settings are read lazily (``get_settings`` is cached on first call), so setting
-the variables at import time is enough; ``conftest`` clears the cache afterwards.
+``tests/__init__.py`` imports this module, so Python runs it before ``conftest`` or
+any test module, whatever order an import sorter gives their imports. It must run
+before the application is imported: ``app.main`` builds the app (and ``Settings``)
+at import, and a ``Settings`` built before ENV_FILE is set below would load the
+repo-root ``.env``. The guard refuses that order instead of letting it pass silently.
 """
 
 import base64
 import os
+import sys
+
+if "app.core.config" in sys.modules:
+    raise RuntimeError("tests._env must be imported before the application package")
 
 OWNER_URL = os.environ.get(
     "TEST_DATABASE_OWNER_URL",
@@ -16,18 +24,20 @@ RW_URL = os.environ.get(
     "postgresql+psycopg://app_rw:app_rw_dev@localhost:5433/wip_test",
 )
 
-# Two fixed keys so the rotation test can switch the active id while both stay
-# configured. Test-only values.
+# A throwaway key ring, generated for this run and never written anywhere. Two keys
+# so the rotation test can switch the active id while both stay configured.
 TEST_KEYS: dict[str, str] = {
-    "test0": base64.b64encode(bytes(range(32))).decode(),
-    "test1": base64.b64encode(bytes(range(32, 64))).decode(),
+    kid: base64.b64encode(os.urandom(32)).decode() for kid in ("test0", "test1")
 }
 ACTIVE_KEY_ID = "test1"
 
-os.environ["DATABASE_URL"] = RW_URL
-os.environ["CRYPTO_KEYS"] = ",".join(f"{k}:{v}" for k, v in TEST_KEYS.items())
-os.environ["CRYPTO_ACTIVE_KEY_ID"] = ACTIVE_KEY_ID
-os.environ.setdefault("SESSION_COOKIE_SECURE", "true")
-os.environ.setdefault("APP_BASE_URL", "https://app.example.test")
-# The harness is self-contained: never read the developer's .env.
-os.environ["ENV_FILE"] = "/nonexistent/.env.for-tests"
+# Never read the developer's .env: a path that does not exist disables file loading.
+ENVIRONMENT: dict[str, str] = {
+    "ENV_FILE": "/nonexistent/.env.for-tests",
+    "DATABASE_URL": RW_URL,
+    "CRYPTO_KEYS": ",".join(f"{k}:{v}" for k, v in TEST_KEYS.items()),
+    "CRYPTO_ACTIVE_KEY_ID": ACTIVE_KEY_ID,
+    "SESSION_COOKIE_SECURE": "true",
+    "APP_BASE_URL": "https://app.example.test",
+}
+os.environ.update(ENVIRONMENT)

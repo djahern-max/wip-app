@@ -4,7 +4,9 @@ Secrets have no defaults (F02.1): ``DATABASE_URL``, ``CRYPTO_KEYS`` and
 ``CRYPTO_ACTIVE_KEY_ID`` must be set or the process refuses to start with a message
 that names the variable and never its value. ``DATABASE_OWNER_URL`` is optional
 here and required only by ``alembic/env.py``, so the API process never has to hold
-the owner password.
+the owner password. The migration process is the mirror image: it reads
+``MigrationSettings`` (the owner URL and nothing else), so it never has to hold the
+application URL or the encryption keys.
 
 The env file defaults to the repo-root ``.env`` (README); ``ENV_FILE`` points at a
 different file, or at a path that does not exist to disable file loading.
@@ -68,6 +70,14 @@ class Settings(BaseSettings):
     activation_link_ttl_hours: int = 72
 
 
+class MigrationSettings(BaseSettings):
+    """All that ``alembic/env.py`` reads. No migration needs anything else."""
+
+    model_config = SettingsConfigDict(env_file_encoding="utf-8", extra="ignore")
+
+    database_owner_url: str | None = None
+
+
 def _env_file() -> str | None:
     path = os.environ.get("ENV_FILE", str(DEFAULT_ENV_FILE))
     return path if Path(path).is_file() else None
@@ -92,3 +102,7 @@ def get_settings() -> Settings:
         raise MissingSettings(
             "invalid configuration: " + ", ".join(str(e["loc"][0]).upper() for e in exc.errors())
         ) from None
+
+
+def get_migration_settings() -> MigrationSettings:
+    return MigrationSettings(_env_file=_env_file())

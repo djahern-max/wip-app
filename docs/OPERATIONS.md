@@ -59,8 +59,12 @@ SELECT count(*) FROM membership;      -- 0: no context outside the transaction
 
 Settings (environment; see `.env.example`). **Required, no default**: `DATABASE_URL`,
 `CRYPTO_KEYS`, `CRYPTO_ACTIVE_KEY_ID`; the API exits at start-up naming the missing
-variable (never its value). `DATABASE_OWNER_URL` is required only where Alembic runs.
-`ENV_FILE` points at the env file (default: repo-root `.env`).
+variable (never its value). `DATABASE_OWNER_URL` is required only where Alembic runs,
+and it is all Alembic reads: the migration process needs neither `DATABASE_URL` nor the
+encryption keys, so do not give them to it. `ENV_FILE` points at the env file (default:
+repo-root `.env`). The test suite reads no env file and generates its own throwaway key
+ring per run; it needs only `TEST_DATABASE_URL` / `TEST_DATABASE_OWNER_URL` (defaults
+match `db/init/01_roles.sh`).
 
 | Variable | Default | Meaning |
 |---|---|---|

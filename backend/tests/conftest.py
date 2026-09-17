@@ -34,20 +34,20 @@ from fastapi.testclient import TestClient
 from httpx import Response
 from sqlalchemy import Engine, create_engine, text
 
-import app.core.db as app_db  # noqa: E402
-from app.core.auth import CSRF_HEADER  # noqa: E402
-from app.core.config import get_settings  # noqa: E402
-from app.core.crypto import get_keyring  # noqa: E402
-from app.core.db import tenant_session, untenanted_session  # noqa: E402
-from app.core.security import (  # noqa: E402
+import app.core.db as app_db
+from app.core.auth import CSRF_HEADER
+from app.core.config import Settings, get_settings
+from app.core.crypto import get_keyring
+from app.core.db import tenant_session, untenanted_session
+from app.core.security import (
     hash_password,
     hash_recovery_code,
     new_recovery_codes,
     new_totp_secret,
     totp_code_at,
 )
-from app.main import create_app  # noqa: E402
-from app.tenancy.models import (  # noqa: E402
+from app.main import create_app
+from app.tenancy.models import (
     FIRM_ROLES,
     Firm,
     FirmMembership,
@@ -57,14 +57,18 @@ from app.tenancy.models import (  # noqa: E402
     Tenant,
     User,
 )
-from tests import _env  # noqa: F401  (must run before any app import reads settings)
+from tests import _env
 from tests._env import OWNER_URL, RW_URL
 from tests.leaks import record_secret
 from tests.logcapture import ensure_capture
 from tests.probes import build_probe_router
 from tests.responses import record_response
 
-assert _env.ACTIVE_KEY_ID  # tests._env must be imported before settings are read
+# Every other setting keeps its coded default: a variable exported in the developer's
+# shell (or the CI job's DATABASE_OWNER_URL) does not reach the application under test.
+for _name in Settings.model_fields:
+    if _name.upper() not in _env.ENVIRONMENT:
+        os.environ.pop(_name.upper(), None)
 get_settings.cache_clear()
 
 # Harness override (owner answer to call 7): keep bound parameters in SQL log lines

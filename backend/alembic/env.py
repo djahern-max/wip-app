@@ -1,5 +1,6 @@
 """Alembic environment. Migrations run as ``app_owner`` (DATABASE_OWNER_URL), which
-is required here and only here (the API process never holds it, F02.1)."""
+is required here and only here (the API process never holds it, F02.1). It is also
+all this process reads: not the application URL, not the encryption keys."""
 
 import sys
 from logging.config import fileConfig
@@ -9,7 +10,7 @@ from sqlalchemy import create_engine, pool
 
 # Imported for their side effect: register every model on Base.metadata.
 import app.audit.models  # noqa: F401
-from app.core.config import get_settings
+from app.core.config import get_migration_settings
 from app.tenancy.models import Base
 
 config = context.config
@@ -22,7 +23,7 @@ target_metadata = Base.metadata
 
 def _owner_url() -> str:
     # Tests pass the URL through alembic's config attributes.
-    url = config.get_main_option("owner_url") or get_settings().database_owner_url
+    url = config.get_main_option("owner_url") or get_migration_settings().database_owner_url
     if not url:
         sys.exit("missing required environment variable(s): DATABASE_OWNER_URL")
     return url

@@ -1,6 +1,7 @@
 """Audit hygiene, settings, origin policy, engine configuration, the D-18 swap
 helper, and the single effective-role call site (F02.1)."""
 
+import base64
 import os
 import re
 import subprocess
@@ -76,6 +77,29 @@ def test_null_firm_audit_rows_are_visible_to_firm_admin_only(
 # --- settings ------------------------------------------------------------------------------------
 
 
+def test_the_suite_never_reads_the_developers_env_file() -> None:
+    """``tests._env`` runs before the application is imported (it refuses to load
+    otherwise) and points ENV_FILE at a path that does not exist, so no ``Settings``
+    built during the run loads the repo-root ``.env``."""
+    from app.core import config
+
+    assert not os.path.exists(os.environ["ENV_FILE"])
+    assert config._env_file() is None
+    # The guard: loading the application first is refused, not silently tolerated.
+    proc = subprocess.run(
+        [sys.executable, "-c", "import app.core.config, tests._env"],
+        cwd=BACKEND,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert proc.returncode != 0
+    assert "tests._env must be imported before the application" in proc.stderr
+
+
+_START_KEY = base64.b64encode(os.urandom(32)).decode()  # generated per run, never written
+
+
 def _start_app(env_overrides: dict[str, str | None]) -> subprocess.CompletedProcess:
     env = {
         k: v
@@ -84,7 +108,7 @@ def _start_app(env_overrides: dict[str, str | None]) -> subprocess.CompletedProc
     }
     env["ENV_FILE"] = "/nonexistent/.env"
     env["DATABASE_URL"] = "postgresql+psycopg://app_rw:secret-value-xyz@localhost:5433/wip_test"
-    env["CRYPTO_KEYS"] = "k1:" + "A" * 43 + "="
+    env["CRYPTO_KEYS"] = "k1:" + _START_KEY
     env["CRYPTO_ACTIVE_KEY_ID"] = "k1"
     for k, v in env_overrides.items():
         if v is None:
@@ -106,7 +130,7 @@ def test_app_refuses_to_start_without_a_required_variable(missing: str) -> None:
     proc = _start_app({missing: None})
     assert proc.returncode != 0
     assert missing in proc.stderr
-    assert "secret-value-xyz" not in proc.stderr and "AAAA" not in proc.stderr
+    assert "secret-value-xyz" not in proc.stderr and _START_KEY not in proc.stderr
 
 
 def test_app_starts_with_the_required_variables() -> None:
