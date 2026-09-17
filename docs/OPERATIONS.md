@@ -196,7 +196,9 @@ With `make api` and `npm run dev` running: `scripts/create_user.py create-user
 --email … --display-name … --firm-role firm_staff --entry rye-beach` → open the printed
 link in the browser → set the password → scan the QR code → confirm → save the
 recovery codes → sign in with password and code → switch tenants → sign out. To
-repeat with an existing user: `scripts/create_user.py issue-link --email …`.
+repeat with an existing user: `scripts/create_user.py issue-link --email …`. Reloading
+the enrolment page shows the same QR code and key (the pending secret is reused until
+it is confirmed); a new link always starts from a new secret.
 
 ### Encryption key rotation
 

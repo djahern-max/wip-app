@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 import { api } from "../api.js";
 import { styles } from "./Login.jsx";
@@ -13,15 +13,24 @@ export default function TotpEnrol({ me, onEnrolled, onLogout }) {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
 
+  // One enrol request per mounted page. React StrictMode runs mount effects twice in
+  // dev (mount, cleanup, mount); the ref survives that, so the second run reuses the
+  // first run's request instead of sending another. The server is idempotent as well.
+  const enrolRequest = useRef(null);
+
   useEffect(() => {
     let cancelled = false;
-    api("POST", "/api/auth/totp/enrol")
+    if (!enrolRequest.current) enrolRequest.current = api("POST", "/api/auth/totp/enrol");
+    enrolRequest.current
       .then(async (s) => {
         if (cancelled) return;
         setSetup(s);
-        setQr(await QRCode.toDataURL(s.otpauth_uri, { margin: 1, width: 200 }));
+        const dataUrl = await QRCode.toDataURL(s.otpauth_uri, { margin: 1, width: 200 });
+        if (!cancelled) setQr(dataUrl);
       })
-      .catch((err) => setError(err.detail || "Could not start enrolment."));
+      .catch((err) => {
+        if (!cancelled) setError(err.detail || "Could not start enrolment.");
+      });
     return () => {
       cancelled = true;
     };

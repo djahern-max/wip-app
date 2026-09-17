@@ -269,6 +269,9 @@ def login(
         return LoginResult(Outcome.invalid)
 
     _clear_failures(user)
+    # A client user starts optional enrolment from a normal session; this login opens
+    # a later one, which must not be shown a secret an earlier session abandoned.
+    _clear_pending_totp(user)
     if old_token:
         old = find_session_by_token(db, old_token)
         if old is not None:
@@ -359,20 +362,44 @@ def _store_totp_secret(user: User, secret: str) -> None:
     )
 
 
+def _clear_pending_totp(user: User) -> None:
+    """Drop an unconfirmed secret (no-op once enrolled). A pending secret belongs to
+    one enrolment session: every event that ends that session, or opens a later one,
+    calls this, so an abandoned secret is never shown again."""
+    if user.totp_enrolled_at is None:
+        user.totp_secret_enc = None
+        user.totp_key_id = None
+        user.totp_last_counter = None
+
+
 def start_totp_enrolment(db: Session, principal: Principal, *, issuer: str) -> tuple[str, str]:
-    """Generate and store (encrypted) a pending secret. Returns ``(secret, otpauth_uri)``:
-    the only time the secret leaves the server. 409 if already enrolled.
+    """Return ``(secret, otpauth_uri)`` for the pending enrolment: the only time the
+    secret leaves the server. 409 if already enrolled.
+
+    Idempotent while an enrolment is pending: a repeated call (refresh, double
+    click, a doubled mount effect) returns the stored secret; a new one is generated
+    only when none is pending. The user row is locked first, so two concurrent calls
+    return the same secret: the second waits, then reads what the first stored.
 
     Reachable by a firm user only from the enrolment-only session an activation
     link creates (password login refuses a firm user without TOTP), and by a
     client user from any authenticated session (optional TOTP)."""
-    user = principal.user
+    user = db.execute(
+        select(User)
+        .options(*with_credentials())
+        .where(User.id == principal.user.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)  # re-read under the lock
+    ).scalar_one()
     if user.totp_enrolled_at is not None:
         raise AuthError(409, "TOTP is already enrolled; ask a firm admin to reset it")
-    secret = new_totp_secret()
-    _store_totp_secret(user, secret)
-    user.totp_last_counter = None
-    db.flush()
+    if user.totp_secret_enc is not None:
+        secret = _totp_secret(user)
+    else:
+        secret = new_totp_secret()
+        _store_totp_secret(user, secret)
+        user.totp_last_counter = None
+        db.flush()
     return secret, totp_provisioning_uri(secret, user.email, issuer)
 
 
@@ -602,13 +629,14 @@ def issue_activation_link(
     now: datetime | None = None,
 ) -> str:
     """One-time link for the target, returned to the caller to hand over out of band
-    (no e-mail). Overwrites any earlier unredeemed link (which stops working) and
-    ends the target's sessions."""
+    (no e-mail). Overwrites any earlier unredeemed link (which stops working), drops
+    a pending TOTP secret, and ends the target's sessions."""
     now = now or _now()
     s = get_settings()
     token = new_token()
     target.activation_token_hash = sha256_hex(token)
     target.activation_expires_at = now + timedelta(hours=s.activation_link_ttl_hours)
+    _clear_pending_totp(target)
     delete_user_sessions(db, target.id)
     write_firm_audit(
         db,
@@ -670,6 +698,7 @@ def redeem_activation_link(
     firm_memberships = load_firm_memberships(db, user.id)
     firm_id = firm_id_for(firm_memberships, tenant_firms)
     _set_password(db, user, new_password, now=now)
+    _clear_pending_totp(user)
     delete_user_sessions(db, user.id)
     write_firm_audit(
         db,

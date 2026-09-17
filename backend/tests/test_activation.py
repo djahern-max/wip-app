@@ -4,13 +4,16 @@ in the same session, the 15-minute enrolment-only session, link supersession,
 admin TOTP reset, and session invalidation on every credential change."""
 
 import json
+import time
 import uuid
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, select, text
 
 from app.api.auth import INVALID_CREDENTIALS, INVALID_LINK
+from app.core.crypto import get_keyring
 from app.core.security import sha256_hex
 from app.tenancy.models import User, UserSession
 from scripts import create_user as cli
@@ -293,6 +296,187 @@ def test_admin_totp_reset_reissues_a_link_and_the_old_factors_stop_working(
         for code in r.json()["recovery_codes"]:
             record_secret("recovery_code", code)
         assert c.get("/api/session/tenants").status_code == 200
+
+
+# --- enrolment idempotency (F02.1 fix) -----------------------------------------------------------
+
+
+def start_enrolment(c: TestClient) -> dict:
+    r = c.post("/api/auth/totp/enrol", headers=CSRF)
+    assert r.status_code == 200, r.text
+    record_secret("totp_secret", r.json()["secret"])
+    return r.json()
+
+
+def test_enrol_twice_returns_the_same_pending_secret_and_the_first_code_confirms(
+    login_as: Callable[..., TestClient], seed: Seed, rw_engine: Engine
+) -> None:
+    """A refresh, a double click, or React StrictMode's doubled mount effect calls
+    enrol twice; the screen may show either response."""
+    admin_c = login_as("firm_admin")
+    uid, _email, token = make_firm_user_via_api(admin_c, seed, "idem")
+    with make_client() as c:
+        assert activate(c, token, new_password("idem")).json() == {"next": "totp_enrol"}
+        first = start_enrolment(c)
+        second = start_enrolment(c)
+        assert second == first
+        # Pending, and stored like the enrolled secret: ciphertext under the key ring.
+        with rw_engine.connect() as conn:
+            enc, key_id, enrolled = conn.execute(
+                select(User.totp_secret_enc, User.totp_key_id, User.totp_enrolled_at).where(
+                    User.id == uid
+                )
+            ).one()
+        assert enrolled is None and key_id is not None
+        assert first["secret"].encode() not in bytes(enc)
+        plain = get_keyring().decrypt(key_id, bytes(enc), aad=uid.bytes).decode()
+        assert plain == first["secret"]
+        r = c.post(
+            "/api/auth/totp/enrol/confirm",
+            json={"code": totp_code(first["secret"])},
+            headers=CSRF,
+        )
+        assert r.status_code == 200, r.text
+        for code in r.json()["recovery_codes"]:
+            record_secret("recovery_code", code)
+        record_cookie(c)
+        # Confirmed: the same ciphertext is now the enrolled secret; enrol refuses.
+        with rw_engine.connect() as conn:
+            enc_after, enrolled = conn.execute(
+                select(User.totp_secret_enc, User.totp_enrolled_at).where(User.id == uid)
+            ).one()
+        assert enrolled is not None and bytes(enc_after) == bytes(enc)
+        assert c.post("/api/auth/totp/enrol", headers=CSRF).status_code == 409
+
+
+def test_concurrent_enrol_calls_return_the_same_secret(
+    login_as: Callable[..., TestClient], seed: Seed, owner_engine: Engine
+) -> None:
+    """Deterministic race: the test holds the user row lock until both requests are
+    waiting on it, then lets go. Without ``FOR UPDATE`` in the service both requests
+    read "nothing pending" before either writes, and the secrets differ."""
+    admin_c = login_as("firm_admin")
+    uid, _email, token = make_firm_user_via_api(admin_c, seed, "race")
+    with make_client() as c, make_client() as twin:
+        assert activate(c, token, new_password("race")).json() == {"next": "totp_enrol"}
+        twin.cookies.set(COOKIE, c.cookies.get(COOKIE))  # same session, second connection
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            with owner_engine.connect() as holder:
+                holder.execute(text('SELECT 1 FROM "user" WHERE id = :id FOR UPDATE'), {"id": uid})
+                futures = [pool.submit(start_enrolment, client) for client in (c, twin)]
+                deadline = time.monotonic() + 15
+                with owner_engine.connect().execution_options(
+                    isolation_level="AUTOCOMMIT"
+                ) as watcher:
+                    while True:
+                        waiting = watcher.execute(
+                            text(
+                                # pg_locks, not wait_event: a non-superuser sees no
+                                # wait_event for another role's backend.
+                                "SELECT count(DISTINCT l.pid) FROM pg_locks l "
+                                "JOIN pg_stat_activity a ON a.pid = l.pid "
+                                "WHERE NOT l.granted AND a.datname = current_database()"
+                            )
+                        ).scalar_one()
+                        if waiting >= 2 or time.monotonic() > deadline:
+                            break
+                        time.sleep(0.05)
+                holder.rollback()  # release; the two requests now run one after the other
+            results = [f.result(timeout=30) for f in futures]
+        assert waiting >= 2, "both enrol requests must queue on the user row lock"
+        assert results[0] == results[1]
+        r = c.post(
+            "/api/auth/totp/enrol/confirm",
+            json={"code": totp_code(results[0]["secret"])},
+            headers=CSRF,
+        )
+        assert r.status_code == 200, r.text
+        for code in r.json()["recovery_codes"]:
+            record_secret("recovery_code", code)
+        record_cookie(c)
+
+
+def pending_secret_enc(engine: Engine, uid: uuid.UUID) -> bytes | None:
+    with engine.connect() as conn:
+        enc, enrolled = conn.execute(
+            select(User.totp_secret_enc, User.totp_enrolled_at).where(User.id == uid)
+        ).one()
+    assert enrolled is None
+    return None if enc is None else bytes(enc)
+
+
+def test_abandoned_pending_secret_is_never_shown_to_a_later_enrolment(
+    login_as: Callable[..., TestClient], seed: Seed, rw_engine: Engine
+) -> None:
+    """Cleared by: issuing a new link, redeeming a link, an admin TOTP reset."""
+    admin_c = login_as("firm_admin")
+    uid, _email, token = make_firm_user_via_api(admin_c, seed, "abandon")
+    seen: list[str] = []
+    with make_client() as c:
+        assert activate(c, token, new_password("abandon-1")).json() == {"next": "totp_enrol"}
+        seen.append(start_enrolment(c)["secret"])  # and walks away
+    assert pending_secret_enc(rw_engine, uid) is not None
+
+    # Issue-link clears it at once, before anyone redeems the new link.
+    r = admin_c.post(f"/api/admin/users/{uid}/activation-link", headers=CSRF)
+    assert r.status_code == 200, r.text
+    token = activation_token_from(r.json()["activation_url"])
+    assert pending_secret_enc(rw_engine, uid) is None
+    with make_client() as c:
+        assert activate(c, token, new_password("abandon-2")).json() == {"next": "totp_enrol"}
+        seen.append(start_enrolment(c)["secret"])
+
+    # Admin TOTP reset clears a pending secret as it clears an enrolled one.
+    r = admin_c.post(f"/api/admin/users/{uid}/totp-reset", headers=CSRF)
+    assert r.status_code == 200, r.text
+    token = activation_token_from(r.json()["activation_url"])
+    assert pending_secret_enc(rw_engine, uid) is None
+    with make_client() as c:
+        assert activate(c, token, new_password("abandon-3")).json() == {"next": "totp_enrol"}
+        seen.append(start_enrolment(c)["secret"])
+    assert len(set(seen)) == 3
+
+
+def test_link_redemption_clears_a_pending_secret(
+    login_as: Callable[..., TestClient], seed: Seed, rw_engine: Engine, owner_engine: Engine
+) -> None:
+    """Redemption clears on its own account, not only because issuing did: a pending
+    secret that appears between issue and redemption is gone afterwards."""
+    admin_c = login_as("firm_admin")
+    uid, _email, token = make_firm_user_via_api(admin_c, seed, "redeem")
+    with make_client() as c:
+        assert activate(c, token, new_password("redeem-1")).json() == {"next": "totp_enrol"}
+        start_enrolment(c)
+    stale = pending_secret_enc(rw_engine, uid)
+    with owner_engine.connect() as conn:
+        key_id = conn.execute(select(User.totp_key_id).where(User.id == uid)).scalar_one()
+    r = admin_c.post(f"/api/admin/users/{uid}/activation-link", headers=CSRF)
+    token = activation_token_from(r.json()["activation_url"])
+    with owner_engine.begin() as conn:  # put the stale pending secret back
+        conn.execute(
+            text('UPDATE "user" SET totp_secret_enc = :enc, totp_key_id = :kid WHERE id = :id'),
+            {"enc": stale, "kid": key_id, "id": uid},
+        )
+    with make_client() as c:
+        assert activate(c, token, new_password("redeem-2")).json() == {"next": "totp_enrol"}
+        assert pending_secret_enc(rw_engine, uid) is None
+
+
+def test_client_user_pending_secret_does_not_survive_into_a_later_login(
+    clients: Callable[[], TestClient], seed: Seed, rw_engine: Engine
+) -> None:
+    """Optional TOTP for a client user is started from a normal session, so the
+    "later enrolment session" is the next password login."""
+    su = seed.users["client_admin_b"]
+    first_c, later_c = clients(), clients()
+    assert password_login(first_c, su).status_code == 200
+    abandoned = start_enrolment(first_c)["secret"]
+    assert password_login(later_c, su).status_code == 200
+    assert pending_secret_enc(rw_engine, su.id) is None
+    assert start_enrolment(later_c)["secret"] != abandoned
+    # Leave the seed user as found: nothing pending.
+    assert password_login(clients(), su).status_code == 200
+    assert pending_secret_enc(rw_engine, su.id) is None
 
 
 def test_no_route_lets_a_firm_user_enrol_with_a_password_alone(
