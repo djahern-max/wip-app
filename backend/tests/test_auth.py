@@ -1,4 +1,5 @@
-"""Login, lockout, TOTP gate, enrolment, replay, recovery codes (F02, D-10)."""
+"""Login, lockout, TOTP gate, replay, recovery codes (F02, D-10; F02.1 adjustments:
+firm users enrol only through a link, unknown e-mails are hashed)."""
 
 import uuid
 from collections.abc import Callable
@@ -9,6 +10,7 @@ from sqlalchemy import Engine, select, text
 from app.api.auth import INVALID_CREDENTIALS, LOCKED
 from app.audit.models import AuditLog, FirmAuditLog
 from app.core.db import tenant_session, untenanted_session
+from app.core.security import sha256_hex
 from app.tenancy.models import User
 from tests.conftest import (
     CSRF,
@@ -51,6 +53,7 @@ def tenant_events(engine: Engine, tenant_id: uuid.UUID, action: str) -> list[Aud
 def test_unknown_email_and_wrong_password_are_indistinguishable(
     client: TestClient, seed: Seed
 ) -> None:
+    record_secret("attempted_email", "nobody@example.test")
     unknown = client.post(
         "/api/auth/login",
         json={"email": "nobody@example.test", "password": "whatever-whatever"},
@@ -71,7 +74,9 @@ def test_failed_login_writes_audit_rows(client: TestClient, seed: Seed, rw_engin
     assert rows[-1].actor_user_id == su.id
     assert rows[-1].firm_id == seed.firm_id
     assert rows[-1].detail["step"] == "password"
+    assert rows[-1].ip == client.ip  # type: ignore[attr-defined]
     unknown = firm_events(rw_engine, None, "login_failure")
+    record_secret("attempted_email", "ghost@example.test")
     client.post(
         "/api/auth/login",
         json={"email": "ghost@example.test", "password": "whatever-whatever"},
@@ -81,7 +86,7 @@ def test_failed_login_writes_audit_rows(client: TestClient, seed: Seed, rw_engin
     assert len(ghost) >= 1 and ghost[-1].detail == {
         "step": "password",
         "reason": "unknown_email",
-        "email": "ghost@example.test",
+        "email_sha256": sha256_hex("ghost@example.test"),
     }
     assert len(firm_events(rw_engine, None, "login_failure")) == len(unknown) + 1
 
@@ -123,6 +128,7 @@ def test_login_success_audit_and_auto_tenant(
     assert body["active_tenant_id"] == str(seed.tenant_a)
     assert body["role"] == "client_pm"
     assert body["totp"] == "ok"
+    assert body["firm_role"] is None
     success = firm_events(rw_engine, su.id, "login_success")
     assert success and success[-1].detail["method"] == "password"
     assert success[-1].detail["active_tenant_id"] == str(seed.tenant_a)
@@ -167,30 +173,24 @@ def _gated_statuses(c: TestClient, seed: Seed) -> dict[str, int]:
     return out
 
 
-def test_firm_role_without_totp_enrolled_reaches_only_enrolment(
-    client: TestClient, seed: Seed
-) -> None:
+def test_firm_role_without_totp_cannot_log_in_at_all(client: TestClient, seed: Seed) -> None:
+    """F02.1 (D-16): the F02 path "firm role, password only, reach enrolment" is gone."""
     su = seed.users["firm_nototp"]
     r = password_login(client, su)
-    assert (r.status_code, r.json()["totp"]) == (200, "enrol_required")
-    assert _gated_statuses(client, seed) == {k: 403 for k in _gated_statuses(client, seed)}
-    r = client.get("/api/session/tenants")
-    assert r.json() == {"detail": "enrol_required"}
-    # Reachable: whoami, enrolment start, logout.
-    assert client.get("/api/session/me").status_code == 200
-    r = client.post("/api/auth/totp/enrol", headers=CSRF)
-    assert r.status_code == 200
-    record_secret("totp_secret", r.json()["secret"])
-    assert client.post("/api/auth/logout", headers=CSRF).status_code == 204
+    assert (r.status_code, r.json()) == (401, {"detail": INVALID_CREDENTIALS})
+    assert "set-cookie" not in r.headers
+    assert _gated_statuses(client, seed) == {k: 401 for k in _gated_statuses(client, seed)}
+    assert client.post("/api/auth/totp/enrol", headers=CSRF).status_code == 401
 
 
-def test_firm_role_password_only_session_is_gated_the_same(client: TestClient, seed: Seed) -> None:
+def test_firm_role_password_only_session_is_gated(client: TestClient, seed: Seed) -> None:
     su = seed.users["firm_admin"]
     r = password_login(client, su)
     assert (r.status_code, r.json()["totp"]) == (200, "verify_required")
     statuses = _gated_statuses(client, seed)
     assert statuses == {k: 403 for k in statuses}
     assert client.get("/api/session/tenants").json() == {"detail": "verify_required"}
+    assert client.post("/api/auth/totp/enrol", headers=CSRF).status_code == 409  # enrolled
     assert client.post("/api/auth/logout", headers=CSRF).status_code == 204
 
 
@@ -199,11 +199,10 @@ def test_client_role_without_totp_is_not_gated(client: TestClient, seed: Seed) -
     assert client.get("/api/session/tenants").status_code == 200
 
 
-# --- enrolment ------------------------------------------------------------------------------
-
-
-def test_totp_enrolment_flow(client: TestClient, seed: Seed, rw_engine: Engine) -> None:
-    su = seed.users["enrol_me"]
+def test_client_role_may_enrol_optional_totp_from_a_session(
+    client: TestClient, seed: Seed, rw_engine: Engine, owner_engine: Engine
+) -> None:
+    su = seed.users["client_admin_b"]
     password_login(client, su)
     before = record_cookie(client)
     r = client.post("/api/auth/totp/enrol", headers=CSRF)
@@ -211,8 +210,6 @@ def test_totp_enrolment_flow(client: TestClient, seed: Seed, rw_engine: Engine) 
     secret = r.json()["secret"]
     record_secret("totp_secret", secret)
     assert r.json()["otpauth_uri"].startswith("otpauth://totp/")
-    assert secret in r.json()["otpauth_uri"]
-    # A wrong code does not enrol.
     r = client.post("/api/auth/totp/enrol/confirm", json={"code": "000000"}, headers=CSRF)
     assert r.status_code == 400
     r = client.post("/api/auth/totp/enrol/confirm", json={"code": totp_code(secret)}, headers=CSRF)
@@ -223,10 +220,6 @@ def test_totp_enrolment_flow(client: TestClient, seed: Seed, rw_engine: Engine) 
         record_secret("recovery_code", code)
     assert r.json()["totp"] == "ok"
     assert record_cookie(client) != before  # rotated at verification
-    # Now a full session: the gate opens.
-    assert client.get("/api/session/tenants").status_code == 200
-    assert client.get("/api/_probe/rows").status_code == 200
-    # Recovery codes are stored hashed; the secret is stored encrypted.
     with rw_engine.connect() as conn:
         hashes, enc = conn.execute(
             select(User.recovery_code_hashes, User.totp_secret_enc).where(User.id == su.id)
@@ -235,8 +228,20 @@ def test_totp_enrolment_flow(client: TestClient, seed: Seed, rw_engine: Engine) 
     assert secret.encode() not in enc
     enrolled = firm_events(rw_engine, su.id, "totp_enrolled")
     assert enrolled and enrolled[-1].detail == {"recovery_codes_issued": 10}
-    # Enrolling again is refused until a firm_admin resets.
     assert client.post("/api/auth/totp/enrol", headers=CSRF).status_code == 409
+    # From now on this client user is gated until verified.
+    with make_client() as again:
+        assert password_login(again, su).json()["totp"] == "verify_required"
+    # Restore: clear the optional enrolment so other tests see the seed state.
+    with untenanted_session(owner_engine) as s:
+        s.execute(
+            text(
+                'UPDATE "user" SET totp_secret_enc = NULL, totp_key_id = NULL, '
+                "totp_enrolled_at = NULL, totp_last_counter = NULL, recovery_code_hashes = NULL "
+                "WHERE id = :id"
+            ),
+            {"id": su.id},
+        )
 
 
 # --- replay and recovery ----------------------------------------------------------------------

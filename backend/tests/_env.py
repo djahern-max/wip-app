@@ -29,3 +29,5 @@ os.environ["CRYPTO_KEYS"] = ",".join(f"{k}:{v}" for k, v in TEST_KEYS.items())
 os.environ["CRYPTO_ACTIVE_KEY_ID"] = ACTIVE_KEY_ID
 os.environ.setdefault("SESSION_COOKIE_SECURE", "true")
 os.environ.setdefault("APP_BASE_URL", "https://app.example.test")
+# The harness is self-contained: never read the developer's .env.
+os.environ["ENV_FILE"] = "/nonexistent/.env.for-tests"

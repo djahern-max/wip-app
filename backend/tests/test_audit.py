@@ -10,10 +10,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Engine, select, text
 
 from app.audit.models import AuditLog
-from app.auth import service
+from app.auth import admin
 from app.core.audit import RequestMeta, write_tenant_audit
 from app.core.db import tenant_session
-from app.tenancy.models import Membership, Role
+from app.tenancy.models import Membership, Role, Tenant
 from tests.conftest import CSRF, Seed
 from tests.test_auth import firm_events, tenant_events
 
@@ -65,19 +65,19 @@ def test_tenant_switch_is_audited_in_the_entered_tenant(
         if e.actor_user_id == su.id
     ]
     assert len(entered) == before_b + 1
-    assert entered[-1].actor_role == Role.firm_admin
+    assert entered[-1].actor_role == Role.firm_admin  # effective role from firm_membership
     assert entered[-1].detail == {"via": "switcher"}
     assert entered[-1].request_id == r.headers["X-Request-Id"]
-    assert entered[-1].ip == "testclient"
+    assert entered[-1].ip == c.ip  # type: ignore[attr-defined]
 
 
 def test_membership_role_change_is_audited_and_atomic(
     login_as: Callable[..., TestClient], seed: Seed, rw_engine: Engine, owner_engine: Engine
 ) -> None:
     pm = seed.users["client_pm"]
-    admin = login_as("firm_admin")
+    admin_c = login_as("firm_admin")
     url = f"/api/admin/tenants/{seed.tenant_a}/memberships/{pm.id}"
-    r = admin.put(url, json={"role": "client_viewer"}, headers=CSRF)
+    r = admin_c.put(url, json={"role": "client_viewer"}, headers=CSRF)
     assert r.status_code == 200
     changed = [
         e
@@ -92,10 +92,10 @@ def test_membership_role_change_is_audited_and_atomic(
     count_before = len(changed)
     with pytest.raises(RuntimeError, match="simulated"):
         with tenant_session(owner_engine, seed.tenant_a) as s:
-            service.change_membership_role(
+            admin.change_membership_role(
                 s,
                 None,
-                tenant_id=seed.tenant_a,
+                tenant=s.get(Tenant, seed.tenant_a),
                 user_id=pm.id,
                 role=Role.client_admin,
                 meta=RequestMeta(),
@@ -111,7 +111,7 @@ def test_membership_role_change_is_audited_and_atomic(
     ]
     assert len(changed_after) == count_before
     # restore
-    r = admin.put(url, json={"role": "client_pm"}, headers=CSRF)
+    r = admin_c.put(url, json={"role": "client_pm"}, headers=CSRF)
     assert r.status_code == 200
 
 
@@ -133,7 +133,7 @@ def test_firm_audit_route_shows_firm_events_to_firm_roles_only(
     rows = staff.get("/api/firm-audit?limit=500").json()
     actions = {r["action"] for r in rows}
     assert {"login_success", "login_failure"} <= actions
-    assert all(r["firm_id"] in (str(seed.firm_id), None) for r in rows)
+    assert all(r["firm_id"] == str(seed.firm_id) for r in rows)  # no null-firm rows for staff
     for key in ("client_admin", "client_pm", "client_viewer"):
         assert login_as(key).get("/api/firm-audit").status_code == 403
 
@@ -155,15 +155,16 @@ def test_firm_audit_log_is_only_read_through_the_guarded_route() -> None:
 
 
 def test_audit_detail_refuses_secret_keys(seed: Seed, owner_engine: Engine) -> None:
-    with pytest.raises(ValueError, match="must not contain"):
-        with tenant_session(owner_engine, seed.tenant_a) as s:
-            write_tenant_audit(
-                s,
-                tenant_id=seed.tenant_a,
-                action="tenant_enter",
-                entity_type="x",
-                entity_id=None,
-                actor_user_id=None,
-                actor_role=None,
-                detail={"password": "x"},
-            )
+    for key in ("password", "token", "token_hash", "email"):
+        with pytest.raises(ValueError, match="must not contain"):
+            with tenant_session(owner_engine, seed.tenant_a) as s:
+                write_tenant_audit(
+                    s,
+                    tenant_id=seed.tenant_a,
+                    action="tenant_enter",
+                    entity_type="x",
+                    entity_id=None,
+                    actor_user_id=None,
+                    actor_role=None,
+                    detail={key: "x"},
+                )

@@ -11,13 +11,13 @@ Code: [CLAUDE.md](CLAUDE.md). Runbooks: [docs/OPERATIONS.md](docs/OPERATIONS.md)
 backend/     FastAPI + SQLAlchemy 2.0 + Alembic (Python 3.12)
   app/core/      config, db session + tenant context, auth (sessions, principal),
                  authz (role capabilities), crypto, audit writers, product constant
-  app/tenancy/   firm, tenant, user, membership, session models; RLS + append-only helpers
-  app/auth/      login, TOTP, recovery, password, membership flows
+  app/tenancy/   firm, tenant, user, firm_membership, membership, session models; RLS + append-only helpers
+  app/auth/      service: login, TOTP, recovery, activation links; admin: users, tenants, memberships
   app/audit/     audit_log, firm_audit_log models
-  app/api/       routers (health, auth, session, admin, audit; test-only probes)
+  app/api/       routers (health, auth, session, admin, audit) and allow-list response schemas
   alembic/       migrations (run as app_owner)
-  scripts/       create_user.py: bootstrap the first firm_admin, last-resort resets
-  tests/         pytest; fixtures/ and golden/ hold anonymized Rye Beach data
+  scripts/       create_user.py: bootstrap the practice, create users, issue activation links, reset TOTP
+  tests/         pytest (probe routes live here, not in the app); fixtures/ and golden/ hold anonymized Rye Beach data
 frontend/    React 18 + Vite, plain JavaScript
 db/init/     role + database bootstrap for Postgres 16
 docs/        BLUEPRINT, OPERATIONS, DECISIONS
@@ -30,9 +30,9 @@ Prerequisites: Docker, Python 3.12, Node 20.
 ```sh
 make db-up               # Postgres 16 on localhost:5433; creates app_owner, app_rw, wip, wip_test
 make backend-install     # venv at backend/.venv
-cp .env.example .env     # defaults match the compose database
+cp .env.example .env     # then generate CRYPTO_KEYS (see the file); the API refuses to start without it
 make migrate             # alembic upgrade head, as app_owner
-# first user (no signup): see docs/OPERATIONS.md "Bootstrap the first firm_admin"
+# first user (no signup): see docs/OPERATIONS.md "Bootstrap the practice"
 make api                 # http://localhost:8000/api/health
 cd frontend && npm install && npm run dev   # http://localhost:5173 (proxies /api)
 ```
@@ -61,13 +61,21 @@ rotation and expiry, append-only audit tables, and that no secret reaches a log 
 Because every tenant table has `FORCE ROW LEVEL SECURITY`, the policy applies to
 `app_owner` too: any script that touches tenant rows must set tenant context.
 
-## Authentication, roles, tenant context (F02)
+## Authentication, roles, tenant context (F02, F02.1)
 
 E-mail + password (argon2id), TOTP mandatory for `firm_admin` / `firm_staff`,
 server-side sessions in the `session` table carried by an `HttpOnly; Secure;
 SameSite=Lax` cookie (only the SHA-256 of the id is stored). Every state-changing
-request needs the `X-Requested-With` header (CSRF). The active tenant lives in the
-session; nothing from the request selects it.
+request needs the `X-Requested-With` header (CSRF) and, from a browser, an `Origin`
+equal to `APP_BASE_URL`. The active tenant lives in the session; nothing from the
+request selects it.
+
+Firm authority is a row in `firm_membership` (D-15). A firm user's row in a tenant
+is an *entry row* (`membership.role` NULL); the role that applies inside a tenant
+is computed by exactly one function, `app.core.auth.effective_role`, and nothing
+else reads `membership.role`. Accounts are activated only through an admin-issued
+one-time link (D-16) that sets the password and, for firm users, enrols TOTP in the
+same flow; the CLI issues links and never sets passwords.
 
 ```python
 from app.core.auth import TenantSession, VerifiedPrincipal

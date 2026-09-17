@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, getMe } from "./api.js";
 import Login from "./pages/Login.jsx";
-import ResetPassword from "./pages/ResetPassword.jsx";
+import Activate from "./pages/Activate.jsx";
 import Shell from "./pages/Shell.jsx";
 import TotpEnrol from "./pages/TotpEnrol.jsx";
 import TotpVerify from "./pages/TotpVerify.jsx";
 
-// Unauthenticated users see only the login page (or the reset-link page).
+// Unauthenticated users see only the login page (or the activation-link page).
 // Everything the client knows about the session comes from /api/session/me.
 export default function App() {
   const [me, setMe] = useState(undefined); // undefined: loading; null: signed out
@@ -27,9 +27,15 @@ export default function App() {
     }
   }
 
-  if (window.location.pathname === "/reset-password") {
-    const token = new URLSearchParams(window.location.search).get("token") || "";
-    return <ResetPassword token={token} />;
+  if (window.location.pathname === "/activate") {
+    // The token is in the fragment (never sent to a server). Read it once and clear
+    // it from the address bar; the page posts it in the request body.
+    const fromHash = new URLSearchParams(window.location.hash.replace(/^#/, "")).get("token") || "";
+    if (fromHash) {
+      window.__activationToken = fromHash;
+      window.history.replaceState(null, "", "/activate");
+    }
+    return <Activate token={window.__activationToken || ""} />;
   }
   if (me === undefined) return <p style={{ fontFamily: "system-ui, sans-serif", padding: "2rem" }}>Loading…</p>;
   if (me === null) return <Login onLoggedIn={refresh} />;

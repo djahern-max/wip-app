@@ -1,5 +1,7 @@
 """Who am I, which tenants can I enter, enter one (F02). The active tenant lives in
-the server-side session; nothing here trusts a header."""
+the server-side session; nothing here trusts a header. Roles are the effective
+roles (``app.core.auth.effective_role``); an orphan entry row is not listed and
+cannot be entered."""
 
 from uuid import UUID
 
@@ -7,6 +9,7 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 from app.api.auth import session_payload
+from app.api.schemas import SessionOut, TenantEnteredOut, TenantOut
 from app.auth import service
 from app.core.audit import request_meta
 from app.core.auth import AnyPrincipal, VerifiedPrincipal
@@ -19,22 +22,22 @@ class TenantIn(BaseModel):
     tenant_id: UUID
 
 
-@router.get("/me")
-def me(principal: AnyPrincipal) -> dict:
+@router.get("/me", response_model=SessionOut)
+def me(principal: AnyPrincipal):
     return session_payload(principal)
 
 
-@router.get("/tenants")
-def tenants(principal: VerifiedPrincipal, db: RequestSession) -> list[dict]:
+@router.get("/tenants", response_model=list[TenantOut])
+def tenants(principal: VerifiedPrincipal, db: RequestSession):
     return [
-        {"tenant_id": str(t.id), "name": t.name, "slug": t.slug, "role": m.role.value}
-        for m, t in service.tenants_for(db, principal)
+        TenantOut(tenant_id=str(t.id), name=t.name, slug=t.slug, role=role.value)
+        for t, role in service.tenants_for(db, principal)
     ]
 
 
-@router.post("/tenant")
+@router.post("/tenant", response_model=TenantEnteredOut)
 def enter_tenant(
     body: TenantIn, request: Request, principal: VerifiedPrincipal, db: RequestSession
-) -> dict:
-    m = service.set_active_tenant(db, principal, body.tenant_id, meta=request_meta(request))
-    return {"active_tenant_id": str(body.tenant_id), "role": m.role.value}
+):
+    role = service.set_active_tenant(db, principal, body.tenant_id, meta=request_meta(request))
+    return TenantEnteredOut(active_tenant_id=str(body.tenant_id), role=role.value)

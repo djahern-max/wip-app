@@ -1,15 +1,16 @@
-"""Authentication flows (F02, D-10): login and lockout, TOTP enrolment and
-verification, recovery codes, password change and reset, firm_admin user and
-membership administration, tenant selection.
+"""Authentication flows (F02, D-10; F02.1, D-16): login and lockout, TOTP enrolment
+and verification, recovery codes, password change, activation links, tenant
+selection. Administration lives in ``app.auth.admin``.
 
 Every function runs inside the caller's transaction and writes its audit row into
 it (D-12). Expected failures that must be *persisted* (a failed login, a failed
-code, a lockout) are returned as results, never raised, so the request
-transaction commits. Failures that must roll back raise ``AuthError``.
+code, a lockout, a failed link redemption) are returned as results, never raised,
+so the request transaction commits. Failures that must roll back raise ``AuthError``.
 
 No function here logs. No return value or exception message carries a password,
-secret, code, or session token except the explicit "show once" returns
-(``start_totp_enrolment``, ``confirm_totp_enrolment``, ``issue_password_reset``).
+secret, code, token or attempted e-mail address except the explicit "show once"
+returns (``start_totp_enrolment``, ``confirm_totp_enrolment``,
+``issue_activation_link``).
 """
 
 import enum
@@ -18,21 +19,21 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, undefer_group
 
 from app.core.audit import FirmEvent, RequestMeta, TenantEvent, write_firm_audit, write_tenant_audit
 from app.core.auth import (
     TOTP_OK,
     Principal,
     create_session,
+    delete_user_sessions,
+    effective_role,
     find_session_by_token,
-    firm_ids_for,
+    highest_firm_role,
+    load_firm_memberships,
     load_memberships,
-    primary_firm_id,
     rotate_session,
-    totp_state,
 )
-from app.core.auth import delete_user_sessions as _delete_user_sessions
 from app.core.config import get_settings
 from app.core.crypto import get_keyring
 from app.core.db import set_tenant_context, set_user_context
@@ -48,7 +49,7 @@ from app.core.security import (
     totp_provisioning_uri,
     verify_password,
 )
-from app.tenancy.models import Membership, Role, Tenant, User, UserSession
+from app.tenancy.models import CREDENTIAL_GROUP, FirmMembership, Role, Tenant, User
 
 
 class AuthError(Exception):
@@ -70,11 +71,7 @@ class Outcome(enum.StrEnum):
 class LoginResult:
     outcome: Outcome
     token: str | None = None
-    user: User | None = None
-    session: UserSession | None = None
-    totp: str = TOTP_OK
-    active_tenant_id: UUID | None = None
-    role: Role | None = None
+    principal: Principal | None = None
 
 
 @dataclass
@@ -84,21 +81,51 @@ class CodeResult:
     recovery_codes: list[str] | None = None
 
 
+NEXT_TOTP_ENROL = "totp_enrol"
+NEXT_LOGIN = "login"
+
+
+@dataclass
+class ActivationResult:
+    outcome: Outcome
+    next: str | None = None  # NEXT_TOTP_ENROL (token set) or NEXT_LOGIN
+    token: str | None = None
+
+
 def _now() -> datetime:
     return datetime.now(UTC)
 
 
-def _firm_role(memberships: list[Membership]) -> Role | None:
-    roles = {m.role for m in memberships}
-    if Role.firm_admin in roles:
-        return Role.firm_admin
-    if Role.firm_staff in roles:
-        return Role.firm_staff
-    return None
+def with_credentials() -> tuple:
+    """Loader option: undefer the credential columns (auth service only)."""
+    return (undefer_group(CREDENTIAL_GROUP),)
 
 
-def _role_in(memberships: list[Membership], tenant_id: UUID | None) -> Role | None:
-    return next((m.role for m in memberships if m.tenant_id == tenant_id), None)
+def user_by_email(db: Session, email: str) -> User | None:
+    return db.execute(
+        select(User).options(*with_credentials()).where(User.email == email)
+    ).scalar_one_or_none()
+
+
+def user_with_credentials(db: Session, user_id: UUID) -> User | None:
+    return db.execute(
+        select(User).options(*with_credentials()).where(User.id == user_id)
+    ).scalar_one_or_none()
+
+
+def firm_id_for(
+    firm_memberships: list[FirmMembership], tenant_firm_ids: dict[UUID, UUID]
+) -> UUID | None:
+    """The firm to key a firm_audit_log row on: the user's own firm, else the firm of
+    their client tenants, else None."""
+    if firm_memberships:
+        return sorted((fm.firm_id for fm in firm_memberships), key=str)[0]
+    firms = sorted(set(tenant_firm_ids.values()), key=str)
+    return firms[0] if firms else None
+
+
+def principal_firm_id(principal: Principal) -> UUID | None:
+    return firm_id_for(principal.firm_memberships, principal.tenant_firm_ids)
 
 
 # --- lockout --------------------------------------------------------------------------------------
@@ -173,9 +200,10 @@ def login(
     meta: RequestMeta,
     now: datetime | None = None,
 ) -> LoginResult:
+    """The caller has already applied the IP throttle (``app.core.throttle``)."""
     now = now or _now()
     email = email.strip().lower()
-    user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+    user = user_by_email(db, email)
     if user is None:
         verify_password(None, password)  # same cost as a real check
         write_firm_audit(
@@ -186,7 +214,12 @@ def login(
             entity_id=None,
             actor_user_id=None,
             actor_role=None,
-            detail={"step": "password", "reason": "unknown_email", "email": email},
+            # Never the address itself: people type passwords into that field.
+            detail={
+                "step": "password",
+                "reason": "unknown_email",
+                "email_sha256": sha256_hex(email),
+            },
             meta=meta,
         )
         return LoginResult(Outcome.invalid)
@@ -194,9 +227,10 @@ def login(
     # The server now acts for this account: its own memberships become readable
     # (D-11), which is what tenant auto-selection and firm attribution need.
     set_user_context(db, user.id)
-    memberships = load_memberships(db, user.id)
-    firm_id = primary_firm_id(db, memberships)
-    firm_role = _firm_role(memberships)
+    memberships, tenant_firms = load_memberships(db, user.id)
+    firm_memberships = load_firm_memberships(db, user.id)
+    firm_id = firm_id_for(firm_memberships, tenant_firms)
+    firm_role = highest_firm_role(firm_memberships)
 
     if _is_locked(user, now):
         write_firm_audit(
@@ -218,6 +252,22 @@ def login(
         )
         return LoginResult(Outcome.invalid)
 
+    if firm_memberships and user.totp_enrolled_at is None:
+        # D-16: a firm user enrols TOTP only through an activation link. The
+        # response is the generic failure; the row records why for the admin.
+        write_firm_audit(
+            db,
+            firm_id=firm_id,
+            action=FirmEvent.login_failure,
+            entity_type="user",
+            entity_id=user.id,
+            actor_user_id=user.id,
+            actor_role=firm_role,
+            detail={"step": "password", "reason": "totp_not_enrolled"},
+            meta=meta,
+        )
+        return LoginResult(Outcome.invalid)
+
     _clear_failures(user)
     if old_token:
         old = find_session_by_token(db, old_token)
@@ -225,43 +275,38 @@ def login(
             db.delete(old)
             db.flush()
 
-    active = memberships[0].tenant_id if len(memberships) == 1 else None
+    accessible = [
+        m.tenant_id
+        for m in memberships
+        if effective_role(m, tenant_firms.get(m.tenant_id), firm_memberships) is not None
+    ]
+    active = accessible[0] if len(accessible) == 1 else None
     token, row = create_session(
         db, user.id, active_tenant_id=active, totp_verified_at=None, now=now
     )
-    state = totp_state(user, memberships, row)
-    if state == TOTP_OK:
-        _complete_login(db, user, row, memberships, firm_id=firm_id, method="password", meta=meta)
-    return LoginResult(
-        Outcome.ok,
-        token=token,
+    principal = Principal(
         user=user,
         session=row,
-        totp=state,
-        active_tenant_id=active,
-        role=_role_in(memberships, active),
+        memberships=memberships,
+        firm_memberships=firm_memberships,
+        tenant_firm_ids=tenant_firms,
     )
+    if principal.totp_state == TOTP_OK:
+        _complete_login(db, principal, method="password", meta=meta)
+    return LoginResult(Outcome.ok, token=token, principal=principal)
 
 
-def _complete_login(
-    db: Session,
-    user: User,
-    row: UserSession,
-    memberships: list[Membership],
-    *,
-    firm_id: UUID | None,
-    method: str,
-    meta: RequestMeta,
-) -> None:
+def _complete_login(db: Session, principal: Principal, *, method: str, meta: RequestMeta) -> None:
     """The session is now fully usable: record it, and the auto-selected tenant."""
+    row = principal.session
     write_firm_audit(
         db,
-        firm_id=firm_id,
+        firm_id=principal_firm_id(principal),
         action=FirmEvent.login_success,
         entity_type="user",
-        entity_id=user.id,
-        actor_user_id=user.id,
-        actor_role=_firm_role(memberships),
+        entity_id=principal.user.id,
+        actor_user_id=principal.user.id,
+        actor_role=principal.firm_role,
         detail={
             "method": method,
             "active_tenant_id": str(row.active_tenant_id) if row.active_tenant_id else None,
@@ -276,8 +321,8 @@ def _complete_login(
             action=TenantEvent.tenant_enter,
             entity_type="tenant",
             entity_id=row.active_tenant_id,
-            actor_user_id=user.id,
-            actor_role=_role_in(memberships, row.active_tenant_id),
+            actor_user_id=principal.user.id,
+            actor_role=principal.role_in(row.active_tenant_id),
             detail={"via": "auto"},
             meta=meta,
         )
@@ -286,7 +331,7 @@ def _complete_login(
 def logout(db: Session, principal: Principal, *, meta: RequestMeta) -> None:
     write_firm_audit(
         db,
-        firm_id=primary_firm_id(db, principal.memberships),
+        firm_id=principal_firm_id(principal),
         action=FirmEvent.logout,
         entity_type="user",
         entity_id=principal.user.id,
@@ -316,7 +361,11 @@ def _store_totp_secret(user: User, secret: str) -> None:
 
 def start_totp_enrolment(db: Session, principal: Principal, *, issuer: str) -> tuple[str, str]:
     """Generate and store (encrypted) a pending secret. Returns ``(secret, otpauth_uri)``:
-    the only time the secret leaves the server. 409 if already enrolled."""
+    the only time the secret leaves the server. 409 if already enrolled.
+
+    Reachable by a firm user only from the enrolment-only session an activation
+    link creates (password login refuses a firm user without TOTP), and by a
+    client user from any authenticated session (optional TOTP)."""
     user = principal.user
     if user.totp_enrolled_at is not None:
         raise AuthError(409, "TOTP is already enrolled; ask a firm admin to reset it")
@@ -332,7 +381,6 @@ def _accept_code(
 ) -> tuple[Outcome, int | None]:
     """Shared by confirm and verify: lockout, ±1 step, no replay."""
     user = principal.user
-    firm_id = primary_firm_id(db, principal.memberships)
     if _is_locked(user, now):
         return Outcome.locked, None
     counter = match_totp(_totp_secret(user), code, now)
@@ -341,7 +389,7 @@ def _accept_code(
         _record_failure(
             db,
             user,
-            firm_id=firm_id,
+            firm_id=principal_firm_id(principal),
             firm_role=principal.firm_role,
             step="totp",
             now=now,
@@ -354,22 +402,22 @@ def _accept_code(
 
 
 def _verified_session(
-    db: Session, principal: Principal, *, method: str, now: datetime, meta: RequestMeta
+    db: Session,
+    principal: Principal,
+    *,
+    method: str,
+    now: datetime,
+    meta: RequestMeta,
+    fresh_expiry: bool = False,
 ) -> str:
     """Rotate the session id, mark it verified, and complete the login if it was not."""
     was_verified = principal.session.totp_verified_at is not None
-    token, row = rotate_session(db, principal.session, totp_verified_at=now, now=now)
+    token, row = rotate_session(
+        db, principal.session, totp_verified_at=now, now=now, fresh_expiry=fresh_expiry
+    )
     principal.session = row
     if not was_verified:
-        _complete_login(
-            db,
-            principal.user,
-            row,
-            principal.memberships,
-            firm_id=primary_firm_id(db, principal.memberships),
-            method=method,
-            meta=meta,
-        )
+        _complete_login(db, principal, method=method, meta=meta)
     return token
 
 
@@ -390,7 +438,7 @@ def confirm_totp_enrolment(
     user.recovery_code_hashes = [hash_recovery_code(c) for c in codes]
     write_firm_audit(
         db,
-        firm_id=primary_firm_id(db, principal.memberships),
+        firm_id=principal_firm_id(principal),
         action=FirmEvent.totp_enrolled,
         entity_type="user",
         entity_id=user.id,
@@ -399,7 +447,10 @@ def confirm_totp_enrolment(
         detail={"recovery_codes_issued": len(codes)},
         meta=meta,
     )
-    token = _verified_session(db, principal, method="password+totp", now=now, meta=meta)
+    # An enrolment-only session (15 min) becomes a normal one now.
+    token = _verified_session(
+        db, principal, method="password+totp", now=now, meta=meta, fresh_expiry=True
+    )
     return CodeResult(Outcome.ok, token=token, recovery_codes=codes)
 
 
@@ -423,7 +474,7 @@ def use_recovery_code(
     user = principal.user
     if user.totp_enrolled_at is None:
         raise AuthError(409, "TOTP is not enrolled")
-    firm_id = primary_firm_id(db, principal.memberships)
+    firm_id = principal_firm_id(principal)
     if _is_locked(user, now):
         return CodeResult(Outcome.locked)
     hashes = list(user.recovery_code_hashes or [])
@@ -458,18 +509,25 @@ def use_recovery_code(
 
 
 def reset_totp(
-    db: Session, actor: Principal | None, target: User, *, meta: RequestMeta, via: str
+    db: Session,
+    actor: Principal | None,
+    target: User,
+    *,
+    firm_id: UUID | None,
+    meta: RequestMeta,
+    via: str,
 ) -> None:
-    """Clear enrolment so the user must enrol again. Ends all of their sessions."""
+    """Clear enrolment. Ends all of the target's sessions. The caller issues the new
+    activation link (``app.auth.admin.reset_totp_and_issue_link``)."""
     target.totp_secret_enc = None
     target.totp_key_id = None
     target.totp_enrolled_at = None
     target.totp_last_counter = None
     target.recovery_code_hashes = None
-    _delete_user_sessions(db, target.id)
+    delete_user_sessions(db, target.id)
     write_firm_audit(
         db,
-        firm_id=_firm_for_target(db, actor, target),
+        firm_id=firm_id,
         action=FirmEvent.totp_reset,
         entity_type="user",
         entity_id=target.id,
@@ -484,9 +542,18 @@ def reset_totp(
 # --- passwords ------------------------------------------------------------------------------------
 
 
-def _check_new_password(password: str) -> None:
+def check_new_password(password: str) -> None:
     if len(password) < MIN_PASSWORD_LENGTH:
         raise AuthError(422, f"password must be at least {MIN_PASSWORD_LENGTH} characters")
+
+
+def _set_password(db: Session, user: User, password: str, *, now: datetime) -> None:
+    user.password_hash = hash_password(password)
+    user.password_changed_at = now
+    user.activation_token_hash = None
+    user.activation_expires_at = None
+    _clear_failures(user)
+    db.flush()
 
 
 def change_password(
@@ -498,17 +565,18 @@ def change_password(
     meta: RequestMeta,
     now: datetime | None = None,
 ) -> bool:
-    """False if the current password is wrong (persisted as a failure)."""
+    """False if the current password is wrong. On success every session of the
+    user ends, the caller's included (F02.1)."""
     now = now or _now()
-    _check_new_password(new_password)
-    user = principal.user
+    check_new_password(new_password)
+    user = user_with_credentials(db, principal.user.id) or principal.user
     if not verify_password(user.password_hash, current_password):
         return False
     _set_password(db, user, new_password, now=now)
-    _delete_user_sessions(db, user.id, keep=principal.session.id)
+    delete_user_sessions(db, user.id)
     write_firm_audit(
         db,
-        firm_id=primary_firm_id(db, principal.memberships),
+        firm_id=principal_firm_id(principal),
         action=FirmEvent.password_changed,
         entity_type="user",
         entity_id=user.id,
@@ -520,252 +588,111 @@ def change_password(
     return True
 
 
-def _set_password(db: Session, user: User, password: str, *, now: datetime) -> None:
-    user.password_hash = hash_password(password)
-    user.password_changed_at = now
-    user.password_reset_token_hash = None
-    user.password_reset_expires_at = None
-    _clear_failures(user)
-    db.flush()
+# --- activation links (D-16) ----------------------------------------------------------------------
 
 
-def issue_password_reset(
+def issue_activation_link(
     db: Session,
     actor: Principal | None,
     target: User,
     *,
+    firm_id: UUID | None,
     meta: RequestMeta,
+    via: str = "api",
     now: datetime | None = None,
 ) -> str:
-    """One-time link for the target. Returned to the caller to hand over out of band
-    (no e-mail in F02). Ends the target's sessions."""
+    """One-time link for the target, returned to the caller to hand over out of band
+    (no e-mail). Overwrites any earlier unredeemed link (which stops working) and
+    ends the target's sessions."""
     now = now or _now()
     s = get_settings()
     token = new_token()
-    target.password_reset_token_hash = sha256_hex(token)
-    target.password_reset_expires_at = now + timedelta(hours=s.password_reset_ttl_hours)
-    _delete_user_sessions(db, target.id)
+    target.activation_token_hash = sha256_hex(token)
+    target.activation_expires_at = now + timedelta(hours=s.activation_link_ttl_hours)
+    delete_user_sessions(db, target.id)
     write_firm_audit(
         db,
-        firm_id=_firm_for_target(db, actor, target),
-        action=FirmEvent.password_reset_issued,
+        firm_id=firm_id,
+        action=FirmEvent.activation_link_issued,
         entity_type="user",
         entity_id=target.id,
         actor_user_id=actor.user.id if actor else None,
         actor_role=actor.firm_role if actor else None,
-        detail={"expires_at": target.password_reset_expires_at.isoformat()},
+        detail={"expires_at": target.activation_expires_at.isoformat(), "via": via},
         meta=meta,
     )
     db.flush()
-    return f"{s.app_base_url.rstrip('/')}/reset-password?token={token}"
+    # The token rides in the URL fragment: browsers never send a fragment to any
+    # server, so it stays out of access logs and referrers; the page posts it in a body.
+    return f"{s.app_base_url.rstrip('/')}/activate#token={token}"
 
 
-def complete_password_reset(
+def redeem_activation_link(
     db: Session,
     *,
     token: str,
     new_password: str,
     meta: RequestMeta,
     now: datetime | None = None,
-) -> User:
+) -> ActivationResult:
+    """Set the password and consume the link. For a firm user without TOTP, open an
+    enrolment-only session (``ENROL_SESSION_TTL_MINUTES``) so the same flow enrols
+    TOTP and shows the recovery codes; otherwise the user signs in normally.
+
+    An unknown, used or expired link is one generic failure, persisted as a
+    ``login_failure`` (step ``link``) so it counts toward the IP throttle. Neither
+    the token nor its hash is stored in ``detail``. The caller has applied the
+    throttle already."""
     now = now or _now()
-    _check_new_password(new_password)
+    check_new_password(new_password)
     user = db.execute(
-        select(User).where(User.password_reset_token_hash == sha256_hex(token))
+        select(User)
+        .options(*with_credentials())
+        .where(User.activation_token_hash == sha256_hex(token))
     ).scalar_one_or_none()
-    expires = None if user is None else user.password_reset_expires_at
+    expires = None if user is None else user.activation_expires_at
     if user is None or expires is None or expires <= now:
-        raise AuthError(400, "invalid or expired reset link")
+        write_firm_audit(
+            db,
+            firm_id=None,
+            action=FirmEvent.login_failure,
+            entity_type="activation_link",
+            entity_id=None,
+            actor_user_id=None,
+            actor_role=None,
+            detail={"step": "link", "reason": "invalid_or_expired"},
+            meta=meta,
+        )
+        return ActivationResult(Outcome.invalid)
+
     set_user_context(db, user.id)  # proof of the link: act for the account
-    memberships = load_memberships(db, user.id)
+    _, tenant_firms = load_memberships(db, user.id)
+    firm_memberships = load_firm_memberships(db, user.id)
+    firm_id = firm_id_for(firm_memberships, tenant_firms)
     _set_password(db, user, new_password, now=now)
-    _delete_user_sessions(db, user.id)
+    delete_user_sessions(db, user.id)
     write_firm_audit(
         db,
-        firm_id=primary_firm_id(db, memberships),
+        firm_id=firm_id,
         action=FirmEvent.password_changed,
         entity_type="user",
         entity_id=user.id,
         actor_user_id=user.id,
-        actor_role=_firm_role(memberships),
-        detail={"via": "reset_link"},
+        actor_role=highest_firm_role(firm_memberships),
+        detail={"via": "activation_link"},
         meta=meta,
     )
-    return user
-
-
-def set_password_directly(
-    db: Session, target: User, password: str, *, meta: RequestMeta, via: str
-) -> None:
-    """Last-resort path for the CLI. Ends the user's sessions."""
-    _check_new_password(password)
-    _set_password(db, target, password, now=_now())
-    _delete_user_sessions(db, target.id)
-    write_firm_audit(
-        db,
-        firm_id=_firm_for_target(db, None, target),
-        action=FirmEvent.password_changed,
-        entity_type="user",
-        entity_id=target.id,
-        actor_user_id=None,
-        actor_role=None,
-        detail={"via": via},
-        meta=meta,
-    )
-
-
-# --- users and memberships (firm_admin) -----------------------------------------------------------
-
-
-def _firm_for_target(db: Session, actor: Principal | None, target: User) -> UUID | None:
-    if actor is not None:
-        ids = sorted(actor.firm_ids, key=str)
-        if ids:
-            return ids[0]
-    # No actor (CLI) or actor without a firm: attribute to the target's own firm.
-    saved = db.execute(select(Membership).where(Membership.user_id == target.id)).scalars().all()
-    return primary_firm_id(db, list(saved))
-
-
-def create_user(
-    db: Session,
-    *,
-    email: str,
-    display_name: str,
-    password: str | None,
-    actor: Principal | None,
-    firm_id: UUID | None,
-    meta: RequestMeta,
-    via: str = "api",
-) -> User:
-    email = email.strip().lower()
-    if "@" not in email or len(email) < 3:
-        raise AuthError(422, "invalid e-mail address")
-    if db.execute(select(User.id).where(User.email == email)).scalar_one_or_none():
-        raise AuthError(409, "a user with that e-mail already exists")
-    if password is not None:
-        _check_new_password(password)
-    user = User(email=email, display_name=display_name.strip())
-    if password is not None:
-        user.password_hash = hash_password(password)
-        user.password_changed_at = _now()
-    db.add(user)
-    db.flush()
-    write_firm_audit(
-        db,
-        firm_id=firm_id,
-        action=FirmEvent.user_created,
-        entity_type="user",
-        entity_id=user.id,
-        actor_user_id=actor.user.id if actor else None,
-        actor_role=actor.firm_role if actor else None,
-        detail={"email": email, "via": via, "password_set": password is not None},
-        meta=meta,
-    )
-    return user
-
-
-def enter_tenant_for_admin(db: Session, actor: Principal, tenant_id: UUID) -> Tenant:
-    """Set ``app.tenant_id`` to a tenant of the actor's firm for an administrative
-    write. The actor need not hold a membership there (first membership in a new
-    tenant). 404 for a tenant outside the actor's firms."""
-    tenant = db.get(Tenant, tenant_id)
-    if tenant is None or tenant.firm_id not in actor.firm_ids:
-        raise AuthError(404, "tenant not found")
-    set_tenant_context(db, tenant_id)
-    return tenant
-
-
-def create_membership(
-    db: Session,
-    actor: Principal | None,
-    *,
-    tenant_id: UUID,
-    user: User,
-    role: Role,
-    meta: RequestMeta,
-) -> Membership:
-    """Requires ``app.tenant_id`` = ``tenant_id`` (``enter_tenant_for_admin`` or
-    ``tenant_session``)."""
-    existing = db.execute(
-        select(Membership).where(Membership.tenant_id == tenant_id, Membership.user_id == user.id)
-    ).scalar_one_or_none()
-    if existing is not None:
-        raise AuthError(409, "membership already exists")
-    m = Membership(tenant_id=tenant_id, user_id=user.id, role=role)
-    db.add(m)
-    db.flush()
-    write_tenant_audit(
-        db,
-        tenant_id=tenant_id,
-        action=TenantEvent.membership_created,
-        entity_type="membership",
-        entity_id=m.id,
-        actor_user_id=actor.user.id if actor else None,
-        actor_role=actor.firm_role if actor else None,
-        detail={"user_id": str(user.id), "role": role.value},
-        meta=meta,
-    )
-    return m
-
-
-def change_membership_role(
-    db: Session,
-    actor: Principal | None,
-    *,
-    tenant_id: UUID,
-    user_id: UUID,
-    role: Role,
-    meta: RequestMeta,
-) -> Membership:
-    m = db.execute(
-        select(Membership).where(Membership.tenant_id == tenant_id, Membership.user_id == user_id)
-    ).scalar_one_or_none()
-    if m is None:
-        raise AuthError(404, "membership not found")
-    old = m.role
-    m.role = role
-    db.flush()
-    write_tenant_audit(
-        db,
-        tenant_id=tenant_id,
-        action=TenantEvent.membership_role_changed,
-        entity_type="membership",
-        entity_id=m.id,
-        actor_user_id=actor.user.id if actor else None,
-        actor_role=actor.firm_role if actor else None,
-        detail={"user_id": str(user_id), "old_role": old.value, "new_role": role.value},
-        meta=meta,
-    )
-    return m
-
-
-def remove_membership(
-    db: Session,
-    actor: Principal | None,
-    *,
-    tenant_id: UUID,
-    user_id: UUID,
-    meta: RequestMeta,
-) -> None:
-    m = db.execute(
-        select(Membership).where(Membership.tenant_id == tenant_id, Membership.user_id == user_id)
-    ).scalar_one_or_none()
-    if m is None:
-        raise AuthError(404, "membership not found")
-    write_tenant_audit(
-        db,
-        tenant_id=tenant_id,
-        action=TenantEvent.membership_removed,
-        entity_type="membership",
-        entity_id=m.id,
-        actor_user_id=actor.user.id if actor else None,
-        actor_role=actor.firm_role if actor else None,
-        detail={"user_id": str(user_id), "role": m.role.value},
-        meta=meta,
-    )
-    db.delete(m)
-    db.flush()
+    if firm_memberships and user.totp_enrolled_at is None:
+        token, _ = create_session(
+            db,
+            user.id,
+            active_tenant_id=None,
+            totp_verified_at=None,
+            now=now,
+            ttl=timedelta(minutes=get_settings().enrol_session_ttl_minutes),
+        )
+        return ActivationResult(Outcome.ok, next=NEXT_TOTP_ENROL, token=token)
+    return ActivationResult(Outcome.ok, next=NEXT_LOGIN)
 
 
 # --- tenant selection -----------------------------------------------------------------------------
@@ -773,15 +700,17 @@ def remove_membership(
 
 def set_active_tenant(
     db: Session, principal: Principal, tenant_id: UUID, *, meta: RequestMeta
-) -> Membership:
-    """Re-check membership, switch the session, record ``tenant_enter``. 403 (and a
-    rollback, so the session is unchanged) without a membership."""
-    memberships = load_memberships(db, principal.user.id)
-    m = next((m for m in memberships if m.tenant_id == tenant_id), None)
-    if m is None:
+) -> Role:
+    """Re-check access, switch the session, record ``tenant_enter``. 403 (and a
+    rollback, so the session is unchanged) without an effective role there: no
+    membership, or an orphan entry row."""
+    memberships, tenant_firms = load_memberships(db, principal.user.id)
+    principal.memberships = memberships
+    principal.tenant_firm_ids = tenant_firms
+    role = principal.role_in(tenant_id)
+    if role is None:
         raise AuthError(403, "no membership in that tenant")
     principal.session.active_tenant_id = tenant_id
-    principal.memberships = memberships
     db.flush()
     set_tenant_context(db, tenant_id)
     write_tenant_audit(
@@ -791,22 +720,24 @@ def set_active_tenant(
         entity_type="tenant",
         entity_id=tenant_id,
         actor_user_id=principal.user.id,
-        actor_role=m.role,
+        actor_role=role,
         detail={"via": "switcher"},
         meta=meta,
     )
-    return m
+    return role
 
 
-def tenants_for(db: Session, principal: Principal) -> list[tuple[Membership, Tenant]]:
-    tenants = {
-        t.id: t
-        for t in db.execute(
-            select(Tenant).where(Tenant.id.in_([m.tenant_id for m in principal.memberships]))
-        ).scalars()
-    }
-    return [(m, tenants[m.tenant_id]) for m in principal.memberships if m.tenant_id in tenants]
-
-
-def firm_ids_of(db: Session, principal: Principal) -> frozenset[UUID]:
-    return firm_ids_for(db, principal.memberships)
+def tenants_for(db: Session, principal: Principal) -> list[tuple[Tenant, Role]]:
+    """Tenants the user can enter, with the effective role in each. Orphan entry
+    rows are absent."""
+    ids = principal.accessible_tenant_ids()
+    if not ids:
+        return []
+    tenants = {t.id: t for t in db.execute(select(Tenant).where(Tenant.id.in_(ids))).scalars()}
+    out: list[tuple[Tenant, Role]] = []
+    for m in principal.memberships:
+        t = tenants.get(m.tenant_id)
+        role = principal.role_in(m.tenant_id)
+        if t is not None and role is not None:
+            out.append((t, role))
+    return out

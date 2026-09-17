@@ -1,5 +1,6 @@
-"""Role matrix (F02 acceptance): 5 roles × every protected route, cell by cell,
-plus 401 for an unauthenticated request on every one."""
+"""Role matrix (F02 acceptance; F02.1 routes added): 5 roles × every protected route,
+cell by cell, plus 401 for an unauthenticated request on every one. Firm roles are
+read from ``firm_membership``; the firm users' rows in tenants are entry rows."""
 
 import uuid
 from collections.abc import Callable, Iterator
@@ -10,8 +11,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Engine, delete, select
 
 from app.core.authz import CAPABILITIES
-from app.core.db import tenant_session
-from app.tenancy.models import Membership, Role
+from app.core.db import tenant_session, untenanted_session
+from app.tenancy.models import FirmMembership, Membership, Role
 from tests.conftest import CSRF, Seed, full_login, make_client
 
 ROLES = ["firm_admin", "firm_staff", "client_admin", "client_pm", "client_viewer"]
@@ -26,7 +27,9 @@ class Route:
     path: str  # may contain {B} (tenant B) and {scratch} (scratch user id)
     allowed: frozenset[str]
     body: Callable[[], dict] | None = None
-    prepare: str | None = None  # "member" / "no_member": scratch user's state in tenant B
+    # scratch user's state before each cell: "member" (client_viewer in B),
+    # "no_member" (nothing anywhere), "firm_member" (firm_staff, no client rows)
+    prepare: str | None = None
     tags: tuple[str, ...] = field(default_factory=tuple)
 
 
@@ -47,8 +50,14 @@ def _routes() -> list[Route]:
                 "display_name": "Matrix",
             },
         ),
-        Route("POST", "/api/admin/users/{scratch}/password-reset", frozenset({FA})),
+        Route("POST", "/api/admin/users/{scratch}/activation-link", frozenset({FA})),
         Route("POST", "/api/admin/users/{scratch}/totp-reset", frozenset({FA})),
+        Route(
+            "POST",
+            "/api/admin/tenants",
+            frozenset({FA}),
+            body=lambda: {"name": "Matrix Co", "slug": f"matrix-{uuid.uuid4().hex[:8]}"},
+        ),
         Route(
             "POST",
             "/api/admin/tenants/{B}/memberships",
@@ -68,6 +77,27 @@ def _routes() -> list[Route]:
             "/api/admin/tenants/{B}/memberships/{scratch}",
             frozenset({FA}),
             prepare="member",
+        ),
+        Route("GET", "/api/admin/firm-memberships", frozenset({FA})),
+        Route(
+            "POST",
+            "/api/admin/firm-memberships",
+            frozenset({FA}),
+            body=lambda: {"user_id": "{scratch}", "role": "firm_staff"},
+            prepare="no_member",
+        ),
+        Route(
+            "PUT",
+            "/api/admin/firm-memberships/{scratch}",
+            frozenset({FA}),
+            body=lambda: {"role": "firm_admin"},
+            prepare="firm_member",
+        ),
+        Route(
+            "DELETE",
+            "/api/admin/firm-memberships/{scratch}",
+            frozenset({FA}),
+            prepare="firm_member",
         ),
     ]
     for name, (_guard, roles, _scope) in CAPABILITIES.items():
@@ -94,9 +124,15 @@ def role_clients(seed: Seed, owner_engine: Engine) -> Iterator[dict[str, TestCli
 
 def _prepare(seed: Seed, owner_engine: Engine, state: str | None) -> None:
     scratch = seed.users["scratch"].id
-    with tenant_session(owner_engine, seed.tenant_b) as s:
-        s.execute(delete(Membership).where(Membership.user_id == scratch))
-        if state == "member":
+    for tid in (seed.tenant_a, seed.tenant_b, seed.tenant_new):
+        with tenant_session(owner_engine, tid) as s:
+            s.execute(delete(Membership).where(Membership.user_id == scratch))
+    with untenanted_session(owner_engine) as s:
+        s.execute(delete(FirmMembership).where(FirmMembership.user_id == scratch))
+        if state == "firm_member":
+            s.add(FirmMembership(firm_id=seed.firm_id, user_id=scratch, role=Role.firm_staff))
+    if state == "member":
+        with tenant_session(owner_engine, seed.tenant_b) as s:
             s.add(Membership(tenant_id=seed.tenant_b, user_id=scratch, role=Role.client_viewer))
 
 

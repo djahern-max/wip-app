@@ -2,11 +2,11 @@
 they never list roles inline (CLAUDE.md Security).
 
 Two scopes:
-- ``require_roles(*roles)``: the role held in the session's **active tenant**.
-  Needs a verified principal and an active tenant (400 without one).
-- ``require_firm_role(*roles)``: the firm-level role derived from memberships
-  (see ``app.core.auth``). Needs no active tenant; used by firm_admin
-  administration and the firm audit route.
+- ``require_roles(*roles)``: the effective role in the session's **active tenant**
+  (``app.core.auth.effective_role``). Needs a verified principal and an active
+  tenant (400 without one).
+- ``require_firm_role(*roles)``: the firm role held in ``firm_membership`` (D-15).
+  Needs no active tenant; used by firm administration and the firm audit route.
 
 Both return 401 for no session and 403 for the wrong role or an unmet TOTP
 requirement (the 403 ``detail`` distinguishes them).
@@ -58,7 +58,7 @@ def require_firm_role(*roles: Role) -> Guard:
 
 
 # --- named capabilities ---------------------------------------------------------------------------
-# Tenant-scoped (role in the active tenant)
+# Tenant-scoped (effective role in the active tenant)
 can_view_reports = require_roles(*ALL_ROLES)
 can_view_pay_rates = require_roles(*FIRM_AND_CLIENT_ADMIN)  # CLAUDE.md Security
 can_propose_eac = require_roles(*FIRM_AND_CLIENT_ADMIN, Role.client_pm)  # §11
@@ -69,10 +69,12 @@ can_list_tenant_users = require_roles(Role.firm_admin)
 # Firm-level (no active tenant needed)
 can_manage_users = require_firm_role(Role.firm_admin)
 can_manage_memberships = require_firm_role(Role.firm_admin)
+can_manage_firm_memberships = require_firm_role(Role.firm_admin)  # D-15
+can_manage_tenants = require_firm_role(Role.firm_admin)  # owner answer C
 can_read_firm_audit = require_firm_role(*FIRM)
 
-# Name → guard → allowed roles. The test-only probe router mounts one route per
-# entry; tests/test_roles.py asserts the matrix cell by cell.
+# Name → guard → allowed roles. The test-only probe router (tests/probes.py)
+# mounts one route per entry; tests/test_roles.py asserts the matrix cell by cell.
 CAPABILITIES: dict[str, tuple[Guard, frozenset[Role], str]] = {
     "view_reports": (can_view_reports, frozenset(ALL_ROLES), "tenant"),
     "view_pay_rates": (can_view_pay_rates, frozenset(FIRM_AND_CLIENT_ADMIN), "tenant"),
@@ -87,5 +89,11 @@ CAPABILITIES: dict[str, tuple[Guard, frozenset[Role], str]] = {
     "list_tenant_users": (can_list_tenant_users, frozenset({Role.firm_admin}), "tenant"),
     "manage_users": (can_manage_users, frozenset({Role.firm_admin}), "firm"),
     "manage_memberships": (can_manage_memberships, frozenset({Role.firm_admin}), "firm"),
+    "manage_firm_memberships": (
+        can_manage_firm_memberships,
+        frozenset({Role.firm_admin}),
+        "firm",
+    ),
+    "manage_tenants": (can_manage_tenants, frozenset({Role.firm_admin}), "firm"),
     "read_firm_audit": (can_read_firm_audit, frozenset(FIRM), "firm"),
 }

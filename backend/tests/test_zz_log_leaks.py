@@ -14,13 +14,22 @@ from tests.logcapture import RECORDS
 def test_suite_produced_logs_and_secrets() -> None:
     assert len(RECORDS) > 100, "log capture did not run"
     assert any(name.startswith("sqlalchemy.engine") for name, _ in RECORDS)
-    for kind in ("password", "totp_secret", "recovery_code", "session_token", "totp_code"):
+    kinds = (
+        "password",
+        "totp_secret",
+        "recovery_code",
+        "session_token",
+        "totp_code",
+        "activation_token",
+        "attempted_email",
+    )
+    for kind in kinds:
         assert LEAKS[kind], f"no {kind} was recorded by the suite"
 
 
 def test_no_secret_appears_in_any_log_line() -> None:
     leaks: list[str] = []
-    verbatim = ["password", "totp_secret", "recovery_code", "session_token", "reset_token"]
+    verbatim = ["password", "totp_secret", "recovery_code", "session_token", "activation_token"]
     for kind in verbatim:
         for secret in LEAKS[kind]:
             for name, msg in RECORDS:
@@ -33,5 +42,13 @@ def test_no_secret_appears_in_any_log_line() -> None:
         for name, msg in app_records:
             if pattern.search(msg):
                 leaks.append(f"totp_code in {name}: {msg[:120]}")
+                break
+    # An attempted e-mail address is looked up with a bound parameter, which the
+    # harness logs on purpose (production hides parameters, see test_hygiene); the
+    # application itself must never log it (F02.1).
+    for email in LEAKS["attempted_email"]:
+        for name, msg in app_records:
+            if email.lower() in msg.lower():
+                leaks.append(f"attempted_email in {name}: {msg[:120]}")
                 break
     assert not leaks, "\n".join(leaks)

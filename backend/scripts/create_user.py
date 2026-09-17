@@ -1,159 +1,191 @@
 #!/usr/bin/env python
-"""Bootstrap the first firm_admin, and the last-resort password / TOTP reset path.
+"""Bootstrap the practice and its first firm_admin; create users; issue and re-issue
+activation links; reset TOTP. The CLI never sets a password (D-16): every account
+is activated through a one-time link, which this tool prints **once to stdout**
+and never logs.
 
-Runs as the application role (DATABASE_URL) and goes through the same service
-functions as the API, so every action leaves a firm_audit_log / audit_log row
-(actor NULL, detail.via = "cli"). Nothing secret is printed or logged.
+Runs as the application role (DATABASE_URL) and goes through the same admin
+service as the API, so every action leaves a firm_audit_log / audit_log row
+(actor NULL, detail.via = "cli"). No tenant has to exist to bootstrap.
 
 Examples (from backend/, with .env in place):
 
-  # first admin on a fresh database: creates the firm and the tenant if missing
-  python scripts/create_user.py --email you@firm.test --display-name "You" \\
-      --create-tenant rye-beach:"Rye Beach Landscaping" --firm-name "Your CPA Practice" \\
-      --membership rye-beach:firm_admin --password-stdin < pw.txt
+  # fresh database: the firm and its first firm_admin; prints the activation link
+  python scripts/create_user.py bootstrap --firm-name "Your CPA Practice" \\
+      --email you@firm.test --display-name "You"
 
-  # add a client user to an existing tenant
-  python scripts/create_user.py --email pm@client.test --display-name "PM" \\
-      --membership rye-beach:client_pm            # prompts for the password
+  # a client user with a role in one tenant
+  python scripts/create_user.py create-user --email pm@client.test --display-name "PM" \\
+      --membership rye-beach:client_pm
 
-  # last resort: a firm_admin locked out of TOTP or password
-  python scripts/create_user.py --email you@firm.test --reset-totp
-  python scripts/create_user.py --email you@firm.test --reset-password
+  # a firm staff member with entry rows in two tenants
+  python scripts/create_user.py create-user --email staff@firm.test --display-name "Staff" \\
+      --firm-role firm_staff --entry rye-beach --entry other-client
+
+  # a new link (password reset), or a TOTP reset (clears TOTP, then a new link)
+  python scripts/create_user.py issue-link --email you@firm.test
+  python scripts/create_user.py reset-totp --email you@firm.test
 """
 
 import argparse
-import getpass
 import sys
 
 from sqlalchemy import select
 
-from app.auth import service
-from app.auth.service import AuthError
+from app.auth import admin
+from app.auth.service import AuthError, issue_activation_link
 from app.core.audit import RequestMeta
-from app.core.db import create_app_engine, set_user_context, tenant_session, untenanted_session
-from app.core.security import MIN_PASSWORD_LENGTH
-from app.tenancy.models import Firm, Role, Tenant, User
+from app.core.db import create_app_engine, tenant_session, untenanted_session
+from app.tenancy.models import CLIENT_ROLES, FIRM_ROLES, Firm, Role, Tenant, User
 
 META = RequestMeta(ip=None, request_id="cli")
+VIA = "cli"
 
 
-def _read_password(args: argparse.Namespace) -> str:
-    if args.password_stdin:
-        pw = sys.stdin.readline().rstrip("\r\n")
-    else:
-        pw = getpass.getpass(f"Password ({MIN_PASSWORD_LENGTH}+ characters): ")
-        if pw != getpass.getpass("Again: "):
-            sys.exit("passwords differ")
-    if len(pw) < MIN_PASSWORD_LENGTH:
-        sys.exit(f"password must be at least {MIN_PASSWORD_LENGTH} characters")
-    return pw
+def _print_link(url: str) -> None:
+    """stdout only; the token in the URL must never reach a log."""
+    print("Activation link (valid once; hand it over directly):")
+    print(url)
+
+
+def _user_by_email(db, email: str) -> User:
+    user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+    if user is None:
+        sys.exit("no such user")
+    return user
 
 
 def _parse_membership(spec: str) -> tuple[str, Role]:
     slug, sep, role = spec.partition(":")
-    if not sep or role not in Role.__members__:
-        sys.exit(f"--membership must be SLUG:ROLE with ROLE one of {', '.join(Role.__members__)}")
+    if not sep or role not in {r.value for r in CLIENT_ROLES}:
+        sys.exit(
+            "--membership must be SLUG:ROLE with ROLE one of "
+            + ", ".join(sorted(r.value for r in CLIENT_ROLES))
+        )
     return slug, Role(role)
 
 
-def _ensure_tenant(db, spec: str, firm_name: str | None) -> Tenant:
-    slug, sep, name = spec.partition(":")
-    if not sep:
-        sys.exit("--create-tenant must be SLUG:NAME")
-    tenant = db.execute(select(Tenant).where(Tenant.slug == slug)).scalar_one_or_none()
-    if tenant is not None:
-        return tenant
-    firms = db.execute(select(Firm)).scalars().all()
-    if len(firms) == 1:
-        firm = firms[0]
-    elif not firms:
-        firm = Firm(name=firm_name or "Firm")
+def cmd_bootstrap(args: argparse.Namespace, engine) -> None:
+    with untenanted_session(engine) as db:
+        if db.execute(select(Firm.id)).first() is not None:
+            sys.exit("a firm already exists; use create-user --firm-role firm_admin")
+        firm = Firm(name=args.firm_name.strip())
         db.add(firm)
         db.flush()
-        print(f"created firm {firm.name!r}")
-    else:
-        sys.exit("several firms exist; create the tenant by hand")
-    tenant = Tenant(firm_id=firm.id, name=name, slug=slug)
-    db.add(tenant)
-    db.flush()
-    print(f"created tenant {slug!r}")
-    return tenant
+        user, url = admin.create_user_with_link(
+            db,
+            email=args.email,
+            display_name=args.display_name,
+            actor=None,
+            firm_id=firm.id,
+            meta=META,
+            via=VIA,
+        )
+        admin.create_firm_membership(
+            db, None, firm_id=firm.id, user=user, role=Role.firm_admin, meta=META, via=VIA
+        )
+        print(f"created firm {firm.name!r} and firm_admin {user.email}")
+    _print_link(url)
+    print("The link sets the password, enrols TOTP and shows the recovery codes.")
 
 
-def main(argv: list[str] | None = None) -> None:
+def cmd_create_user(args: argparse.Namespace, engine) -> None:
+    memberships = [_parse_membership(m) for m in args.membership]
+    entries = list(args.entry)
+    firm_role = Role(args.firm_role) if args.firm_role else None
+    if firm_role is not None and memberships:
+        sys.exit("a firm user holds entry rows (--entry), not client roles (--membership)")
+    if firm_role is None and entries:
+        sys.exit("--entry needs --firm-role")
+    slugs = [s for s, _ in memberships] + entries
+    with untenanted_session(engine) as db:
+        firm_id = admin.only_firm_id(db)
+        tenants = {
+            t.slug: t for t in db.execute(select(Tenant).where(Tenant.slug.in_(slugs))).scalars()
+        }
+        missing = [s for s in slugs if s not in tenants]
+        if missing:
+            sys.exit(f"unknown tenant slug(s): {', '.join(missing)}")
+        user, url = admin.create_user_with_link(
+            db,
+            email=args.email,
+            display_name=args.display_name,
+            actor=None,
+            firm_id=firm_id,
+            meta=META,
+            via=VIA,
+        )
+        if firm_role is not None:
+            admin.create_firm_membership(
+                db, None, firm_id=firm_id, user=user, role=firm_role, meta=META, via=VIA
+            )
+            print(f"firm role: {firm_role.value}")
+        user_id = user.id
+        tenant_ids = {slug: t.id for slug, t in tenants.items()}
+    for slug, role in [*memberships, *((s, None) for s in entries)]:
+        with tenant_session(engine, tenant_ids[slug]) as db:
+            tenant = db.get(Tenant, tenant_ids[slug])
+            admin.create_membership(
+                db, None, tenant=tenant, user=db.get(User, user_id), role=role, meta=META, via=VIA
+            )
+            print(f"{'entry' if role is None else role.value} in {slug}")
+    print(f"created user {args.email.strip().lower()}")
+    _print_link(url)
+
+
+def cmd_issue_link(args: argparse.Namespace, engine) -> None:
+    with untenanted_session(engine) as db:
+        user = _user_by_email(db, args.email.strip().lower())
+        url = issue_activation_link(
+            db, None, user, firm_id=admin.firm_id_for_target(db, None, user), meta=META, via=VIA
+        )
+    print("all sessions ended; any earlier link is void")
+    _print_link(url)
+
+
+def cmd_reset_totp(args: argparse.Namespace, engine) -> None:
+    with untenanted_session(engine) as db:
+        user = _user_by_email(db, args.email.strip().lower())
+        url = admin.reset_totp_and_issue_link(db, None, user, meta=META, via=VIA)
+    print("TOTP cleared; all sessions ended; the link enrols TOTP again")
+    _print_link(url)
+
+
+def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    ap.add_argument("--email", required=True)
-    ap.add_argument("--display-name")
-    ap.add_argument("--password-stdin", action="store_true", help="read the password from stdin")
-    ap.add_argument("--membership", action="append", default=[], metavar="SLUG:ROLE")
-    ap.add_argument(
-        "--create-tenant", metavar="SLUG:NAME", help="create the tenant (and firm) if missing"
-    )
-    ap.add_argument("--firm-name", help="name for the firm when it has to be created")
-    ap.add_argument("--reset-password", action="store_true")
-    ap.add_argument("--reset-totp", action="store_true")
-    args = ap.parse_args(argv)
+    sub = ap.add_subparsers(dest="command", required=True)
 
+    b = sub.add_parser("bootstrap", help="create the firm and its first firm_admin")
+    b.add_argument("--firm-name", required=True)
+    b.add_argument("--email", required=True)
+    b.add_argument("--display-name", required=True)
+    b.set_defaults(func=cmd_bootstrap)
+
+    c = sub.add_parser("create-user", help="create a user and print their activation link")
+    c.add_argument("--email", required=True)
+    c.add_argument("--display-name", required=True)
+    c.add_argument("--firm-role", choices=sorted(r.value for r in FIRM_ROLES))
+    c.add_argument("--membership", action="append", default=[], metavar="SLUG:ROLE")
+    c.add_argument("--entry", action="append", default=[], metavar="SLUG")
+    c.set_defaults(func=cmd_create_user)
+
+    i = sub.add_parser("issue-link", help="new activation link (password reset)")
+    i.add_argument("--email", required=True)
+    i.set_defaults(func=cmd_issue_link)
+
+    r = sub.add_parser("reset-totp", help="clear TOTP and print a new activation link")
+    r.add_argument("--email", required=True)
+    r.set_defaults(func=cmd_reset_totp)
+    return ap
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = build_parser().parse_args(argv)
     engine = create_app_engine()
-    email = args.email.strip().lower()
     try:
-        if args.reset_password or args.reset_totp:
-            with untenanted_session(engine) as db:
-                user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
-                if user is None:
-                    sys.exit("no such user")
-                set_user_context(db, user.id)  # own memberships → firm for the audit row
-                if args.reset_totp:
-                    service.reset_totp(db, None, user, meta=META, via="cli")
-                    print("TOTP cleared; the user enrols again at next login")
-                if args.reset_password:
-                    service.set_password_directly(
-                        db, user, _read_password(args), meta=META, via="cli"
-                    )
-                    print("password set; all sessions ended")
-            return
-
-        if not args.display_name:
-            sys.exit("--display-name is required to create a user")
-        memberships = [_parse_membership(m) for m in args.membership]
-        password = _read_password(args)
-        with untenanted_session(engine) as db:
-            if args.create_tenant:
-                _ensure_tenant(db, args.create_tenant, args.firm_name)
-            tenants = {
-                t.slug: t
-                for t in db.execute(
-                    select(Tenant).where(Tenant.slug.in_([s for s, _ in memberships]))
-                ).scalars()
-            }
-            missing = [s for s, _ in memberships if s not in tenants]
-            if missing:
-                sys.exit(f"unknown tenant slug(s): {', '.join(missing)}")
-            firm_id = tenants[memberships[0][0]].firm_id if memberships else None
-            user = service.create_user(
-                db,
-                email=email,
-                display_name=args.display_name,
-                password=password,
-                actor=None,
-                firm_id=firm_id,
-                meta=META,
-                via="cli",
-            )
-            user_id = user.id
-            tenant_ids = {slug: t.id for slug, t in tenants.items()}
-        for slug, role in memberships:
-            with tenant_session(engine, tenant_ids[slug]) as db:
-                user = db.get(User, user_id)
-                service.create_membership(
-                    db, None, tenant_id=tenant_ids[slug], user=user, role=role, meta=META
-                )
-                print(f"membership {slug}: {role.value}")
-        print(f"created user {email}")
-        if any(r in (Role.firm_admin, Role.firm_staff) for _, r in memberships):
-            print("firm role: TOTP enrolment is required at first login")
+        args.func(args, engine)
     except AuthError as exc:
         sys.exit(f"error: {exc.detail}")
     finally:

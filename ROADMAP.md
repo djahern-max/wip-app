@@ -35,6 +35,10 @@ Repo layout (§12), config, DB session with tenant context, `firm / tenant / use
 Login, TOTP for firm roles, session cookies, role checks as dependencies, tenant switcher for firm users, append-only `audit_log`.
 **Accept**: role matrix test (5 roles × protected routes); `client_pm` cannot fetch pay-rate endpoints; audit rows written for login, tenant switch, role change.
 
+### F02.1 · Auth hardening patch  ☑ (2026-09-17; owner browser pass pending)
+Firm authority as a `firm_membership` row with entry rows in tenants (D-15), activation links that also enrol TOTP (D-16), one practice per deployment (D-17), the `app.user_id` swap helper (D-18), per-IP throttle, allow-list response schemas, settings without defaults, origin policy, probes out of the application.
+**Accept**: `docs/briefs/F02.1.md`; 211 tests. The owner's browser pass (create user via CLI → link → password → TOTP → recovery codes → login → switcher → logout) also closes the F02 frontend criterion.
+
 ### F03 · Ingestion framework  ☐
 `connection`, `sync_run`, `import_batch`, `raw_record` with versioning; file upload to Spaces under tenant prefix; Postgres-backed worker queue; idempotency by file checksum and by external id; crypto helper for tokens.
 **Accept**: uploading the same file twice creates one batch; a modified file creates new raw versions and leaves history; worker task always runs with explicit tenant context.

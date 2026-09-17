@@ -2,8 +2,13 @@
 or rolls back together with the action it records. Failed logins, which have no
 action transaction, use the request transaction on their own.
 
-``detail`` must never carry a password, TOTP secret or code, recovery code, or
-session id; the writers refuse those keys outright.
+``detail`` must never carry a password, TOTP secret or code, recovery code,
+session id, activation token or its hash, or an attempted e-mail address in
+clear; the writers refuse those keys outright.
+
+Client IP (F02.1): taken from ``X-Forwarded-For`` only when ``TRUSTED_PROXY_COUNT``
+says a proxy is present (the N-th address from the right); otherwise, and when
+the header is missing or shorter than N entries, from the socket.
 """
 
 import enum
@@ -14,6 +19,7 @@ from fastapi import Request
 from sqlalchemy.orm import Session
 
 from app.audit.models import AuditLog, FirmAuditLog
+from app.core.config import get_settings
 from app.tenancy.models import Role
 
 FORBIDDEN_DETAIL_KEYS = frozenset(
@@ -29,8 +35,12 @@ FORBIDDEN_DETAIL_KEYS = frozenset(
         "recovery_code",
         "recovery_codes",
         "token",
+        "token_hash",
+        "activation_token",
+        "activation_token_hash",
         "session_id",
         "cookie",
+        "email",  # F02.1: an attempted address is stored only as email_sha256
     }
 )
 
@@ -39,13 +49,18 @@ class FirmEvent(enum.StrEnum):
     login_success = "login_success"
     login_failure = "login_failure"
     account_locked = "account_locked"
+    ip_throttled = "ip_throttled"
     logout = "logout"
     totp_enrolled = "totp_enrolled"
     totp_reset = "totp_reset"
     recovery_code_used = "recovery_code_used"
-    password_reset_issued = "password_reset_issued"
+    activation_link_issued = "activation_link_issued"
     password_changed = "password_changed"
     user_created = "user_created"
+    tenant_created = "tenant_created"
+    firm_membership_created = "firm_membership_created"
+    firm_membership_role_changed = "firm_membership_role_changed"
+    firm_membership_removed = "firm_membership_removed"
 
 
 class TenantEvent(enum.StrEnum):
@@ -61,9 +76,21 @@ class RequestMeta:
     request_id: str | None = None
 
 
+def client_ip(request: Request) -> str | None:
+    socket_ip = request.client.host if request.client else None
+    n = get_settings().trusted_proxy_count
+    if n <= 0:
+        return socket_ip
+    header = request.headers.get("x-forwarded-for", "")
+    hops = [h.strip() for h in header.split(",") if h.strip()]
+    if len(hops) < n:
+        return socket_ip
+    return hops[-n]
+
+
 def request_meta(request: Request) -> RequestMeta:
     return RequestMeta(
-        ip=request.client.host if request.client else None,
+        ip=client_ip(request),
         request_id=getattr(request.state, "request_id", None),
     )
 

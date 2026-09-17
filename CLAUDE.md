@@ -12,7 +12,7 @@ The owner is a CPA and the domain expert. When accounting treatment is unclear, 
 |---|---|---|
 | `docs/BLUEPRINT.md` | Design and rationale. §8 is the accounting spec. | Owner-approved changes only |
 | `ROADMAP.md` | Feature order, acceptance criteria, status | Update status when a feature closes |
-| `current-feature.md` | The one feature in flight | Rewritten per feature |
+| `current-feature.md` | The one feature in flight. There is one live `current-feature.md`. On close, the brief is copied to `docs/briefs/Fxx.md` and the live file is rewritten. | Rewritten per feature |
 | `CHANGELOG.md` | What changed and why, per feature | Append on every feature close |
 | `docs/DECISIONS.md` | D-xx decisions with date and reasoning | Append-only |
 | `docs/OPERATIONS.md` | Runbooks | Update as features land |
@@ -23,6 +23,7 @@ The owner is a CPA and the domain expert. When accounting treatment is unclear, 
 3. Write or update tests first for anything in `app/wip/`, tenancy, or normalizers.
 4. On completion: tick criteria in `current-feature.md`, append to `CHANGELOG.md` (what, why, migrations, decisions referenced), flip status in `ROADMAP.md`.
 5. Never mark a feature done on synthetic data alone when a Rye Beach fixture exists for it.
+6. Claude Code commits at close-out, one commit per closed feature or patch, and never pushes. The owner pushes.
 
 ## Hard rules (do not break; ask if one seems wrong)
 
@@ -38,7 +39,10 @@ The owner is a CPA and the domain expert. When accounting treatment is unclear, 
 - No query, log line, error message, cache key, or file path may mix tenants. Object storage keys start with `tenant/{tenant_id}/`.
 - `membership` carries one additional `FOR SELECT` policy (own rows by `app.user_id`), created by `allow_own_membership_read()` (D-11). No other table may have a policy beyond `tenant_isolation` without a new decision.
 - Insert-only tables call `make_append_only()` and are listed in `APPEND_ONLY_TABLES` (D-13).
-- Approved tables without `tenant_id`: `firm`, `tenant`, `user`, `session`, `firm_audit_log`. Any other table without `tenant_id` needs a decision.
+- Approved tables without `tenant_id`: `firm`, `tenant`, `user`, `session`, `firm_audit_log`, `firm_membership`. Any other table without `tenant_id` needs a decision.
+- A table without tenant scope may never have a column named `tenant_id`; the enumeration test identifies tenant tables by that name.
+- Data migrations set tenant context per tenant and never disable or unforce RLS.
+- Reading another user's `membership` rows from an admin request goes only through `read_as_user()` in `app/core/auth.py` (D-18): it swaps `app.user_id` for the block, restores the actor's id in `finally`, is called only from `app/auth/admin.py` after the firm-role check, and its results are limited to tenants of the actor's firm.
 
 ### Source-of-truth discipline
 - QuickBooks is the book of record. This app does not create or edit QBO transactions except posting an **approved** WIP journal entry (a later feature, behind a flag). Do not add "quick fix" write-backs.

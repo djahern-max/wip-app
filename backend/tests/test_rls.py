@@ -291,7 +291,7 @@ def test_user_context_alone_cannot_write_membership(
     with pytest.raises(ProgrammingError, match="row-level security"):
         with untenanted_session(rw_engine) as s:
             set_user_context(s, seed.user_id)
-            s.add(Membership(tenant_id=seed.tenant_a, user_id=seed.user_id, role=Role.client_pm))
+            s.add(Membership(tenant_id=seed.tenant_new, user_id=seed.user_id, role=Role.client_pm))
             s.flush()
     with untenanted_session(rw_engine) as s:
         set_user_context(s, seed.user_id)
@@ -307,4 +307,4 @@ def test_user_context_alone_cannot_write_membership(
         role = s.execute(
             select(Membership.role).where(Membership.user_id == seed.user_id)
         ).scalar_one()
-    assert role == Role.firm_staff
+    assert role is None  # the seeded entry row is untouched (D-15: firm users hold NULL)

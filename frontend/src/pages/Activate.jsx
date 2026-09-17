@@ -2,8 +2,13 @@ import { useState } from "react";
 import { api } from "../api.js";
 import { styles } from "./Login.jsx";
 
-// Reached from the one-time link a firm administrator hands over (F02: no e-mail).
-export default function ResetPassword({ token }) {
+// Reached from the one-time activation link a firm administrator hands over
+// (D-16: no e-mail). The token arrives in the URL fragment (App.jsx reads it and
+// clears the address bar) and is sent only in the POST body. Sets the password;
+// for a firm user the server opens an enrolment-only session and the app continues
+// into TOTP enrolment and the recovery codes on "/", so the account becomes usable
+// only once that is done.
+export default function Activate({ token }) {
   const [password, setPassword] = useState("");
   const [again, setAgain] = useState("");
   const [done, setDone] = useState(false);
@@ -12,13 +17,22 @@ export default function ResetPassword({ token }) {
   async function submit(e) {
     e.preventDefault();
     setError(null);
+    if (!token) return setError("This page needs the activation link. Open the link you were given.");
     if (password.length < 12) return setError("Use at least 12 characters.");
     if (password !== again) return setError("The two passwords differ.");
     try {
-      await api("POST", "/api/auth/password/reset", { token, new_password: password });
+      const r = await api("POST", "/api/auth/activate", { token, new_password: password });
+      if (r && r.next === "totp_enrol") {
+        window.location.assign("/");
+        return;
+      }
       setDone(true);
     } catch (err) {
-      setError(err.detail || "This link is invalid or has expired. Ask your firm administrator for a new one.");
+      setError(
+        err.status === 429
+          ? "Too many attempts from this address. Try again in 15 minutes."
+          : "This link is invalid, used, or has expired. Ask your firm administrator for a new one.",
+      );
     }
   }
 

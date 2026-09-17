@@ -1,4 +1,5 @@
-"""Test-only routes, mounted by ``create_app`` only when running under pytest.
+"""Test-only routes, mounted on the app by ``tests/conftest.py`` and never by the
+application (F02.1: no ``pytest`` switch in application code).
 
 One GET per named capability (``app.core.authz.CAPABILITIES``) plus a pay-rate
 probe and a tenant-scoped row probe, so the role matrix and the "tenant comes
@@ -14,6 +15,8 @@ from app.core.auth import TenantSession
 from app.core.authz import CAPABILITIES, can_view_pay_rates
 from app.tenancy.models import RlsProbe
 
+PROBE_PREFIX = "/_probe"
+
 
 def _ok(name: str) -> Callable[[], dict]:
     def probe() -> dict:
@@ -24,7 +27,7 @@ def _ok(name: str) -> Callable[[], dict]:
 
 
 def build_probe_router() -> APIRouter:
-    router = APIRouter(prefix="/_probe", tags=["_probe"])
+    router = APIRouter(prefix=PROBE_PREFIX, tags=["_probe"])
     for name, (guard, _roles, _scope) in CAPABILITIES.items():
         router.add_api_route(
             f"/cap/{name}", _ok(name), methods=["GET"], dependencies=[Depends(guard)]

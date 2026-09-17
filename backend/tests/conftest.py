@@ -6,7 +6,17 @@ Requires a Postgres created by ``db/init/01_roles.sh`` (``make db-up``). Two URL
 
 The schema is migrated to head once per session and torn down to base at the end.
 Seed: one firm with tenants A and B (plus an empty tenant "new" for the
-first-membership case), a second firm with tenant C, and one user per role.
+first-membership case), a second firm with tenant C, one user per role, and one
+orphan (an entry row with no firm_membership, D-15 owner condition).
+
+Firm users hold a ``firm_membership`` and entry rows (``membership.role`` NULL) in
+their tenants; client users hold client-role rows (D-15).
+
+Harness-only behaviour (F02.1): the probe router is mounted here, never by the
+application; every ``TestClient`` gets its own socket address so IP throttle
+buckets do not collide across tests; every response body is recorded for the
+end-of-run scan; the engine keeps parameter logging on so the log-leak test can
+inspect statements (production hides parameters, see ``test_hygiene``).
 """
 
 import os
@@ -15,6 +25,7 @@ from collections.abc import Callable, Iterator
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from alembic import command
@@ -23,7 +34,8 @@ from fastapi.testclient import TestClient
 from httpx import Response
 from sqlalchemy import Engine, create_engine, text
 
-from app.core.auth import CSRF_HEADER  # noqa: E402  (after tests._env on purpose)
+import app.core.db as app_db  # noqa: E402
+from app.core.auth import CSRF_HEADER  # noqa: E402
 from app.core.config import get_settings  # noqa: E402
 from app.core.crypto import get_keyring  # noqa: E402
 from app.core.db import tenant_session, untenanted_session  # noqa: E402
@@ -35,18 +47,35 @@ from app.core.security import (  # noqa: E402
     totp_code_at,
 )
 from app.main import create_app  # noqa: E402
-from app.tenancy.models import Firm, Membership, RlsProbe, Role, Tenant, User  # noqa: E402
-from tests import _env
+from app.tenancy.models import (  # noqa: E402
+    FIRM_ROLES,
+    Firm,
+    FirmMembership,
+    Membership,
+    RlsProbe,
+    Role,
+    Tenant,
+    User,
+)
+from tests import _env  # noqa: F401  (must run before any app import reads settings)
 from tests._env import OWNER_URL, RW_URL
 from tests.leaks import record_secret
 from tests.logcapture import ensure_capture
+from tests.probes import build_probe_router
+from tests.responses import record_response
 
 assert _env.ACTIVE_KEY_ID  # tests._env must be imported before settings are read
 get_settings.cache_clear()
 
+# Harness override (owner answer to call 7): keep bound parameters in SQL log lines
+# so test_zz_log_leaks can prove no secret is ever sent in clear. Production keeps
+# PRODUCTION_ENGINE_OPTIONS (hide_parameters=True, echo=False).
+app_db.ENGINE_OPTIONS["hide_parameters"] = False
+
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CSRF = {CSRF_HEADER: "fetch"}
 COOKIE = get_settings().session_cookie_name
+APP_ORIGIN = get_settings().app_base_url.rstrip("/")
 
 
 def alembic_config(owner_url: str) -> Config:
@@ -94,7 +123,9 @@ class SeedUser:
     password: str
     totp_secret: str | None
     recovery_codes: tuple[str, ...]
-    memberships: dict[uuid.UUID, Role] = field(default_factory=dict)
+    firm_role: Role | None = None
+    tenants: tuple[uuid.UUID, ...] = ()  # entry rows (firm user) or client rows
+    memberships: dict[uuid.UUID, Role] = field(default_factory=dict)  # client rows only
 
 
 @dataclass(frozen=True)
@@ -105,11 +136,12 @@ class Seed:
     tenant_new: uuid.UUID  # same firm, no members
     other_firm_id: uuid.UUID
     tenant_c: uuid.UUID  # other firm
-    user_id: uuid.UUID  # legacy F01 staff user: memberships in A and B, no password
+    user_id: uuid.UUID  # legacy F01 staff user: entry rows in A and B, no password
     users: dict[str, SeedUser]
 
 
 # key → (role, tenants, totp enrolled). Passwords are derived from the key.
+# A firm role means a firm_membership plus entry rows in the tenants.
 ROLE_USERS: dict[str, tuple[Role | None, tuple[str, ...], bool]] = {
     "firm_admin": (Role.firm_admin, ("a", "b"), True),
     "firm_staff": (Role.firm_staff, ("a", "b"), True),
@@ -117,13 +149,13 @@ ROLE_USERS: dict[str, tuple[Role | None, tuple[str, ...], bool]] = {
     "client_pm": (Role.client_pm, ("a",), False),
     "client_viewer": (Role.client_viewer, ("a",), False),
     "client_admin_b": (Role.client_admin, ("b",), False),
-    "firm_nototp": (Role.firm_staff, ("a",), False),  # firm role, nothing enrolled
-    "enrol_me": (Role.firm_staff, ("a",), False),  # enrolment flow test
+    "firm_nototp": (Role.firm_staff, ("a",), False),  # firm user, nothing enrolled: no login
     "recover_me": (Role.firm_staff, ("a", "b"), True),  # recovery-code test
     "replay_me": (Role.firm_staff, ("a",), True),  # TOTP replay test
-    "rotate_me": (Role.firm_admin, ("a", "b"), True),  # key-rotation test
+    "rotate_me": (Role.firm_admin, ("a", "b"), True),  # key-rotation test; second admin
     "lockme": (Role.client_viewer, ("a",), False),  # lockout test
     "scratch": (None, (), False),  # no membership; target of admin routes
+    "orphan": (None, ("a",), False),  # entry row in A, no firm_membership (D-15 orphan)
 }
 
 
@@ -149,8 +181,10 @@ def seed(migrated_db: None, owner_engine: Engine) -> Seed:
         legacy = User(email="staff@example.test", display_name="Firm Staff")
         s.add_all([*tenants.values(), legacy])
         s.flush()
+        s.add(FirmMembership(firm_id=firm.id, user_id=legacy.id, role=Role.firm_staff))
         tenant_ids = {k: t.id for k, t in tenants.items()}
         users: dict[str, SeedUser] = {}
+        pending_firm_rows: list[FirmMembership] = []  # inserted after the users exist
         for key, (role, tenant_keys, totp) in ROLE_USERS.items():
             uid = uuid.uuid4()
             pw = password_for(key)
@@ -174,14 +208,27 @@ def seed(migrated_db: None, owner_engine: Engine) -> Seed:
                     record_secret("recovery_code", c)
                 u.recovery_code_hashes = [hash_recovery_code(c) for c in codes]
             s.add(u)
+            firm_role = role if role in FIRM_ROLES else None
+            if firm_role is not None:
+                pending_firm_rows.append(
+                    FirmMembership(firm_id=firm.id, user_id=uid, role=firm_role)
+                )
             users[key] = SeedUser(
                 id=uid,
                 email=u.email,
                 password=pw,
                 totp_secret=secret,
                 recovery_codes=codes,
-                memberships={tenant_ids[t]: role for t in tenant_keys} if role else {},
+                firm_role=firm_role,
+                tenants=tuple(tenant_ids[t] for t in tenant_keys),
+                memberships=(
+                    {tenant_ids[t]: role for t in tenant_keys}
+                    if role is not None and firm_role is None
+                    else {}
+                ),
             )
+        s.flush()
+        s.add_all(pending_firm_rows)
         s.flush()
         ids = Seed(
             firm_id=firm.id,
@@ -195,21 +242,64 @@ def seed(migrated_db: None, owner_engine: Engine) -> Seed:
         )
     for tid, label in ((ids.tenant_a, "a-row"), (ids.tenant_b, "b-row")):
         with tenant_session(owner_engine, tid) as s:
-            s.add(Membership(tenant_id=tid, user_id=ids.user_id, role=Role.firm_staff))
+            s.add(Membership(tenant_id=tid, user_id=ids.user_id, role=None))
             s.add(RlsProbe(tenant_id=tid, label=label))
     for su in users.values():
-        for tid, role in su.memberships.items():
+        for tid in su.tenants:
             with tenant_session(owner_engine, tid) as s:
-                s.add(Membership(tenant_id=tid, user_id=su.id, role=role))
+                s.add(Membership(tenant_id=tid, user_id=su.id, role=su.memberships.get(tid)))
     return ids
+
+
+@pytest.fixture
+def scratch_db_url(owner_engine: Engine) -> Iterator[str]:
+    """An empty database for migration and bootstrap tests, dropped afterwards."""
+    from sqlalchemy import make_url
+
+    name = f"wip_mig_{uuid.uuid4().hex[:8]}"
+    with owner_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        conn.execute(text(f'CREATE DATABASE "{name}"'))
+    try:
+        yield make_url(OWNER_URL).set(database=name).render_as_string(hide_password=False)
+    finally:
+        with owner_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text(f'DROP DATABASE "{name}" WITH (FORCE)'))
 
 
 # --- HTTP clients and login helpers --------------------------------------------------------
 
+_ip_counter = 0
 
-def make_client() -> TestClient:
+
+def next_ip() -> str:
+    """A fresh socket address per client: throttle buckets never collide."""
+    global _ip_counter
+    _ip_counter += 1
+    n = _ip_counter
+    return f"10.{(n >> 16) & 255}.{(n >> 8) & 255}.{n & 255}"
+
+
+class RecordingClient(TestClient):
+    """Records every response body for ``test_zz_response_scan``."""
+
+    def request(self, method, url, *args, **kwargs):  # type: ignore[override]
+        r = super().request(method, url, *args, **kwargs)
+        record_response(method, str(url), r.status_code, r.content)
+        return r
+
+
+def make_client(ip: str | None = None) -> RecordingClient:
+    app = create_app()
+    app.include_router(build_probe_router(), prefix="/api")  # test-only routes
     # https so the Secure cookie is sent back by the client's cookie jar.
-    return TestClient(create_app(), base_url="https://testserver")
+    ip = ip or next_ip()
+    c = RecordingClient(app, base_url="https://testserver", client=(ip, 50000))
+    c.ip = ip  # type: ignore[attr-defined]
+    return c
+
+
+def client_ip_of(client: TestClient) -> str:
+    return client.ip  # type: ignore[attr-defined]
 
 
 @pytest.fixture
@@ -222,7 +312,7 @@ def client(migrated_db: None) -> Iterator[TestClient]:
 def clients(migrated_db: None) -> Iterator[Callable[[], TestClient]]:
     """Factory for several independent clients (separate cookie jars) in one test."""
     with ExitStack() as stack:
-        yield lambda: stack.enter_context(make_client())
+        yield lambda **kw: stack.enter_context(make_client(**kw))
 
 
 def record_cookie(client: TestClient) -> str | None:
@@ -235,6 +325,14 @@ def totp_code(secret: str, at: datetime | None = None) -> str:
     code = totp_code_at(secret, at or datetime.now(UTC))
     record_secret("totp_code", code)
     return code
+
+
+def activation_token_from(url: str) -> str:
+    parsed = urlparse(url)
+    assert parsed.query == "", "the activation token must not travel in a query string"
+    token = parse_qs(parsed.fragment)["token"][0]
+    record_secret("activation_token", token)
+    return token
 
 
 def reset_totp_counter(owner_engine: Engine, user_id: uuid.UUID) -> None:

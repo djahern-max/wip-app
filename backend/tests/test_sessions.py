@@ -145,3 +145,49 @@ def test_tenant_header_has_no_effect(login_as: Callable[..., TestClient], seed: 
 def test_request_id_is_echoed(client: TestClient) -> None:
     r = client.get("/api/health")
     assert len(r.headers["X-Request-Id"]) == 32
+
+
+def test_session_deleted_by_an_admin_is_401_on_its_very_next_request(
+    login_as: Callable[..., TestClient], seed: Seed
+) -> None:
+    victim = login_as("client_viewer")
+    assert victim.get("/api/session/me").status_code == 200
+    admin = login_as("firm_admin")
+    r = admin.post(
+        f"/api/admin/users/{seed.users['client_viewer'].id}/activation-link", headers=CSRF
+    )
+    assert r.status_code == 200
+    from tests.conftest import activation_token_from
+
+    activation_token_from(r.json()["activation_url"])
+    assert victim.get("/api/session/me").status_code == 401  # the very next request
+
+
+def test_last_seen_is_written_only_when_stale(
+    client: TestClient, seed: Seed, owner_engine: Engine, rw_engine: Engine
+) -> None:
+    su = seed.users["client_viewer"]
+    password_login(client, su)
+    token = record_cookie(client)
+    h = hashlib.sha256(token.encode()).hexdigest()
+
+    def last_seen():
+        with rw_engine.connect() as conn:
+            return conn.execute(
+                select(UserSession.last_seen_at).where(UserSession.token_hash == h)
+            ).scalar_one()
+
+    before = last_seen()
+    assert client.get("/api/session/me").status_code == 200
+    assert last_seen() == before  # fresh: no write
+    with untenanted_session(owner_engine) as s:
+        s.execute(
+            text(
+                "UPDATE session SET last_seen_at = now() - interval '61 seconds' "
+                "WHERE token_hash = :h"
+            ),
+            {"h": h},
+        )
+    stale = last_seen()
+    assert client.get("/api/session/me").status_code == 200
+    assert last_seen() > stale  # stale by more than SESSION_TOUCH_SECONDS: written

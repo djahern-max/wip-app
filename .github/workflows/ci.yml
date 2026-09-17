@@ -26,6 +26,11 @@ jobs:
       DATABASE_OWNER_URL: postgresql+psycopg://app_owner:app_owner_dev@localhost:5433/wip
     steps:
       - uses: actions/checkout@v4
+      - name: Refuse a tracked .env (F02.1)
+        run: |
+          if git ls-files --error-unmatch .env >/dev/null 2>&1; then
+            echo "::error::.env is tracked; it must never be committed"; exit 1
+          fi
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -34,9 +39,12 @@ jobs:
       - name: Install
         working-directory: backend
         run: pip install -e '.[dev]'
-      - name: Lint
+      - name: Lint (ruff pinned to the local version, F02.1)
         working-directory: backend
-        run: ruff check . && ruff format --check .
+        run: |
+          pip install ruff==0.16.8
+          ruff --version | grep -q '0.16.8'
+          ruff check . && ruff format --check .
       - name: Migration up / down on empty database
         working-directory: backend
         run: alembic upgrade head && alembic downgrade base && alembic upgrade head

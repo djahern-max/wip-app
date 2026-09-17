@@ -1,5 +1,7 @@
-"""Alembic environment. Migrations run as ``app_owner`` (DATABASE_OWNER_URL)."""
+"""Alembic environment. Migrations run as ``app_owner`` (DATABASE_OWNER_URL), which
+is required here and only here (the API process never holds it, F02.1)."""
 
+import sys
 from logging.config import fileConfig
 
 from alembic import context
@@ -19,8 +21,11 @@ target_metadata = Base.metadata
 
 
 def _owner_url() -> str:
-    # Tests pass the URL through alembic's -x option / config attributes.
-    return config.get_main_option("owner_url") or get_settings().database_owner_url
+    # Tests pass the URL through alembic's config attributes.
+    url = config.get_main_option("owner_url") or get_settings().database_owner_url
+    if not url:
+        sys.exit("missing required environment variable(s): DATABASE_OWNER_URL")
+    return url
 
 
 def run_migrations_offline() -> None:

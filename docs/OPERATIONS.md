@@ -55,9 +55,12 @@ COMMIT;
 SELECT count(*) FROM membership;      -- 0: no context outside the transaction
 ```
 
-## Authentication and sessions (F02)
+## Authentication and sessions (F02, F02.1)
 
-Settings (environment; see `.env.example`):
+Settings (environment; see `.env.example`). **Required, no default**: `DATABASE_URL`,
+`CRYPTO_KEYS`, `CRYPTO_ACTIVE_KEY_ID`; the API exits at start-up naming the missing
+variable (never its value). `DATABASE_OWNER_URL` is required only where Alembic runs.
+`ENV_FILE` points at the env file (default: repo-root `.env`).
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -65,88 +68,146 @@ Settings (environment; see `.env.example`):
 | `SESSION_ABSOLUTE_HOURS` | 12 | A session ends this long after login regardless of use. |
 | `SESSION_COOKIE_SECURE` | true | `Secure` flag on the cookie. Keep `true`; Chrome and Firefox accept Secure cookies on `http://localhost`. |
 | `SESSION_COOKIE_NAME` | sid | Cookie name. |
-| `LOGIN_LOCKOUT_ATTEMPTS` / `LOGIN_LOCKOUT_MINUTES` | 5 / 15 | Failures inside the window lock the account for the window. |
-| `PASSWORD_RESET_TTL_HOURS` | 24 | Lifetime of a one-time reset link. |
-| `APP_BASE_URL` | http://localhost:5173 | Prefix of reset links. |
+| `SESSION_TOUCH_SECONDS` | 60 | `last_seen_at` is written (in its own short transaction) only when at least this stale. |
+| `ENROL_SESSION_TTL_MINUTES` | 15 | Lifetime of the enrolment-only session a firm user's activation link opens (D-16). |
+| `LOGIN_LOCKOUT_ATTEMPTS` / `LOGIN_LOCKOUT_MINUTES` | 5 / 15 | Failures inside the window lock the **account** for the window. |
+| `IP_THROTTLE_FAILURES` / `IP_THROTTLE_MINUTES` | 20 / 15 | Failures from one **IP** inside the window return 429 for the rest of it. |
+| `TRUSTED_PROXY_COUNT` | 0 | Reverse proxies in front of the API (below). |
+| `ACTIVATION_LINK_TTL_HOURS` | 72 | Lifetime of a one-time activation link. |
+| `APP_BASE_URL` | http://localhost:5173 | Prefix of activation links, and the only `Origin` allowed on state-changing browser requests. |
 | `CRYPTO_KEYS`, `CRYPTO_ACTIVE_KEY_ID` | (none) | Encryption key ring; see below. |
 
 Every `POST`/`PUT`/`PATCH`/`DELETE` under `/api/` must carry the header
-`X-Requested-With` (any value). The React client sends it; a script must too:
+`X-Requested-With` (any value), and a browser request must carry an `Origin` equal to
+`APP_BASE_URL`; a request without `Origin` (curl, the CLI) passes. Preflights and
+foreign-origin requests get 403 with no `Access-Control-*` headers. A script:
 
 ```sh
 curl -c jar -b jar -H 'X-Requested-With: cli' -H 'Content-Type: application/json' \
   -d '{"email":"you@firm.test","password":"…"}' http://localhost:8000/api/auth/login
 ```
 
-### Bootstrap the first `firm_admin`
+### Client IP and `TRUSTED_PROXY_COUNT`
 
-There is no signup. On a fresh database, from `backend/` with `.env` in place
-(`DATABASE_URL` is the `app_rw` role; migrations already applied):
+The IP written to audit rows and used for the throttle is the socket address unless
+`TRUSTED_PROXY_COUNT` is N > 0, in which case it is the N-th address from the right
+of `X-Forwarded-For` (the address the outermost trusted proxy saw). With the header
+missing or shorter than N entries, the socket address is used. Set N to the number of
+proxies you control in front of the API and no more: with N = 0 a forged
+`X-Forwarded-For` has no effect; with N too high a client can choose its own bucket.
+
+### Bootstrap the practice (no tenant needed)
+
+There is no signup and the CLI never sets a password: every account is activated
+through a one-time link (D-16). From `backend/` with `.env` in place (`DATABASE_URL`
+is the `app_rw` role; migrations already applied):
 
 ```sh
-printf '%s\n' 'a-long-passphrase-here' > /tmp/pw && chmod 600 /tmp/pw
-.venv/bin/python scripts/create_user.py --email you@firm.test --display-name "Your Name" \
-    --create-tenant rye-beach:"Rye Beach Landscaping" --firm-name "Your CPA Practice" \
-    --membership rye-beach:firm_admin --password-stdin < /tmp/pw
-rm /tmp/pw
+.venv/bin/python scripts/create_user.py bootstrap --firm-name "Your CPA Practice" \
+    --email you@firm.test --display-name "Your Name"
 ```
 
-`--create-tenant` creates the firm (if none exists) and the tenant (if the slug is
-new). Firm authority is derived from memberships (see the F02 plan in the feature
-brief), so the first admin needs at least one `firm_admin` membership. At first
-login the admin is asked to enrol TOTP (QR code or manual key) and is shown ten
-recovery codes once. Every step writes to `firm_audit_log` with `detail.via = "cli"`.
+This creates the firm, the user, and their `firm_admin` row in `firm_membership`
+(D-15), and prints the activation link **once, to stdout** (it is never logged).
+Open the link: set the password, scan the QR code (or type the key), confirm a
+code, save the ten recovery codes. Only then is the account usable. Signed in, the
+admin creates the first tenant and their own entry row:
 
-Further users are created by a `firm_admin` in the app (`POST /api/admin/users`),
-or with the same script without `--create-tenant`.
+```sh
+# as the signed-in firm_admin (cookie jar from the login above)
+curl -b jar -H 'X-Requested-With: cli' -H 'Content-Type: application/json' \
+  -d '{"name":"Rye Beach Landscaping","slug":"rye-beach"}' http://localhost:8000/api/admin/tenants
+curl -b jar -H 'X-Requested-With: cli' -H 'Content-Type: application/json' \
+  -d '{"user_id":"<your user id>"}' http://localhost:8000/api/admin/tenants/<tenant id>/memberships
+```
 
-### Password reset
+`POST /api/admin/tenants` creates the bare tenant row in the caller's firm (the firm
+never comes from the request); tenant configuration is F04. A membership request
+with no `role` writes an **entry row** for a firm user; a client user needs a client
+role. Every step writes to `firm_audit_log` or the tenant's `audit_log`.
 
-1. Normal path: a `firm_admin` calls `POST /api/admin/users/{user_id}/password-reset`
-   (or creates the user without a password). The response contains a one-time link
-   (`APP_BASE_URL/reset-password?token=…`, valid `PASSWORD_RESET_TTL_HOURS`). Hand it
-   to the user out of band; **no e-mail is sent in F02**. Issuing the link ends the
-   user's sessions; the old password keeps working until the link is used. Audit:
-   `password_reset_issued`, then `password_changed` (`via: reset_link`).
-2. Last resort (a `firm_admin` locked out): `scripts/create_user.py --email … --reset-password`
-   sets the password directly and ends all sessions. Audit: `password_changed` (`via: cli`).
+### Users, entry rows, firm memberships
 
-A user changes their own password with `POST /api/auth/password/change`.
+- Create a user: `POST /api/admin/users {email, display_name}` → the response carries
+  `activation_url`; or `scripts/create_user.py create-user --email … --display-name …`
+  with `--firm-role firm_staff --entry <slug>…` for a firm user, or
+  `--membership <slug>:client_pm` for a client user.
+- Firm roles: `GET/POST /api/admin/firm-memberships`, `PUT/DELETE
+  /api/admin/firm-memberships/{user_id}`. A user holds either a firm role (and entry
+  rows) or client roles, never both in one firm; the API refuses the mix. The last
+  `firm_admin` cannot be removed or demoted. Any change to a firm membership ends the
+  user's sessions.
+- Removing a firm membership commits first (row, audit, sessions), then removes the
+  user's entry rows one tenant per transaction. If that is interrupted, the user
+  already has no access anywhere (an entry row without a firm membership grants
+  nothing); repeat the `DELETE` to finish the cleanup.
+
+### Activation links (password reset, first login)
+
+1. A `firm_admin` calls `POST /api/admin/users/{user_id}/activation-link` (or the CLI:
+   `scripts/create_user.py issue-link --email …`). The response is a one-time link,
+   `APP_BASE_URL/activate#token=…`, valid `ACTIVATION_LINK_TTL_HOURS`. The token is in the
+   URL fragment, which browsers never send to a server, so it stays out of access logs;
+   the page posts it in the request body and clears the address bar. Hand it over
+   directly; **no e-mail is sent**. Issuing a link ends the user's sessions and voids
+   any earlier unredeemed link; the old password keeps working until the link is used.
+2. Redeeming sets the password. For a firm user without TOTP it opens a 15-minute
+   enrolment-only session in which the app enrols TOTP and shows the recovery codes;
+   the account is unusable until that completes (a password login for a firm user
+   without TOTP is the generic failure). If the flow is abandoned, issue a new link.
+3. Audit: `activation_link_issued`, then `password_changed` (`via: activation_link`).
+   A failed redemption is a `login_failure` (step `link`) with no firm and never the
+   token.
+
+A user changes their own password with `POST /api/auth/password/change`; this ends
+every session, the caller's included.
 
 ### TOTP reset
 
-1. Normal path: `POST /api/admin/users/{user_id}/totp-reset` by a `firm_admin`.
-   Clears the secret and recovery codes, ends the user's sessions; the user enrols
-   again at next login. Audit: `totp_reset` (`via: admin`).
-2. Last resort: `scripts/create_user.py --email … --reset-totp`. Audit: `totp_reset` (`via: cli`).
+`POST /api/admin/users/{user_id}/totp-reset` (or `scripts/create_user.py reset-totp
+--email …`) clears the secret and recovery codes, ends the user's sessions, and
+returns a new activation link that enrols TOTP again. Audit: `totp_reset`, then
+`activation_link_issued`. A user who still has recovery codes can sign in with one
+(`POST /api/auth/totp/recover`, each once, audited as `recovery_code_used`) and ask
+for a reset.
 
-If a user has lost the authenticator but still has recovery codes, they can sign in
-with one (`POST /api/auth/totp/recover`; each code works once, audited as
-`recovery_code_used`) and then ask for a reset.
-
-### Lockout
+### Lockout and throttle
 
 Five failed password or code attempts inside 15 minutes lock the account for 15
-minutes (`account_locked` in `firm_audit_log`). The lock expires on its own. To lift
-it early, as `app_owner`:
+minutes (`account_locked`). Twenty failures from one IP inside 15 minutes throttle
+the IP for the rest of the window: one `ip_throttled` row is written and further
+attempts from that IP get 429 and write nothing. Both expire on their own. To lift an
+account lock early, as `app_owner`:
 
 ```sql
 UPDATE "user" SET locked_until = NULL, failed_login_count = 0 WHERE email = '…';
 ```
+
+An IP throttle cannot be lifted early without deleting audit rows, which the tables
+refuse; wait for the window.
+
+### Owner browser pass (closes the F02 and F02.1 frontend criteria)
+
+With `make api` and `npm run dev` running: `scripts/create_user.py create-user
+--email … --display-name … --firm-role firm_staff --entry rye-beach` → open the printed
+link in the browser → set the password → scan the QR code → confirm → save the
+recovery codes → sign in with password and code → switch tenants → sign out. To
+repeat with an existing user: `scripts/create_user.py issue-link --email …`.
 
 ### Encryption key rotation
 
 `CRYPTO_KEYS` is a comma-separated ring `key_id:base64key` of 32-byte keys;
 `CRYPTO_ACTIVE_KEY_ID` names the key that encrypts new values. Every key in the
 ring can decrypt, and each ciphertext carries its key id. F02 encrypts TOTP secrets;
-F03 will use the same ring for OAuth tokens.
+F03 will use the same ring for OAuth tokens. No key material is ever committed:
+`.env.example` holds placeholders and CI fails if `.env` is tracked.
 
 1. Generate: `python -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())"`.
 2. Add the new key to `CRYPTO_KEYS` (keep the old one) and point
    `CRYPTO_ACTIVE_KEY_ID` at it. Restart the API. New enrolments use the new key;
    existing rows still decrypt with the old key.
 3. Re-encrypt existing rows under the new key (a maintenance task; for TOTP secrets
-   in F02 the practical route is a TOTP reset per user, or wait for the re-encrypt
+   the practical route is a TOTP reset per user, or wait for the re-encrypt
    command that F03 adds with token storage).
 4. Only when no row references the old key id
    (`SELECT count(*) FROM "user" WHERE totp_key_id = 'old'`), remove it from the ring.
@@ -155,11 +216,14 @@ F03 will use the same ring for OAuth tokens.
 
 ### Reading the audit tables
 
-- `GET /api/firm-audit` (firm roles): logins, lockouts, TOTP and password events,
-  user creation. Keyed by `firm_id`; rows with no derivable firm (unknown e-mail) have
-  `firm_id = NULL`.
+- `GET /api/firm-audit` (firm roles): logins, lockouts, throttles, TOTP and password
+  events, user and tenant creation, firm membership changes. Keyed by `firm_id`; rows
+  with no firm (unknown e-mail, failed link redemption, IP throttle) are shown to
+  `firm_admin` only. An unknown e-mail is stored as `email_sha256`, never in clear.
 - `GET /api/audit` (firm roles and `client_admin`; active tenant): `tenant_enter` and
-  membership changes for that tenant.
+  membership changes for that tenant (entry rows appear with `role: entry`).
 - Both tables are insert-only by trigger (D-13): `UPDATE`, `DELETE`, `TRUNCATE`
   fail for every role, including `app_owner`. There is no supported way to edit
   them; a wrong row is corrected by a later row.
+- Database errors are logged as SQLSTATE plus the server's primary message only; the
+  engine hides bound parameters, so no row value reaches a log or an error body.
