@@ -22,6 +22,7 @@ Newest first. One entry per closed feature or decision. Format:
 **Not received**: the D-22 text and the CLAUDE.md "Interface conventions" section (3a) were never pasted; `docs/DECISIONS.md` and CLAUDE.md carry neither yet.
 **Migrations**: none. **Decisions referenced / made**: D-13, D-15, D-16, D-19, D-20; D-22 pending text. **Dependencies added**: none.
 **Follow-ups**: owner browser pass (unticked); the F03 brief's "task stops at max_attempts" wording for parse errors is superseded by this entry.
+**Correction (2026-09-18, D-22)**: the "Interface conventions" text *had* been received: it was appended to the end of CLAUDE.md in the working tree and went into commit d0b08d1 unnoticed. D-22 is now in `docs/DECISIONS.md` and the section sits after "Code conventions" (commit "D-22 · interface conventions"). Imports-page deviations from the section are listed in that commit's message and under Discovered in `current-feature.md`.
 
 ---
 

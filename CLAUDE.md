@@ -69,6 +69,16 @@ The owner is a CPA and the domain expert. When accounting treatment is unclear, 
 - The product name appears in exactly one backend constant and one frontend constant. The name is not final.
 - Dates: accounting dates are `date`, not `datetime`. Period boundaries are tenant-local calendar months. Timestamps are UTC.
 
+### Interface conventions
+- Plain and quiet. Semantic HTML and one small hand-written stylesheet. No CSS framework, component library, icon set, or chart library without a decision (new dependencies already require one).
+- System font stack. One accent colour, used only for the primary action and links. No gradients, shadows, animations, or decorative imagery.
+- One primary action per screen. Labels say what happens ("Upload file", "Approve period"), in the vocabulary of this file. No jargon the owner would not use with a client.
+- Data is shown in tables. Numbers are right-aligned with tabular figures; money always shows cents; negatives are in parentheses, never a minus sign; zero is shown as 0.00, never a dash or blank. Totals rows are visually distinct. Columns use the names in BLUEPRINT §8.2 exactly.
+- Every report shows its period, tenant name, and the tie-out status on screen, and the legend (§8.7) on every export.
+- Status is words first, colour second (colour alone never carries meaning). Errors say what happened and what to do next, in one sentence.
+- Every form control has a label, works by keyboard, and its submit control is disabled while a request is in flight.
+- Every screen is legible and usable on a phone. Read-only reports are the priority: a wide table scrolls sideways inside its own container with the first column (job or account) held in place, and the page itself never scrolls sideways. Data-entry and admin screens must work on a phone but are designed for a laptop first.
+
 ## Vocabulary (use these words in code and UI)
 - **Estimate**: a priced proposal from the estimating system. **Job**: the unit we track and report. One job has one or more estimates (roles: original, change_order, ignored).
 - **Revised contract** = original + approved change orders. **EAC** = estimated total cost at completion. **Cost to date**, **Billed to date**, **Earned revenue**, **Over/(under) billed**, **Backlog**, **Fade/Gain**: as defined in BLUEPRINT §8.2. Do not invent synonyms.
@@ -81,13 +91,3 @@ The owner is a CPA and the domain expert. When accounting treatment is unclear, 
 - Any new table without `tenant_id`.
 - Any new third-party dependency or external API.
 - Any place where source data is ambiguous and you are tempted to guess (which estimate is the original, which invoice is the deposit, which account is job cost).
-
-### Interface conventions
-- Plain and quiet. Semantic HTML and one small hand-written stylesheet. No CSS framework, component library, icon set, or chart library without a decision (new dependencies already require one).
-- System font stack. One accent colour, used only for the primary action and links. No gradients, shadows, animations, or decorative imagery.
-- One primary action per screen. Labels say what happens ("Upload file", "Approve period"), in the vocabulary of this file. No jargon the owner would not use with a client.
-- Data is shown in tables. Numbers are right-aligned with tabular figures; money always shows cents; negatives are in parentheses, never a minus sign; zero is shown as 0.00, never a dash or blank. Totals rows are visually distinct. Columns use the names in BLUEPRINT §8.2 exactly.
-- Every report shows its period, tenant name, and the tie-out status on screen, and the legend (§8.7) on every export.
-- Status is words first, colour second (colour alone never carries meaning). Errors say what happened and what to do next, in one sentence.
-- Every form control has a label, works by keyboard, and its submit control is disabled while a request is in flight.
-- Every screen is legible and usable on a phone. Read-only reports are the priority: a wide table scrolls sideways inside its own container with the first column (job or account) held in place, and the page itself never scrolls sideways. Data-entry and admin screens must work on a phone but are designed for a laptop first.
