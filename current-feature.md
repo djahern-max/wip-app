@@ -1,42 +1,27 @@
 # current-feature.md
 
-_No feature in flight (2026-09-17)._ F03 is built; its brief is `docs/briefs/F03.md`.
-The owner's browser pass (last F03 acceptance criterion) is still open: with `make api`,
-`make web`, `make worker` running, upload a file as `unparsed_file` → status reaches
-`loaded` after a manual Refresh → upload the same file again and see the duplicate notice
-and still one row → download it and get the same bytes → stop the worker, upload a
-different file, see it wait at `received`, start the worker, see it complete. When done,
-tick it in `docs/briefs/F03.md` and flip F03 to ☑ in `ROADMAP.md`. D-19–D-21 are in
-`docs/DECISIONS.md` (the staged file `DECISIONS_D-19_to_D-21.md` at the repo root can go).
+_No feature in flight (2026-09-18)._ **F03 · Ingestion framework closed 2026-09-18**; its
+brief is `docs/briefs/F03.md` (built 2026-09-17; close-out fixes, F03.1 interface baseline
+and the owner's browser pass 2026-09-18). D-22 and the CLAUDE.md "Interface conventions"
+section are in place (78aa6a0); the earlier "not received" and "still owed" notes are
+closed, not deleted: see the correction lines in the CHANGELOG close-out entry.
 
-**Local dev database note (2026-09-17)**: the `wip` database was emptied by a migration
-round-trip run during F03 close-out. Rebuild it with the four commands under
-"Rebuild local dev data" in `docs/OPERATIONS.md` before the browser pass. Downgrades
-are now guarded (CLAUDE.md Workflow 7).
+**Local dev data**: rebuilt by the owner for the browser pass. If it is ever wiped again,
+follow "Rebuild local dev data" in `docs/OPERATIONS.md`; downgrades are guarded
+(CLAUDE.md Workflow 7).
 
-**Still owed from the F03 review (2026-09-18)**: the D-22 text for `docs/DECISIONS.md`
-and the CLAUDE.md "Interface conventions" section were never received; the owner
-pastes them. `formatMoney`, the 390 px layout and the cursor function are built.
-**Correction (2026-09-18)**: the "Interface conventions" section had been received (it was
-at the end of CLAUDE.md and went into d0b08d1); it now sits after "Code conventions", and
-D-22 is in `docs/DECISIONS.md`. Nothing is still owed for D-22.
-
-Next per ROADMAP: **F04 · Tenant configuration**. Copy its block here, expand it, and
-restate the acceptance criteria before coding.
+Next per ROADMAP: **F04 · Tenant configuration**. Not started; the owner supplies the
+brief. Copy it here, expand it, and restate the acceptance criteria before coding.
 
 ## Discovered
 Carried from F03 (`docs/briefs/F03.md`, Discovered):
 - **Money in API responses (F08).** FastAPI's default encoder turns `Decimal` into
   `float` on the way out; the first feature that returns money must serialize it as a
-  string through the response schemas, with a response-scan assertion.
+  string through the response schemas, with a response-scan assertion. The frontend
+  side is ready: `formatMoney` in `frontend/src/money.js` takes the string.
 - **`sync_run` and `connection` have no API yet** (F05).
-- **Imports page vs. D-22 (checked 2026-09-18).** Fixed in F03.1 · interface baseline
-  (2026-09-18): (a) one stylesheet `frontend/src/styles.css`, no inline styles, static
-  test — done; (b) numbers right-aligned with tabular figures — done; (c) "Upload file"
-  in the accent colour, one primary action per screen — done; (d) human labels and
-  plain messages, machine detail in `error_detail` and the log — done; (e) Imports keeps
-  cards below 640 px — carried, by design for an admin screen: reports (F08+) must use
-  the `.table-wrap` container-scroll pattern with the first column held.
+- **Imports keeps cards below 640 px** (by design for an admin screen). Reports (F08+)
+  must use the `.table-wrap` container-scroll pattern with the first column held.
 
 Carried from F02.1 (`docs/briefs/F02.1.md`, Discovered), still open:
 - **Pending TOTP secret is per user, not per session.** Deferred by the owner
