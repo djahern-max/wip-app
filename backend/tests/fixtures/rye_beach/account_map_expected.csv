@@ -1,0 +1,160 @@
+account_no,division,cost_category,in_job_cost,rule
+1010,,,false,outside income and cost of goods sold
+1020,,,false,outside income and cost of goods sold
+1030,,,false,outside income and cost of goods sold
+1040,,,false,outside income and cost of goods sold
+1050,,,false,outside income and cost of goods sold
+1060,,,false,outside income and cost of goods sold
+1200,,,false,outside income and cost of goods sold
+1310,,,false,outside income and cost of goods sold
+1320,,,false,outside income and cost of goods sold
+1330,,,false,outside income and cost of goods sold
+1510,,,false,outside income and cost of goods sold
+1590,,,false,outside income and cost of goods sold
+2000,,,false,outside income and cost of goods sold
+2110,,,false,outside income and cost of goods sold
+2120,,,false,outside income and cost of goods sold
+2130,,,false,outside income and cost of goods sold
+2140,,,false,outside income and cost of goods sold
+2310,,,false,outside income and cost of goods sold
+2510,,,false,outside income and cost of goods sold
+2515,,,false,outside income and cost of goods sold
+2520,,,false,outside income and cost of goods sold
+2525,,,false,outside income and cost of goods sold
+2530,,,false,outside income and cost of goods sold
+2560,,,false,outside income and cost of goods sold
+2565,,,false,outside income and cost of goods sold
+2570,,,false,outside income and cost of goods sold
+2600,,,false,outside income and cost of goods sold
+2620,,,false,outside income and cost of goods sold
+2625,,,false,outside income and cost of goods sold
+2640,,,false,outside income and cost of goods sold
+2645,,,false,outside income and cost of goods sold
+2650,,,false,outside income and cost of goods sold
+2680,,,false,outside income and cost of goods sold
+2685,,,false,outside income and cost of goods sold
+2720,,,false,outside income and cost of goods sold
+2725,,,false,outside income and cost of goods sold
+2730,,,false,outside income and cost of goods sold
+2760,,,false,outside income and cost of goods sold
+2780,,,false,outside income and cost of goods sold
+2785,,,false,outside income and cost of goods sold
+3100,,,false,outside income and cost of goods sold
+3200,,,false,outside income and cost of goods sold
+3210,,,false,outside income and cost of goods sold
+3900,,,false,outside income and cost of goods sold
+4100,LS,,false,income by division
+4200,EX,,false,income by division
+4300,GC,,false,income by division
+4400,SNOW,,false,income by division
+4510,MS,,false,income by division
+4520,MS,,false,income by division
+4800,DES,,false,income by division
+5100,LS,,false,division header
+5110,LS,Labor,true,division cost slot
+5120,LS,Labor Burden,true,division cost slot
+5130,LS,Materials,true,division cost slot
+5135,LS,Supplies,true,division cost slot
+5140,LS,Subcontractors,true,division cost slot
+5150,LS,Equipment Rental,true,division cost slot
+5160,LS,Disposal,true,division cost slot
+5170,LS,Permits & Bonds,true,division cost slot
+5180,LS,Warranty,true,division cost slot
+5200,EX,,false,division header
+5210,EX,Labor,true,division cost slot
+5220,EX,Labor Burden,true,division cost slot
+5230,EX,Materials,true,division cost slot
+5235,EX,Supplies,true,division cost slot
+5240,EX,Subcontractors,true,division cost slot
+5250,EX,Equipment Rental,true,division cost slot
+5260,EX,Disposal,true,division cost slot
+5270,EX,Permits & Bonds,true,division cost slot
+5280,EX,Warranty,true,division cost slot
+5300,GC,,false,division header
+5310,GC,Labor,true,division cost slot
+5320,GC,Labor Burden,true,division cost slot
+5330,GC,Materials,true,division cost slot
+5335,GC,Supplies,true,division cost slot
+5340,GC,Subcontractors,true,division cost slot
+5355,GC,Equipment Maintenance,true,division cost slot
+5400,SNOW,,false,division header
+5410,SNOW,Labor,true,division cost slot
+5420,SNOW,Labor Burden,true,division cost slot
+5430,SNOW,Materials,true,division cost slot
+5435,SNOW,Supplies,true,division cost slot
+5450,SNOW,Equipment Rental,true,division cost slot
+5500,MS,,false,material sales
+5510,MS,Materials,false,material sales
+5520,MS,Materials,false,material sales
+5600,,,false,shared fuel
+5610,,Fuel,false,shared fuel
+5620,,Fuel,false,shared fuel
+5630,,Fuel,false,shared fuel
+6100,,,false,outside income and cost of goods sold
+6110,,,false,outside income and cost of goods sold
+6120,,,false,outside income and cost of goods sold
+6130,,,false,outside income and cost of goods sold
+6140,,,false,outside income and cost of goods sold
+6150,,,false,outside income and cost of goods sold
+6200,,,false,outside income and cost of goods sold
+6210,,,false,outside income and cost of goods sold
+6215,,,false,outside income and cost of goods sold
+6220,,,false,outside income and cost of goods sold
+6225,,,false,outside income and cost of goods sold
+6240,,,false,outside income and cost of goods sold
+6250,,,false,outside income and cost of goods sold
+6260,,,false,outside income and cost of goods sold
+6270,,,false,outside income and cost of goods sold
+6280,,,false,outside income and cost of goods sold
+6290,,,false,outside income and cost of goods sold
+6300,,,false,outside income and cost of goods sold
+6310,,,false,outside income and cost of goods sold
+6320,,,false,outside income and cost of goods sold
+6330,,,false,outside income and cost of goods sold
+6400,,,false,outside income and cost of goods sold
+6410,,,false,outside income and cost of goods sold
+6420,,,false,outside income and cost of goods sold
+6430,,,false,outside income and cost of goods sold
+6500,,,false,outside income and cost of goods sold
+6510,,,false,outside income and cost of goods sold
+6520,,,false,outside income and cost of goods sold
+6530,,,false,outside income and cost of goods sold
+6540,,,false,outside income and cost of goods sold
+6550,,,false,outside income and cost of goods sold
+6600,,,false,outside income and cost of goods sold
+6610,,,false,outside income and cost of goods sold
+6620,,,false,outside income and cost of goods sold
+6625,,,false,outside income and cost of goods sold
+6630,,,false,outside income and cost of goods sold
+6635,,,false,outside income and cost of goods sold
+6650,,,false,outside income and cost of goods sold
+6655,,,false,outside income and cost of goods sold
+6660,,,false,outside income and cost of goods sold
+6700,,,false,outside income and cost of goods sold
+6710,,,false,outside income and cost of goods sold
+6720,,,false,outside income and cost of goods sold
+6800,,,false,outside income and cost of goods sold
+6810,,,false,outside income and cost of goods sold
+6820,,,false,outside income and cost of goods sold
+6825,,,false,outside income and cost of goods sold
+6840,,,false,outside income and cost of goods sold
+6850,,,false,outside income and cost of goods sold
+6860,,,false,outside income and cost of goods sold
+6870,,,false,outside income and cost of goods sold
+6900,,,false,outside income and cost of goods sold
+6910,,,false,outside income and cost of goods sold
+6920,,,false,outside income and cost of goods sold
+7000,,,false,outside income and cost of goods sold
+7010,,,false,outside income and cost of goods sold
+7100,,,false,outside income and cost of goods sold
+7110,,,false,outside income and cost of goods sold
+7120,,,false,outside income and cost of goods sold
+7130,,,false,outside income and cost of goods sold
+7200,,,false,outside income and cost of goods sold
+7210,,,false,outside income and cost of goods sold
+7220,,,false,outside income and cost of goods sold
+8010,,,false,outside income and cost of goods sold
+8020,,,false,outside income and cost of goods sold
+9010,,,false,outside income and cost of goods sold
+9020,,,false,outside income and cost of goods sold
+9030,,,false,outside income and cost of goods sold

@@ -1,0 +1,160 @@
+account_no,account_name,ledger_type
+1010,Bank account 01,Bank
+1020,Bank account 02,Bank
+1030,Bank account 03,Bank
+1040,Bank account 04,Bank
+1050,Bank account 05,Bank
+1060,Bank account 06,Bank
+1200,Accounts Receivable,Accounts receivable
+1310,Undeposited Funds,Other Current Assets
+1320,Employee Advances,Other Current Assets
+1330,Prepaid Expenses,Other Current Assets
+1510,Equipment,Fixed Assets
+1590,Accumulated Depreciation,Fixed Assets
+2000,Accounts Payable,Accounts payable
+2110,Credit card 01,Credit Card
+2120,Credit card 02,Credit Card
+2130,Credit card 03,Credit Card
+2140,Credit card 04,Credit Card
+2310,Line of credit 01,Other Current Liabilities
+2510,Equipment or vehicle loan 01,Long Term Liabilities
+2515,Equipment or vehicle loan 02,Long Term Liabilities
+2520,Equipment or vehicle loan 03,Long Term Liabilities
+2525,Equipment or vehicle loan 04,Long Term Liabilities
+2530,Equipment or vehicle loan 05,Long Term Liabilities
+2560,Equipment or vehicle loan 06,Long Term Liabilities
+2565,Equipment or vehicle loan 07,Long Term Liabilities
+2570,Equipment or vehicle loan 08,Long Term Liabilities
+2600,Equipment or vehicle loan 09,Long Term Liabilities
+2620,Equipment or vehicle loan 10,Long Term Liabilities
+2625,Equipment or vehicle loan 11,Long Term Liabilities
+2640,Equipment or vehicle loan 12,Long Term Liabilities
+2645,Equipment or vehicle loan 13,Long Term Liabilities
+2650,Equipment or vehicle loan 14,Long Term Liabilities
+2680,Equipment or vehicle loan 15,Long Term Liabilities
+2685,Equipment or vehicle loan 16,Long Term Liabilities
+2720,Equipment or vehicle loan 17,Long Term Liabilities
+2725,Equipment or vehicle loan 18,Long Term Liabilities
+2730,Equipment or vehicle loan 19,Long Term Liabilities
+2760,Equipment or vehicle loan 20,Long Term Liabilities
+2780,Equipment or vehicle loan 21,Long Term Liabilities
+2785,Equipment or vehicle loan 22,Long Term Liabilities
+3100,Owner Contributions,Equity
+3200,Owner Draws,Equity
+3210,Owner Draws - Federal Taxes,Equity
+3900,Retained Earnings,Equity
+4100,Landscaping,Income
+4200,Excavation,Income
+4300,Grounds Care,Income
+4400,Snow Services,Income
+4510,Material Sales,Income
+4520,Salt Sales,Income
+4800,Design,Income
+5100,COGS - LANDSCAPING,Cost of Goods Sold
+5110,Gross Payroll - LS,Cost of Goods Sold
+5120,Payroll Taxes - LS,Cost of Goods Sold
+5130,Materials - LS,Cost of Goods Sold
+5135,Supplies - LS,Cost of Goods Sold
+5140,Subcontractors - LS,Cost of Goods Sold
+5150,Equipment Rental - LS,Cost of Goods Sold
+5160,Disposal Fees - LS,Cost of Goods Sold
+5170,Permits & Bonds - LS,Cost of Goods Sold
+5180,Warranty Work - LS,Cost of Goods Sold
+5200,COGS - EXCAVATION,Cost of Goods Sold
+5210,Gross Payroll - EX,Cost of Goods Sold
+5220,Payroll Taxes - EX,Cost of Goods Sold
+5230,Materials - EX,Cost of Goods Sold
+5235,Supplies - EX,Cost of Goods Sold
+5240,Subcontractors - EX,Cost of Goods Sold
+5250,Equipment Rental - EX,Cost of Goods Sold
+5260,Disposal Fees - EX,Cost of Goods Sold
+5270,Permits & Bonds - EX,Cost of Goods Sold
+5280,Warranty Work - EX,Cost of Goods Sold
+5300,COGS - GROUNDS CARE,Cost of Goods Sold
+5310,Gross Payroll - GC,Cost of Goods Sold
+5320,Payroll Taxes - GC,Cost of Goods Sold
+5330,Materials - GC,Cost of Goods Sold
+5335,Supplies - GC,Cost of Goods Sold
+5340,Subcontractors - GC,Cost of Goods Sold
+5355,Equipment Maintenance - GC,Cost of Goods Sold
+5400,COGS - SNOW,Cost of Goods Sold
+5410,Gross Payroll - SNOW,Cost of Goods Sold
+5420,Payroll Taxes - SNOW,Cost of Goods Sold
+5430,Materials - SNOW,Cost of Goods Sold
+5435,Supplies - SNOW,Cost of Goods Sold
+5450,Equipment Rental - SNOW,Cost of Goods Sold
+5500,COGS - MATERIAL SALES,Cost of Goods Sold
+5510,Bulk Material,Cost of Goods Sold
+5520,Bulk Salt,Cost of Goods Sold
+5600,COGS - FUEL,Cost of Goods Sold
+5610,On-Road Diesel,Cost of Goods Sold
+5620,Dyed Diesel,Cost of Goods Sold
+5630,Gasoline,Cost of Goods Sold
+6100,PAYROLL - OVERHEAD,Expenses
+6110,Gross Payroll - Office,Expenses
+6120,Gross Payroll - Sales,Expenses
+6130,Gross Payroll - Mechanic,Expenses
+6140,Payroll Taxes - Overhead,Expenses
+6150,Payroll Processing Fees,Expenses
+6200,EMPLOYEE COSTS & BENEFITS,Expenses
+6210,Medical Insurance,Expenses
+6215,Dental Insurance,Expenses
+6220,Vision Insurance,Expenses
+6225,Disability & Life Insurance,Expenses
+6240,Uniforms,Expenses
+6250,Training & Education,Expenses
+6260,Company Events,Expenses
+6270,Employee Meals & Snacks,Expenses
+6280,Recruiting,Expenses
+6290,DOT Physicals & Testing,Expenses
+6300,INSURANCE,Expenses
+6310,General Liability Insurance,Expenses
+6320,Auto Insurance,Expenses
+6330,Workers' Comp Insurance,Expenses
+6400,EQUIPMENT EXPENSES,Expenses
+6410,Equipment Parts,Expenses
+6420,Equipment Leases,Expenses
+6430,"Small Tools & Equipment (<$2,500)",Expenses
+6500,VEHICLE EXPENSES,Expenses
+6510,Vehicle Repairs,Expenses
+6520,Fuel - Overhead,Expenses
+6530,Registration,Expenses
+6540,Fleet GPS & Tracking,Expenses
+6550,Parking & Tolls,Expenses
+6600,OCCUPANCY,Expenses
+6610,Rent - Red Truck,Expenses
+6620,Electricity,Expenses
+6625,Heating Oil,Expenses
+6630,Cable & Internet,Expenses
+6635,Trash Removal,Expenses
+6650,Building Repairs,Expenses
+6655,Building Supplies,Expenses
+6660,Storage Container,Expenses
+6700,SHOP EXPENSES,Expenses
+6710,Shop Supplies,Expenses
+6720,Shop Disposal Fees,Expenses
+6800,OFFICE,Expenses
+6810,Office Supplies,Expenses
+6820,Office Equipment,Expenses
+6825,Software,Expenses
+6840,Phone & Cell,Expenses
+6850,Dues & Subscriptions,Expenses
+6860,Licenses & Permits,Expenses
+6870,Postage & Delivery,Expenses
+6900,SALES & MARKETING,Expenses
+6910,Marketing,Expenses
+6920,Printing & Reproduction,Expenses
+7000,PROFESSIONAL FEES,Expenses
+7010,Legal & Accounting,Expenses
+7100,TRAVEL & ENTERTAINMENT,Expenses
+7110,Travel & Lodging,Expenses
+7120,Entertainment,Expenses
+7130,Client Meals,Expenses
+7200,BANK CHARGES,Expenses
+7210,Bank Service Charges,Expenses
+7220,QuickBooks Payments Fees,Expenses
+8010,Late Fee Income,Other Income
+8020,Interest Income,Other Income
+9010,Interest Expense,Other Expense
+9020,Depreciation Expense,Other Expense
+9030,NH Business Taxes (BPT/BET),Other Expense

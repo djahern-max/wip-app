@@ -1,0 +1,117 @@
+{
+  "note": "Semantics for Rye Beach's numbering scheme. Claude Code may change the shape to fit account_suggest_rule; the results must equal account_map_expected.csv. First matching rule wins.",
+  "divisions": [
+    {
+      "code": "LS",
+      "name": "Landscaping",
+      "code_digit": "1"
+    },
+    {
+      "code": "EX",
+      "name": "Excavation",
+      "code_digit": "2"
+    },
+    {
+      "code": "GC",
+      "name": "Grounds Care",
+      "code_digit": "3"
+    },
+    {
+      "code": "SNOW",
+      "name": "Snow",
+      "code_digit": "4"
+    },
+    {
+      "code": "MS",
+      "name": "Material Sales",
+      "code_digit": null
+    },
+    {
+      "code": "DES",
+      "name": "Design",
+      "code_digit": null
+    }
+  ],
+  "rules": [
+    {
+      "order": 1,
+      "name": "income by division",
+      "match": {
+        "accounts": {
+          "4100": "LS",
+          "4200": "EX",
+          "4300": "GC",
+          "4400": "SNOW",
+          "4510": "MS",
+          "4520": "MS",
+          "4800": "DES"
+        }
+      },
+      "sets": {
+        "division": "from table",
+        "cost_category": null,
+        "in_job_cost": false
+      }
+    },
+    {
+      "order": 2,
+      "name": "division header",
+      "match": {
+        "pattern": "5[1-4]00"
+      },
+      "sets": {
+        "division": "from second digit",
+        "cost_category": null,
+        "in_job_cost": false
+      }
+    },
+    {
+      "order": 3,
+      "name": "division cost slot",
+      "match": {
+        "pattern": "5[1-4]NN"
+      },
+      "sets": {
+        "division": "from second digit",
+        "cost_category": "from last two digits (slot)",
+        "in_job_cost": true
+      }
+    },
+    {
+      "order": 4,
+      "name": "material sales",
+      "match": {
+        "pattern": "55NN"
+      },
+      "sets": {
+        "division": "MS",
+        "cost_category": "Materials (none for 5500)",
+        "in_job_cost": false
+      }
+    },
+    {
+      "order": 5,
+      "name": "shared fuel",
+      "match": {
+        "pattern": "56NN"
+      },
+      "sets": {
+        "division": null,
+        "cost_category": "Fuel (none for 5600)",
+        "in_job_cost": false
+      }
+    },
+    {
+      "order": 6,
+      "name": "outside income and cost of goods sold",
+      "match": {
+        "pattern": "anything else"
+      },
+      "sets": {
+        "division": null,
+        "cost_category": null,
+        "in_job_cost": false
+      }
+    }
+  ]
+}
