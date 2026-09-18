@@ -156,7 +156,7 @@ def test_create_tenant_takes_the_firm_from_the_principal(
         if e.entity_id == body["tenant_id"]
     ]
     assert created and created[-1].firm_id == seed.firm_id
-    assert created[-1].detail == {"name": "New Co", "slug": slug}
+    assert created[-1].detail == {"name": "New Co", "slug": slug, "via": "api"}
     assert created[-1].actor_user_id == seed.users["firm_admin"].id
     # Bare row only: no entry row for the admin yet.
     assert (

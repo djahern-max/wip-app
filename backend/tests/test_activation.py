@@ -9,13 +9,15 @@ import uuid
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, select, text
 
 from app.api.auth import INVALID_CREDENTIALS, INVALID_LINK
 from app.core.crypto import get_keyring
+from app.core.db import tenant_session
 from app.core.security import sha256_hex
-from app.tenancy.models import User, UserSession
+from app.tenancy.models import Membership, Tenant, User, UserSession
 from scripts import create_user as cli
 from tests.conftest import (
     COOKIE,
@@ -643,3 +645,52 @@ def test_cli_issue_link_prints_the_link_once_and_the_link_works(
             {"e": str(su.id)},
         ).one()
     assert json.loads(row[0])["via"] == "cli" and row[1] is None
+
+
+def test_cli_create_tenant_and_add_entry_are_audited_with_actor_none(
+    seed: Seed, capsys, owner_engine: Engine, rw_engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The rebuild-dev-data sequence (OPERATIONS.md): a tenant and an entry row for an
+    existing firm user, through the same service as the admin routes. The seed holds
+    two firms (a test artefact; D-17 is one per deployment), so the CLI's firm lookup
+    is pinned to the first."""
+    monkeypatch.setattr(cli.admin, "only_firm_id", lambda _db: seed.firm_id)
+    slug = f"cli-{uuid.uuid4().hex[:6]}"
+    cli.main(["create-tenant", "--name", "CLI Co", "--slug", slug])
+    assert f"created tenant 'CLI Co' ({slug})" in capsys.readouterr().out
+    with owner_engine.connect() as conn:
+        tenant = conn.execute(select(Tenant).where(Tenant.slug == slug)).one()
+        row = conn.execute(
+            text(
+                "SELECT detail::text, actor_user_id FROM firm_audit_log "
+                "WHERE action = 'tenant_created' AND entity_id = :e"
+            ),
+            {"e": str(tenant.id)},
+        ).one()
+    assert tenant.firm_id == seed.firm_id
+    assert json.loads(row[0]) == {"name": "CLI Co", "slug": slug, "via": "cli"} and row[1] is None
+    su = seed.users["recover_me"]  # a firm user whose tenant list no other test pins
+    cli.main(["add-entry", "--email", su.email, "--tenant", slug])
+    assert f"entry row for {su.email} in {slug}" in capsys.readouterr().out
+    with tenant_session(rw_engine, tenant.id) as s:
+        m = s.execute(select(Membership).where(Membership.user_id == su.id)).scalar_one()
+        assert m.role is None  # an entry row (D-15)
+        audit = s.execute(
+            text(
+                "SELECT detail::text, actor_user_id FROM audit_log "
+                "WHERE action = 'membership_created' AND entity_id = :e"
+            ),
+            {"e": str(m.id)},
+        ).one()
+    assert json.loads(audit[0])["via"] == "cli" and audit[1] is None
+    # A second entry row, a client user, and an unknown slug are refused.
+    with pytest.raises(SystemExit, match="membership already exists"):
+        cli.main(["add-entry", "--email", su.email, "--tenant", slug])
+    with pytest.raises(SystemExit, match="client role"):
+        cli.main(["add-entry", "--email", seed.users["client_pm"].email, "--tenant", slug])
+    with pytest.raises(SystemExit, match="unknown tenant slug"):
+        cli.main(["add-entry", "--email", su.email, "--tenant", "nope"])
+    with pytest.raises(SystemExit, match="already exists"):
+        cli.main(["create-tenant", "--name", "Again", "--slug", slug])
+    with tenant_session(owner_engine, tenant.id) as s:  # leave the seed user as seeded
+        s.execute(text("DELETE FROM membership WHERE user_id = :u"), {"u": su.id})

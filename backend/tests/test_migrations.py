@@ -327,3 +327,58 @@ def test_alembic_without_the_owner_url_names_only_that_variable() -> None:
     assert proc.returncode != 0
     assert "DATABASE_OWNER_URL" in proc.stderr
     assert "CRYPTO" not in proc.stderr
+
+
+# --- destructive-downgrade guard (F03 close-out) ------------------------------------------------
+
+
+def test_downgrade_is_refused_for_a_protected_database_name_and_without_the_flag(
+    scratch_db_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A database named like the dev database: the downgrade exits non-zero naming it
+    and changes nothing. Without ALLOW_DESTRUCTIVE_DOWNGRADE=1 the same happens for
+    any database."""
+    from sqlalchemy import make_url
+
+    cfg = alembic_config(scratch_db_url)
+    command.upgrade(cfg, "head")
+    before = _public_tables(scratch_db_url)
+    name = make_url(scratch_db_url).database
+    monkeypatch.setenv("PROTECTED_DATABASE_NAMES", f"wip,{name}")
+    with pytest.raises(SystemExit) as excinfo:
+        command.downgrade(cfg, "base")
+    assert excinfo.value.code != 0 and name in str(excinfo.value.code)
+    assert "nothing was changed" in str(excinfo.value.code)
+    assert _public_tables(scratch_db_url) == before
+    monkeypatch.delenv("PROTECTED_DATABASE_NAMES")
+    monkeypatch.delenv("ALLOW_DESTRUCTIVE_DOWNGRADE")
+    with pytest.raises(SystemExit) as excinfo:
+        command.downgrade(cfg, "base")
+    assert "ALLOW_DESTRUCTIVE_DOWNGRADE" in str(excinfo.value.code) and name in str(
+        excinfo.value.code
+    )
+    assert _public_tables(scratch_db_url) == before
+    # The default protected name is the dev database, whatever the flag says.
+    monkeypatch.setenv("ALLOW_DESTRUCTIVE_DOWNGRADE", "1")
+    dev_cfg = alembic_config(
+        make_url(scratch_db_url).set(database="wip").render_as_string(hide_password=False)
+    )
+    with pytest.raises(SystemExit) as excinfo:
+        command.downgrade(dev_cfg, "base")
+    assert "'wip'" in str(excinfo.value.code)
+    # Upgrades are never guarded; a scratch database with the flag downgrades.
+    command.upgrade(cfg, "head")
+    command.downgrade(cfg, "base")
+    assert _public_tables(scratch_db_url) == {"alembic_version"}
+
+
+def test_make_downgrade_refuses_without_the_flag() -> None:
+    proc = subprocess.run(
+        ["make", "-n", "downgrade"], cwd=BACKEND_DIR + "/..", capture_output=True, text=True
+    )
+    assert "ALLOW_DESTRUCTIVE_DOWNGRADE" in proc.stdout
+    env = {k: v for k, v in os.environ.items() if k != "ALLOW_DESTRUCTIVE_DOWNGRADE"}
+    proc = subprocess.run(
+        ["make", "downgrade"], cwd=BACKEND_DIR + "/..", capture_output=True, text=True, env=env
+    )
+    assert proc.returncode != 0 and "refusing" in proc.stdout

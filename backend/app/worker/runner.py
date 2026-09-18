@@ -100,9 +100,10 @@ class Worker:
             fn(tenant_id, engine=self.engine, **payload)
         except Exception as exc:  # noqa: BLE001 - every failure is recorded on the task
             error = queue.describe_error(exc)
+            permanent = isinstance(exc, queue.PermanentTaskError)
             with tenant_session(self.engine, tenant_id) as s:
-                held = queue.fail(s, task_id, worker=self.name, error=error)
-            outcome = "failed" if held else "lease lost"
+                held = queue.fail(s, task_id, worker=self.name, error=error, permanent=permanent)
+            outcome = ("failed (no retry)" if permanent else "failed") if held else "lease lost"
             log.warning("%s outcome=%s error=%s", prefix, outcome, error)
         else:
             with tenant_session(self.engine, tenant_id) as s:

@@ -11,10 +11,12 @@ batch with ``duplicate=True``: no second batch, object or task.
 
 The task ``import.process_batch`` opens the object, runs the source's ``parse``,
 calls ``store_raw`` per item, and sets counts and status. A ``parse`` that raises
-marks the batch ``failed`` with the exception type (never file content) and
-re-raises so the queue's attempts and backoff apply; a rejected item is counted
-and the rest still loads (``loaded_with_issues``). Re-processing is safe:
-identical payloads write nothing (D-20).
+marks the batch ``failed`` with ``parse failed: <ExceptionType>`` (never file
+content) and fails the task with no retry; a failure opening the object or talking
+to the database leaves the batch ``received`` and the task retries with backoff; a
+rejected item is counted and the rest still loads (``loaded_with_issues``). A
+``failed`` batch is final. Re-processing a loaded batch is safe: identical payloads
+write nothing (D-20).
 """
 
 import hashlib
@@ -29,18 +31,19 @@ from typing import BinaryIO
 from uuid import UUID
 
 from sqlalchemy import Engine, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.audit import RequestMeta, TenantEvent, write_tenant_audit
 from app.core.config import get_settings
 from app.core.db import tenant_session
+from app.core.jsoncodec import JSONEncodeError
 from app.core.storage import ObjectStore
 from app.ingest.models import ImportBatch
 from app.ingest.raw import RawOrigin, store_raw
-from app.integrations.base import RawItem, RejectedItem, get_source_kind
+from app.integrations.base import RawItem, get_source_kind
 from app.tenancy.models import Role
-from app.worker.queue import enqueue
+from app.worker.queue import PermanentTaskError, describe_error, enqueue
 from app.worker.registry import task
 
 log = logging.getLogger("app.ingest")
@@ -224,29 +227,58 @@ class _Counts:
     rejected: int = 0
 
 
+# A row the store refuses is one rejected row (a value too long for its column, a
+# float in the payload, a key that is not a string). A lost connection is not: it
+# propagates and the task retries.
+ROW_ERRORS = (DataError, IntegrityError, JSONEncodeError, ValueError, TypeError)
+
+
+def _parse_items(kind, stream):
+    """Iterate ``kind.parse``; an exception raised by the source is permanent."""
+    try:
+        iterator = iter(kind.parse(stream))
+        while True:
+            try:
+                item = next(iterator)
+            except StopIteration:
+                return
+            yield item
+    except PermanentTaskError:
+        raise
+    except Exception as exc:
+        raise PermanentTaskError("parse failed", exc) from exc
+
+
 def process_batch_now(
     engine: Engine, store: ObjectStore, tenant_id: UUID, import_batch_id: UUID
 ) -> None:
-    """The work of ``import.process_batch``, callable without the queue (tests)."""
+    """The work of ``import.process_batch``, callable without the queue (tests).
+
+    Outcomes (owner rule, F03 close-out): a ``parse`` that raises marks the batch
+    ``failed`` and the task ``failed`` with no retry; failing to open the object or
+    to talk to the database leaves the batch ``received`` with the error noted and
+    the task retries with backoff. A batch that is ``failed`` never goes back to
+    ``processing``: upload the corrected file as a new batch.
+    """
     with tenant_session(engine, tenant_id) as s:
         batch = s.get(ImportBatch, import_batch_id)
         if batch is None:
             raise LookupError("import batch not found in this tenant")
+        if batch.status == "failed":
+            raise PermanentTaskError("batch already failed")
         batch.status = "processing"
         batch.error = None
         source_kind, key = batch.source_kind, relative_key(batch)
     kind = get_source_kind(source_kind)
     counts = _Counts()
+    outcome: str | None = None  # None = loaded; "failed" = permanent; "retry" = transient
     error: str | None = None
     try:
         with store.open(tenant_id, key) as stream, tenant_session(engine, tenant_id) as s:
             origin = RawOrigin(import_batch_id=import_batch_id)
-            for item in kind.parse(stream):
-                if isinstance(item, RejectedItem):
-                    counts.rejected += 1
-                    continue
+            for item in _parse_items(kind, stream):
                 if not isinstance(item, RawItem):
-                    counts.rejected += 1
+                    counts.rejected += 1  # RejectedItem, or something the source should not yield
                     continue
                 try:
                     with s.begin_nested():
@@ -260,13 +292,16 @@ def process_batch_now(
                             origin,
                             deleted=item.deleted,
                         )
-                except Exception as exc:  # noqa: BLE001 - one bad row never fails the file
+                except ROW_ERRORS as exc:
                     counts.rejected += 1
                     log.info("batch=%s rejected item: %s", import_batch_id, type(exc).__name__)
                 else:
                     counts.loaded += 1
-    except Exception as exc:  # noqa: BLE001 - recorded on the batch as a type name only
-        error = f"parse failed: {type(exc).__name__}"
+    except PermanentTaskError as exc:
+        outcome, error = "failed", describe_error(exc)
+        raise
+    except Exception as exc:
+        outcome, error = "retry", f"{describe_error(exc)} (will retry)"
         raise
     finally:
         with tenant_session(engine, tenant_id) as s:
@@ -275,8 +310,11 @@ def process_batch_now(
                 batch.rows_loaded = counts.loaded
                 batch.rows_rejected = counts.rejected
                 batch.processed_at = datetime.now(UTC)
-                if error is not None:
+                if outcome == "failed":
                     batch.status = "failed"
+                    batch.error = error
+                elif outcome == "retry":
+                    batch.status = "received"
                     batch.error = error
                 else:
                     batch.status = "loaded_with_issues" if counts.rejected else "loaded"

@@ -25,6 +25,11 @@ Examples (from backend/, with .env in place):
   # a new link (password reset), or a TOTP reset (clears TOTP, then a new link)
   python scripts/create_user.py issue-link --email you@firm.test
   python scripts/create_user.py reset-totp --email you@firm.test
+
+  # a tenant, and an entry row for an existing firm user (F03 close-out; the same
+  # audited service as POST /api/admin/tenants and /memberships, actor "cli")
+  python scripts/create_user.py create-tenant --name "Rye Beach Landscaping" --slug rye-beach
+  python scripts/create_user.py add-entry --email you@firm.test --tenant rye-beach
 """
 
 import argparse
@@ -151,6 +156,41 @@ def cmd_reset_totp(args: argparse.Namespace, engine) -> None:
     _print_link(url)
 
 
+def cmd_create_tenant(args: argparse.Namespace, engine) -> None:
+    with untenanted_session(engine) as db:
+        tenant = admin.create_tenant(
+            db,
+            None,
+            name=args.name,
+            slug=args.slug,
+            meta=META,
+            firm_id=admin.only_firm_id(db),
+            via=VIA,
+        )
+        print(f"created tenant {tenant.name!r} ({tenant.slug}) id {tenant.id}")
+
+
+def cmd_add_entry(args: argparse.Namespace, engine) -> None:
+    """An entry row (D-15) for an existing firm user in one tenant."""
+    with untenanted_session(engine) as db:
+        user = _user_by_email(db, args.email.strip().lower())
+        tenant = db.execute(select(Tenant).where(Tenant.slug == args.tenant)).scalar_one_or_none()
+        if tenant is None:
+            sys.exit(f"unknown tenant slug: {args.tenant}")
+        user_id, tenant_id = user.id, tenant.id
+    with tenant_session(engine, tenant_id) as db:
+        admin.create_membership(
+            db,
+            None,
+            tenant=db.get(Tenant, tenant_id),
+            user=db.get(User, user_id),
+            role=None,
+            meta=META,
+            via=VIA,
+        )
+    print(f"entry row for {args.email.strip().lower()} in {args.tenant}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -178,6 +218,16 @@ def build_parser() -> argparse.ArgumentParser:
     r = sub.add_parser("reset-totp", help="clear TOTP and print a new activation link")
     r.add_argument("--email", required=True)
     r.set_defaults(func=cmd_reset_totp)
+
+    t = sub.add_parser("create-tenant", help="create a bare tenant row in the firm")
+    t.add_argument("--name", required=True)
+    t.add_argument("--slug", required=True)
+    t.set_defaults(func=cmd_create_tenant)
+
+    e = sub.add_parser("add-entry", help="entry row for an existing firm user in a tenant")
+    e.add_argument("--email", required=True)
+    e.add_argument("--tenant", required=True, metavar="SLUG")
+    e.set_defaults(func=cmd_add_entry)
     return ap
 
 

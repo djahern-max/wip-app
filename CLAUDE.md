@@ -24,6 +24,7 @@ The owner is a CPA and the domain expert. When accounting treatment is unclear, 
 4. On completion: tick criteria in `current-feature.md`, append to `CHANGELOG.md` (what, why, migrations, decisions referenced), flip status in `ROADMAP.md`.
 5. Never mark a feature done on synthetic data alone when a Rye Beach fixture exists for it.
 6. Claude Code commits at close-out, one commit per closed feature or patch, and never pushes. The owner pushes.
+7. Migration round-trip checks run only against a scratch database. `downgrade` refuses to run elsewhere.
 
 ## Hard rules (do not break; ask if one seems wrong)
 
@@ -80,3 +81,13 @@ The owner is a CPA and the domain expert. When accounting treatment is unclear, 
 - Any new table without `tenant_id`.
 - Any new third-party dependency or external API.
 - Any place where source data is ambiguous and you are tempted to guess (which estimate is the original, which invoice is the deposit, which account is job cost).
+
+### Interface conventions
+- Plain and quiet. Semantic HTML and one small hand-written stylesheet. No CSS framework, component library, icon set, or chart library without a decision (new dependencies already require one).
+- System font stack. One accent colour, used only for the primary action and links. No gradients, shadows, animations, or decorative imagery.
+- One primary action per screen. Labels say what happens ("Upload file", "Approve period"), in the vocabulary of this file. No jargon the owner would not use with a client.
+- Data is shown in tables. Numbers are right-aligned with tabular figures; money always shows cents; negatives are in parentheses, never a minus sign; zero is shown as 0.00, never a dash or blank. Totals rows are visually distinct. Columns use the names in BLUEPRINT §8.2 exactly.
+- Every report shows its period, tenant name, and the tie-out status on screen, and the legend (§8.7) on every export.
+- Status is words first, colour second (colour alone never carries meaning). Errors say what happened and what to do next, in one sentence.
+- Every form control has a label, works by keyboard, and its submit control is disabled while a request is in flight.
+- Every screen is legible and usable on a phone. Read-only reports are the priority: a wide table scrolls sideways inside its own container with the first column (job or account) held in place, and the page itself never scrolls sideways. Data-entry and admin screens must work on a phone but are designed for a laptop first.

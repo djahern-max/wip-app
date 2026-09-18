@@ -12,11 +12,15 @@ backend-install:
 migrate:
 	cd backend && .venv/bin/alembic upgrade head
 
+# Destructive: refused unless ALLOW_DESTRUCTIVE_DOWNGRADE=1 and the target database is
+# not in PROTECTED_DATABASE_NAMES (default "wip"). Scratch databases only.
 downgrade:
-	cd backend && .venv/bin/alembic downgrade base
+	@test "$(ALLOW_DESTRUCTIVE_DOWNGRADE)" = "1" || { echo "refusing: set ALLOW_DESTRUCTIVE_DOWNGRADE=1 and point DATABASE_OWNER_URL at a scratch database (docs/OPERATIONS.md, Migrations)"; exit 1; }
+	cd backend && ALLOW_DESTRUCTIVE_DOWNGRADE=1 .venv/bin/alembic downgrade base
 
 test:
 	cd backend && .venv/bin/pytest
+	cd frontend && npm test
 
 lint:
 	cd backend && .venv/bin/ruff check . && .venv/bin/ruff format --check .

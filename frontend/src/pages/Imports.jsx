@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
 import { api, upload } from "../api.js";
+import { useNarrow } from "../narrow.js";
 import { styles } from "./Login.jsx";
 
 // Imports (F03): choose a source kind and a file, upload, see the batches of the
 // active company. Mount effects only read (GET); the upload is an event handler.
-// The worker sets the status; "Refresh" re-reads the list (no polling).
+// The worker sets the status; "Refresh" re-reads the list (no polling). Below
+// 640 px the list is stacked cards, so a phone never scrolls sideways.
 export default function Imports({ me }) {
+  const narrow = useNarrow();
   const [kinds, setKinds] = useState([]);
   const [batches, setBatches] = useState([]);
   const [kind, setKind] = useState("unparsed_file");
@@ -53,7 +56,7 @@ export default function Imports({ me }) {
   return (
     <div>
       <h2 style={{ marginTop: 0 }}>Imports</h2>
-      <form onSubmit={submit} style={{ ...styles.card, maxWidth: 520, marginBottom: "1.5rem" }}>
+      <form onSubmit={submit} style={{ ...styles.card, maxWidth: 520, marginBottom: "1.5rem", boxSizing: "border-box" }}>
         <label style={styles.label}>
           Source
           <select style={styles.input} value={kind} onChange={(e) => setKind(e.target.value)} disabled={busy}>
@@ -87,51 +90,72 @@ export default function Imports({ me }) {
           Refresh
         </button>
       </p>
-      <table style={table}>
-        <thead>
-          <tr>
-            <th style={th}>File</th>
-            <th style={th}>Source</th>
-            <th style={th}>Status</th>
-            <th style={th}>Rows</th>
-            <th style={th}>Uploaded by</th>
-            <th style={th}>Uploaded</th>
-            <th style={th}></th>
-          </tr>
-        </thead>
-        <tbody>
-          {batches.length === 0 && (
-            <tr>
-              <td style={td} colSpan={7}>
-                No files uploaded for this company yet.
-              </td>
-            </tr>
-          )}
+      {narrow ? (
+        <div>
+          {batches.length === 0 && <p style={styles.hint}>No files uploaded for this company yet.</p>}
           {batches.map((b) => (
-            <tr key={b.id}>
-              <td style={td} title={b.sha256}>
-                {b.original_filename} <span style={styles.hint}>({formatBytes(b.byte_size)})</span>
-              </td>
-              <td style={td}>{b.source_kind}</td>
-              <td style={td}>
-                {b.status}
-                {b.error && <div style={styles.error}>{b.error}</div>}
-              </td>
-              <td style={td}>
-                {b.rows_loaded}
-                {b.rows_rejected ? ` loaded, ${b.rows_rejected} rejected` : ""}
-              </td>
-              <td style={td}>{b.uploaded_by_email || "—"}</td>
-              <td style={td}>{new Date(b.uploaded_at).toLocaleString()}</td>
-              <td style={td}>
-                <a href={`/api/imports/${b.id}/download`}>Download</a>
-              </td>
-            </tr>
+            <div key={b.id} style={card}>
+              <div style={{ fontWeight: 600, overflowWrap: "anywhere" }}>{b.original_filename}</div>
+              <div style={styles.hint}>
+                {b.source_kind} · {formatBytes(b.byte_size)} · {new Date(b.uploaded_at).toLocaleString()}
+              </div>
+              <div>
+                <strong>{b.status}</strong> · {rowsText(b)}
+              </div>
+              {b.error && <div style={styles.error}>{b.error}</div>}
+              <div style={styles.hint}>{b.uploaded_by_email || "—"}</div>
+              <a href={`/api/imports/${b.id}/download`}>Download</a>
+            </div>
           ))}
-        </tbody>
-      </table>
+        </div>
+      ) : (
+        <table style={table}>
+          <thead>
+            <tr>
+              <th style={th}>File</th>
+              <th style={th}>Source</th>
+              <th style={th}>Status</th>
+              <th style={th}>Rows</th>
+              <th style={th}>Uploaded by</th>
+              <th style={th}>Uploaded</th>
+              <th style={th}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {batches.length === 0 && (
+              <tr>
+                <td style={td} colSpan={7}>
+                  No files uploaded for this company yet.
+                </td>
+              </tr>
+            )}
+            {batches.map((b) => (
+              <tr key={b.id}>
+                <td style={{ ...td, overflowWrap: "anywhere" }} title={b.sha256}>
+                  {b.original_filename} <span style={styles.hint}>({formatBytes(b.byte_size)})</span>
+                </td>
+                <td style={td}>{b.source_kind}</td>
+                <td style={td}>
+                  {b.status}
+                  {b.error && <div style={styles.error}>{b.error}</div>}
+                </td>
+                <td style={td}>{rowsText(b)}</td>
+                <td style={td}>{b.uploaded_by_email || "—"}</td>
+                <td style={td}>{new Date(b.uploaded_at).toLocaleString()}</td>
+                <td style={td}>
+                  <a href={`/api/imports/${b.id}/download`}>Download</a>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
+}
+
+function rowsText(b) {
+  return b.rows_rejected ? `${b.rows_loaded} loaded, ${b.rows_rejected} rejected` : `${b.rows_loaded} loaded`;
 }
 
 function formatBytes(n) {
@@ -141,5 +165,6 @@ function formatBytes(n) {
 }
 
 const table = { borderCollapse: "collapse", width: "100%", fontSize: 14 };
+const card = { border: "1px solid #ddd", borderRadius: 8, padding: "0.75rem", marginBottom: "0.75rem", fontSize: 14 };
 const th = { textAlign: "left", borderBottom: "1px solid #ddd", padding: "0.4rem 0.6rem" };
 const td = { borderBottom: "1px solid #eee", padding: "0.4rem 0.6rem", verticalAlign: "top" };

@@ -44,6 +44,8 @@ jobs:
           python-version: "3.12"
       - name: Create DB roles and databases
         run: db/init/01_roles.sh
+        env:
+          APP_DATABASES: wip wip_test wip_scratch
       - name: Install
         working-directory: backend
         run: pip install -e '.[dev]'
@@ -53,9 +55,18 @@ jobs:
           pip install ruff==0.16.8
           ruff --version | grep -q '0.16.8'
           ruff check . && ruff format --check .
-      - name: Migration up / down on empty database
+      - name: Migration up / down on an empty scratch database (never the dev/prod name)
         working-directory: backend
+        env:
+          DATABASE_OWNER_URL: postgresql+psycopg://app_owner:app_owner_dev@localhost:5433/wip_scratch
+          ALLOW_DESTRUCTIVE_DOWNGRADE: "1"
         run: alembic upgrade head && alembic downgrade base && alembic upgrade head
+      - name: The downgrade guard refuses the configured dev database
+        working-directory: backend
+        run: |
+          if ALLOW_DESTRUCTIVE_DOWNGRADE=1 alembic downgrade base; then
+            echo "::error::downgrade against 'wip' was not refused"; exit 1
+          fi
       - name: Tests
         working-directory: backend
         run: pytest -q
@@ -72,5 +83,8 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - working-directory: frontend
         run: npm ci
+      - name: Unit tests (node --test, no dependency)
+        working-directory: frontend
+        run: npm test
       - working-directory: frontend
         run: npm run build

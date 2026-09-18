@@ -6,11 +6,14 @@ import io
 import os
 import uuid
 from collections.abc import Callable
+from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine, select, text
+from sqlalchemy import Engine, event, select, text
+from sqlalchemy.exc import OperationalError
 
 from app.audit.models import AuditLog
 from app.core.config import get_settings
@@ -21,6 +24,7 @@ from app.ingest.models import ImportBatch, RawRecord
 from app.ingest.raw import raw_history
 from app.tenancy.models import Role
 from app.worker.models import Task
+from app.worker.queue import PermanentTaskError
 from app.worker.runner import Worker
 from tests._env import OBJECT_STORE_DIR
 from tests.conftest import CSRF, Seed
@@ -291,25 +295,126 @@ def test_modified_file_creates_new_versions_and_leaves_history(
     assert batch_row(rw_engine, seed.tenant_a, b2).rows_loaded == 3
 
 
-def test_parse_that_raises_fails_the_batch_without_content_and_stops_at_max_attempts(
+def test_parse_that_raises_fails_the_batch_and_the_task_with_no_retry(
     login_as: Callable[..., TestClient], seed: Seed, rw_engine: Engine
 ) -> None:
     secret = f"SECRET-{uuid.uuid4().hex}"
     bid = upload(login_as("firm_admin"), "test_csv", "bad.csv", f"#raise {secret}\n".encode())
     bid = bid.json()["batch"]["id"]
     w = Worker(rw_engine, name="w-fail", listen=False, poll_seconds=0.01)
-    max_attempts = get_settings().task_max_attempts
-    for _ in range(max_attempts):
-        assert w.run_once() >= 1
-        (t,) = tasks_for(rw_engine, seed.tenant_a, bid)
-        with tenant_session(rw_engine, seed.tenant_a) as s:
-            s.execute(text("UPDATE task SET run_after = now() WHERE id = :id"), {"id": t.id})
+    assert w.run_once() >= 1
     (t,) = tasks_for(rw_engine, seed.tenant_a, bid)
-    assert (t.status, t.attempts, t.last_error) == ("failed", max_attempts, "ValueError")
+    assert (t.status, t.attempts, t.last_error) == ("failed", 1, "parse failed: ValueError")
     row = batch_row(rw_engine, seed.tenant_a, bid)
     assert (row.status, row.error) == ("failed", "parse failed: ValueError")
     assert secret not in (row.error or "") and secret not in (t.last_error or "")
-    assert w.run_once() == 0
+    assert w.run_once() == 0  # nothing left to retry
+
+
+def test_a_failed_batch_never_goes_back_to_processing(
+    login_as: Callable[..., TestClient], seed: Seed, rw_engine: Engine
+) -> None:
+    bid = upload(login_as("firm_admin"), "test_csv", "bad.csv", b"#raise x\n").json()["batch"]["id"]
+    run_worker(rw_engine)
+    assert batch_row(rw_engine, seed.tenant_a, bid).status == "failed"
+    statuses: list[str] = []
+
+    def on_execute(conn, cursor, statement, parameters, context, executemany):
+        if statement.startswith("UPDATE import_batch") and isinstance(parameters, dict):
+            if "status" in parameters:
+                statuses.append(parameters["status"])
+
+    event.listen(rw_engine, "before_cursor_execute", on_execute)
+    try:
+        # A requeued task (the OPERATIONS runbook) and a direct call both refuse.
+        (t,) = tasks_for(rw_engine, seed.tenant_a, bid)
+        with tenant_session(rw_engine, seed.tenant_a) as s:
+            s.execute(
+                text(
+                    "UPDATE task SET status = 'queued', attempts = 0, run_after = now(), "
+                    "last_error = NULL WHERE id = :id"
+                ),
+                {"id": t.id},
+            )
+        run_worker(rw_engine)
+        (t,) = tasks_for(rw_engine, seed.tenant_a, bid)
+        assert (t.status, t.attempts, t.last_error) == ("failed", 1, "batch already failed")
+        with pytest.raises(PermanentTaskError, match="batch already failed"):
+            process_batch_now(
+                rw_engine, LocalObjectStore(OBJECT_STORE_DIR), seed.tenant_a, uuid.UUID(bid)
+            )
+    finally:
+        event.remove(rw_engine, "before_cursor_execute", on_execute)
+    assert "processing" not in statuses
+    row = batch_row(rw_engine, seed.tenant_a, bid)
+    assert (row.status, row.error) == ("failed", "parse failed: ValueError")
+
+
+class _UnopenableStore(LocalObjectStore):
+    @contextmanager
+    def open(self, tenant_id, relative_key):  # noqa: ARG002
+        raise OSError("spaces unreachable")
+        yield  # pragma: no cover
+
+
+def test_object_open_failure_retries_with_backoff_and_does_not_fail_the_batch(
+    login_as: Callable[..., TestClient],
+    seed: Seed,
+    rw_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bid = upload(
+        login_as("firm_admin"), "test_csv", "ok.csv", _csv([(uuid.uuid4().hex, "a", "1.00")])
+    )
+    bid = bid.json()["batch"]["id"]
+    monkeypatch.setattr(
+        "app.core.storage.build_object_store", lambda _s: _UnopenableStore(OBJECT_STORE_DIR)
+    )
+    w = Worker(rw_engine, name="w-open", listen=False, poll_seconds=0.01)
+    assert w.run_once() >= 1
+    (t,) = tasks_for(rw_engine, seed.tenant_a, bid)
+    assert (t.status, t.attempts, t.last_error) == ("queued", 1, "OSError")
+    assert t.run_after > datetime.now(UTC) + timedelta(seconds=20)
+    row = batch_row(rw_engine, seed.tenant_a, bid)
+    assert (row.status, row.error) == ("received", "OSError (will retry)")
+    monkeypatch.undo()
+    with tenant_session(rw_engine, seed.tenant_a) as s:
+        s.execute(text("UPDATE task SET run_after = now() WHERE id = :id"), {"id": t.id})
+    assert w.run_once() >= 1
+    (t,) = tasks_for(rw_engine, seed.tenant_a, bid)
+    row = batch_row(rw_engine, seed.tenant_a, bid)
+    assert (t.status, t.attempts) == ("succeeded", 2)
+    assert (row.status, row.rows_loaded, row.error) == ("loaded", 1, None)
+
+
+def test_database_failure_while_storing_retries_and_does_not_fail_the_batch(
+    login_as: Callable[..., TestClient],
+    seed: Seed,
+    rw_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bid = upload(
+        login_as("firm_admin"), "test_csv", "db.csv", _csv([(uuid.uuid4().hex, "a", "1.00")])
+    )
+    bid = bid.json()["batch"]["id"]
+
+    def lost_connection(*_a, **_k):
+        raise OperationalError("INSERT", {}, ConnectionError("server closed the connection"))
+
+    monkeypatch.setattr("app.ingest.imports.store_raw", lost_connection)
+    w = Worker(rw_engine, name="w-db", listen=False, poll_seconds=0.01)
+    assert w.run_once() >= 1
+    (t,) = tasks_for(rw_engine, seed.tenant_a, bid)
+    assert (t.status, t.attempts) == ("queued", 1)
+    assert t.last_error.startswith("OperationalError")
+    row = batch_row(rw_engine, seed.tenant_a, bid)
+    assert row.status == "received" and row.error.endswith("(will retry)")
+    monkeypatch.undo()
+    with tenant_session(rw_engine, seed.tenant_a) as s:
+        s.execute(text("UPDATE task SET run_after = now() WHERE id = :id"), {"id": t.id})
+    assert w.run_once() >= 1
+    assert batch_row(rw_engine, seed.tenant_a, bid).status == "loaded"
+    assert tasks_for(rw_engine, seed.tenant_a, bid)[0].status == "succeeded"
 
 
 def test_one_bad_item_of_five_ends_loaded_with_issues(

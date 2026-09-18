@@ -69,7 +69,7 @@ export default function Shell({ me, onChanged, onLogout }) {
         </span>
         <button type="button" style={styles.button} onClick={onLogout}>Sign out</button>
       </header>
-      <main style={{ padding: "2rem" }}>
+      <main style={{ padding: "1rem", maxWidth: "100%", boxSizing: "border-box" }}>
         {error && <p style={styles.error}>{error}</p>}
         {active && view === "imports" && canImport ? (
           <Imports me={me} />
@@ -95,9 +95,10 @@ export default function Shell({ me, onChanged, onLogout }) {
 
 const header = {
   display: "flex",
+  flexWrap: "wrap", // phone width: the switcher, nav and user wrap instead of overflowing
   alignItems: "center",
-  gap: "1.5rem",
-  padding: "0.75rem 2rem",
+  gap: "0.75rem 1.5rem",
+  padding: "0.75rem 1rem",
   borderBottom: "1px solid #ddd",
   background: "#fafafa",
 };

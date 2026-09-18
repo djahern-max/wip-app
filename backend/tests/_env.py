@@ -46,5 +46,7 @@ ENVIRONMENT: dict[str, str] = {
     "OBJECT_STORE": "local",
     "LOCAL_OBJECT_STORE_DIR": OBJECT_STORE_DIR,
     "WORKER_POLL_SECONDS": "0.2",
+    # The suite downgrades wip_test and wip_mig_* scratch databases only (env.py guard).
+    "ALLOW_DESTRUCTIVE_DOWNGRADE": "1",
 }
 os.environ.update(ENVIRONMENT)

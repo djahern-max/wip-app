@@ -164,12 +164,21 @@ def reset_totp_and_issue_link(
 
 
 def create_tenant(
-    db: Session, actor: Principal, *, name: str, slug: str, meta: RequestMeta
+    db: Session,
+    actor: Principal | None,
+    *,
+    name: str,
+    slug: str,
+    meta: RequestMeta,
+    firm_id: UUID | None = None,
+    via: str = "api",
 ) -> Tenant:
     """Bare tenant row in the actor's firm (never a firm from the request). Tenant
-    configuration is F04; the admin's own entry row is a separate audited step."""
+    configuration is F04; the admin's own entry row is a separate audited step.
+    ``actor=None`` is the CLI (``scripts/create_user.py``), which names the firm
+    (``only_firm_id``) and is audited with ``via``."""
     _require_firm_admin(actor)
-    firm_id = actor.firm_id
+    firm_id = actor.firm_id if actor is not None else firm_id
     if firm_id is None:
         raise AuthError(403, "forbidden")
     slug = slug.strip().lower()
@@ -186,9 +195,9 @@ def create_tenant(
         action=FirmEvent.tenant_created,
         entity_type="tenant",
         entity_id=tenant.id,
-        actor_user_id=actor.user.id,
-        actor_role=actor.firm_role,
-        detail={"name": tenant.name, "slug": tenant.slug},
+        actor_user_id=actor.user.id if actor else None,
+        actor_role=actor.firm_role if actor else None,
+        detail={"name": tenant.name, "slug": tenant.slug, "via": via},
         meta=meta,
     )
     return tenant

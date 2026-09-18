@@ -480,3 +480,22 @@ def test_local_object_store_directory_is_ignored_and_untracked() -> None:
         ["git", "ls-files", ".object-store"], cwd=REPO, capture_output=True, text=True
     )
     assert tracked.stdout.strip() == "", "files under .object-store are tracked"
+
+
+# --- F03 close-out: money on the frontend is text, never a binary float ------------------------
+
+
+def test_frontend_never_parses_money_with_parsefloat_or_number() -> None:
+    """One formatter (``frontend/src/money.js``) handles money as digits; no file
+    under ``frontend/src`` calls ``parseFloat`` or ``Number(`` at all."""
+    src = REPO / "frontend" / "src"
+    hits = []
+    for p in sorted(src.rglob("*")):
+        if p.suffix in (".js", ".jsx") and not p.name.endswith(".test.js"):
+            for i, line in enumerate(p.read_text().splitlines(), 1):
+                code = line.split("//", 1)[0]  # comments may name the forbidden calls
+                if re.search(r"\bparseFloat\s*\(|\bNumber\s*\(", code):
+                    hits.append(f"{p.relative_to(src)}:{i}")
+    assert hits == []
+    money = (src / "money.js").read_text()
+    assert "BigInt(" in money  # digits handled as integers, not as a binary float

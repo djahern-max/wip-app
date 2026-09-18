@@ -41,6 +41,21 @@ SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname IN ('app_owne
 - Apply: `cd backend && alembic upgrade head` with `DATABASE_OWNER_URL` set.
 - Roll back one: `alembic downgrade -1`. Every migration is reversible or says why
   not in its docstring.
+- **Downgrades are destructive and guarded** (F03 close-out). `alembic downgrade`
+  (and `make downgrade`) runs only when `ALLOW_DESTRUCTIVE_DOWNGRADE=1` is set **and**
+  the target database name is not in `PROTECTED_DATABASE_NAMES` (comma-separated;
+  default `wip`, the local dev database; set it to the production database name in
+  production). Otherwise it exits non-zero naming the database, before connecting,
+  and changes nothing. Migration round-trip checks (`upgrade head → downgrade base →
+  upgrade head`) run only against a scratch database: the test suite's
+  `scratch_db_url` (`wip_mig_*`) and `wip_test`, and CI's `wip_scratch`. Never against
+  `wip` or production. To check by hand: `createdb`-style scratch via
+  `db/init/01_roles.sh` with `APP_DATABASES=wip_scratch`, then
+  `ALLOW_DESTRUCTIVE_DOWNGRADE=1 DATABASE_OWNER_URL=…/wip_scratch alembic downgrade base`.
+- **What the guard does not cover.** The append-only triggers (D-13) stop `UPDATE`,
+  `DELETE` and `TRUNCATE` for every role, but they do not protect against `DROP TABLE`
+  (or a downgrade that drops a table) by the schema owner, `app_owner`. The protection
+  against that is backups (F23), not a trigger.
 - New tenant-scoped table: follow "Adding a tenant-scoped table" in `README.md`.
   The CI test fails if the RLS helper was not called.
 
@@ -129,6 +144,37 @@ curl -b jar -H 'X-Requested-With: cli' -H 'Content-Type: application/json' \
 never comes from the request); tenant configuration is F04. A membership request
 with no `role` writes an **entry row** for a firm user; a client user needs a client
 role. Every step writes to `firm_audit_log` or the tenant's `audit_log`.
+
+### Rebuild local dev data
+
+After a wipe (an empty `wip` database at `alembic upgrade head`), from `backend/` with
+`.env` in place and `make api` **not** required. Every command goes through the same
+audited admin service as the API (actor `cli`); none sets a password (D-16): each
+user gets a one-time activation link printed once, to open in the browser.
+
+```sh
+# 0. schema
+.venv/bin/alembic upgrade head
+
+# 1. the firm and its first firm_admin (prints the admin's activation link)
+.venv/bin/python scripts/create_user.py bootstrap --firm-name "Your CPA Practice" \
+    --email you@firm.test --display-name "Your Name"
+
+# 2. the client tenant
+.venv/bin/python scripts/create_user.py create-tenant --name "Rye Beach Landscaping" --slug rye-beach
+
+# 3. the admin's own entry row in that tenant (D-15)
+.venv/bin/python scripts/create_user.py add-entry --email you@firm.test --tenant rye-beach
+
+# 4. a firm_staff user with an entry row in rye-beach (prints their activation link)
+.venv/bin/python scripts/create_user.py create-user --email dane@firm.test --display-name "Dane" \
+    --firm-role firm_staff --entry rye-beach
+```
+
+Then open each link (`make web` running): password → QR code → confirm → recovery
+codes. A lost link: `scripts/create_user.py issue-link --email …`. The local object
+store (`.object-store/`) is separate from the database; it can be emptied at any time,
+and a batch whose object is missing will report `object not found` on download.
 
 ### Users, entry rows, firm memberships
 
@@ -281,9 +327,16 @@ COMMIT;
 - **`queued` with `run_after` in the future**: a retry waiting out its backoff.
   `last_error` is the exception type (or SQLSTATE and message for a database error),
   never file content.
-- **`failed`**: `attempts = max_attempts`, or an expired lease at the limit. Look at
-  `last_error`, and for `import.process_batch` at `import_batch.error` (a parse
-  failure is `parse failed: <ExceptionType>`). Fix the cause, then requeue:
+- **`failed`**: `attempts = max_attempts`, an expired lease at the limit, or a
+  permanent failure (no retry). For `import.process_batch` the two cases look
+  different: a **parse error** (`last_error` = `parse failed: <ExceptionType>`,
+  `attempts = 1`) marks the batch `failed`, and a failed batch is final; it never
+  goes back to `processing`, so fix the file and upload it as a new batch (a
+  requeued task for a failed batch fails again with `batch already failed`). A
+  **transient error** (opening the object, talking to the database; `last_error`
+  is the exception type or SQLSTATE, `import_batch.error` ends `(will retry)`) leaves
+  the batch `received` and retries with backoff; if it still reaches
+  `max_attempts`, fix the cause (object store, database) and requeue:
 
 ```sql
 BEGIN;
@@ -330,8 +383,9 @@ _First manual upload/download against Spaces: not yet done._
 - `GET /api/imports`, `GET /api/imports/{id}`, `GET /api/imports/{id}/download`
   (audit `import_downloaded`). A batch of another tenant is 404.
 - Statuses: `received` → `processing` → `loaded` | `loaded_with_issues`
-  (`rows_rejected` > 0; the rest loaded) | `failed` (`parse` raised; the task retries
-  up to `TASK_MAX_ATTEMPTS`). F03 ships one production source kind,
+  (`rows_rejected` > 0; the rest loaded) | `failed` (`parse` raised; final, no retry;
+  upload the corrected file as a new batch). A transient failure puts the batch back
+  to `received` with `error` ending `(will retry)` while the task backs off. F03 ships one production source kind,
   `unparsed_file`, which stores and checksums the file and yields no records; LMN
   and isolved parsers register their kinds in F06/F11.
 - Source data lives in `raw_record` (insert-only, versioned per external id, D-20)

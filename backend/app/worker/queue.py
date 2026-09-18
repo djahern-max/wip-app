@@ -16,6 +16,10 @@ if the enqueue commits. The payload is the tenant id and nothing else.
 Error text stored on a task (``last_error``) is the exception type, or the
 SQLSTATE and primary message for a database error, never the exception's own
 message: a parser's message may echo file content.
+
+A task raises ``PermanentTaskError`` for a failure that no retry can fix (a source's
+``parse`` raising, a batch already failed): the task is ``failed`` at once, attempts
+unchanged. Every other exception retries with backoff up to ``max_attempts``.
 """
 
 import logging
@@ -36,7 +40,19 @@ log = logging.getLogger("app.worker")
 NOTIFY_CHANNEL = "wip_tasks"
 
 
+class PermanentTaskError(Exception):
+    """No retry: the cause is in the data, not in the environment. ``reason`` is a
+    short code stored as ``last_error``; the cause's type is appended when given."""
+
+    def __init__(self, reason: str, cause: BaseException | None = None) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.cause = cause
+
+
 def describe_error(exc: BaseException) -> str:
+    if isinstance(exc, PermanentTaskError):
+        return exc.reason if exc.cause is None else f"{exc.reason}: {type(exc.cause).__name__}"
     if isinstance(exc, DBAPIError):
         return describe_db_error(exc)[:500]
     return type(exc).__name__
@@ -158,14 +174,15 @@ def complete(db: Session, task_id: UUID, *, worker: str) -> bool:
     return result.rowcount == 1
 
 
-def fail(db: Session, task_id: UUID, *, worker: str, error: str) -> bool:
-    """Retry with backoff, or ``failed`` at ``max_attempts``. ``False`` = lease lost."""
+def fail(db: Session, task_id: UUID, *, worker: str, error: str, permanent: bool = False) -> bool:
+    """Retry with backoff, or ``failed`` at ``max_attempts`` or when ``permanent``.
+    ``False`` = lease lost."""
     row = db.execute(
         select(Task).where(_held(task_id, worker)).with_for_update()
     ).scalar_one_or_none()
     if row is None:
         return False
-    if row.attempts >= row.max_attempts:
+    if permanent or row.attempts >= row.max_attempts:
         row.status = "failed"
         row.finished_at = datetime.now(UTC)
     else:
