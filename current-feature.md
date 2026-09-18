@@ -15,9 +15,9 @@ brief. Copy it here, expand it, and restate the acceptance criteria before codin
 
 ## Discovered
 Carried from F04 (`docs/briefs/F04.md`, Discovered): no screen for suggestion rules
-(script / `PUT /api/config/suggest-rules`); cost categories seeded lazily, not at tenant
-creation; `gl_account.ledger_type` is source text, QBO types arrive with F05; a general
-"no money as a JSON number" response assertion is still per test.
+(script / `PUT /api/config/suggest-rules`); `gl_account.ledger_type` is source text, QBO
+types arrive with F05; a general "no money as a JSON number" response assertion is still
+per test. (Lazy category seeding: done 2026-09-18, seeded at tenant creation.)
 
 Carried from F03 (`docs/briefs/F03.md`, Discovered): money in API responses must be
 strings (F08; `formatMoney` is ready); `sync_run` and `connection` have no API yet (F05);

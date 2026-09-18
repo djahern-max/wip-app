@@ -203,6 +203,35 @@ def create_tenant(
     return tenant
 
 
+def create_tenant_and_seed(
+    engine: Engine,
+    actor: Principal | None,
+    *,
+    name: str,
+    slug: str,
+    meta: RequestMeta,
+    firm_id: UUID | None = None,
+    via: str = "api",
+) -> Tenant:
+    """Create the tenant in its own transaction (global tables), then, once that has
+    committed, seed the D-23 cost categories in a second transaction under the new
+    tenant's context (F04; the API and the CLI both come through here). The seed is
+    attributed to the creator; if it ever fails, ``ensure_cost_categories`` covers the
+    tenant on first read."""
+    from app.domain.config.audit import Actor
+    from app.domain.config.categories import seed_cost_categories_at_creation
+
+    with untenanted_session(engine) as db:
+        tenant = create_tenant(db, actor, name=name, slug=slug, meta=meta, firm_id=firm_id, via=via)
+        db.expunge(tenant)
+    actor_id, actor_role = _actor_ids(actor)
+    with tenant_session(engine, tenant.id) as db:
+        seed_cost_categories_at_creation(
+            db, tenant.id, Actor(user_id=actor_id, role=actor_role, meta=meta)
+        )
+    return tenant
+
+
 def tenant_in_firm(db: Session, firm_id: UUID | None, tenant_id: UUID) -> Tenant:
     """404 for a tenant outside the firm (never reveal that it exists)."""
     tenant = db.get(Tenant, tenant_id)

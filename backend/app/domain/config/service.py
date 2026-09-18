@@ -343,7 +343,7 @@ def load_suggest_rules(db: Session, tenant_id: UUID, spec: dict, actor: Actor) -
     """Replace the tenant's rules with ``spec`` (the fixture JSON shape: ``divisions``
     and ``rules``). Divisions named in the spec are created when missing. Patterns are
     compiled first; one bad rule refuses the whole load, naming it."""
-    ensure_cost_categories(db, tenant_id, actor)
+    ensure_cost_categories(db, tenant_id)
     divisions = {d.code: d for d in db.execute(select(Division)).scalars()}
     for i, d in enumerate(spec.get("divisions", [])):
         code = str(d.get("code", "")).strip().upper()

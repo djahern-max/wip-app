@@ -178,7 +178,7 @@ class SuggestCounts:
 
 def suggest(db: Session, tenant_id: UUID, actor: Actor = SYSTEM) -> SuggestCounts:
     """Idempotent. Never overwrites a confirmed mapping."""
-    ensure_cost_categories(db, tenant_id, actor)
+    ensure_cost_categories(db, tenant_id)
     rules = compile_rules(list(db.execute(select(AccountSuggestRule)).scalars()))
     divisions_by_digit = {
         d.code_digit: d.id

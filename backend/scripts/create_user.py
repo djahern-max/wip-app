@@ -158,16 +158,11 @@ def cmd_reset_totp(args: argparse.Namespace, engine) -> None:
 
 def cmd_create_tenant(args: argparse.Namespace, engine) -> None:
     with untenanted_session(engine) as db:
-        tenant = admin.create_tenant(
-            db,
-            None,
-            name=args.name,
-            slug=args.slug,
-            meta=META,
-            firm_id=admin.only_firm_id(db),
-            via=VIA,
-        )
-        print(f"created tenant {tenant.name!r} ({tenant.slug}) id {tenant.id}")
+        firm_id = admin.only_firm_id(db)
+    tenant = admin.create_tenant_and_seed(
+        engine, None, name=args.name, slug=args.slug, meta=META, firm_id=firm_id, via=VIA
+    )
+    print(f"created tenant {tenant.name!r} ({tenant.slug}) id {tenant.id}; cost categories seeded")
 
 
 def cmd_add_entry(args: argparse.Namespace, engine) -> None:

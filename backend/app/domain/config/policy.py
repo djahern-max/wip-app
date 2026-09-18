@@ -143,7 +143,7 @@ def set_policy(
     if POLICY_KEYS.get(key) and POLICY_KEYS[key].kind == "category_slots":
         from app.domain.config.categories import ensure_cost_categories
 
-        ensure_cost_categories(db, tenant_id, actor)
+        ensure_cost_categories(db, tenant_id)
     stored = validate_value(db, key, value)
     ref = (decision_ref or "").strip()
     if not ref:

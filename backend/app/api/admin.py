@@ -167,9 +167,13 @@ def create_tenant(
     body: TenantIn,
     request: Request,
     actor: Annotated[Principal, Depends(can_manage_tenants)],
-    db: RequestSession,
+    engine: AppEngine,
 ):
-    t = admin.create_tenant(db, actor, name=body.name, slug=body.slug, meta=request_meta(request))
+    # Two transactions of its own (F04): the tenant row, then the D-23 cost categories
+    # under the new tenant's context once the row has committed.
+    t = admin.create_tenant_and_seed(
+        engine, actor, name=body.name, slug=body.slug, meta=request_meta(request)
+    )
     return TenantCreatedOut(tenant_id=str(t.id), firm_id=str(t.firm_id), name=t.name, slug=t.slug)
 
 
