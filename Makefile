@@ -1,4 +1,4 @@
-.PHONY: db-up db-down backend-install migrate downgrade test lint api web
+.PHONY: db-up db-down backend-install migrate downgrade test lint api worker web reencrypt
 
 db-up:
 	docker compose up -d --wait db
@@ -23,6 +23,12 @@ lint:
 
 api:
 	cd backend && .venv/bin/uvicorn app.main:app --reload --port 8000
+
+worker:
+	cd backend && .venv/bin/python -m app.worker
+
+reencrypt:
+	cd backend && .venv/bin/python scripts/reencrypt.py
 
 web:
 	cd frontend && npm run dev

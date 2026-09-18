@@ -32,13 +32,13 @@ from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
 from httpx import Response
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import Engine, text
 
 import app.core.db as app_db
 from app.core.auth import CSRF_HEADER
 from app.core.config import Settings, get_settings
 from app.core.crypto import get_keyring
-from app.core.db import tenant_session, untenanted_session
+from app.core.db import create_app_engine, tenant_session, untenanted_session
 from app.core.security import (
     hash_password,
     hash_recovery_code,
@@ -57,12 +57,15 @@ from app.tenancy.models import (
     Tenant,
     User,
 )
-from tests import _env
+from tests import _env, csv_source
 from tests._env import OWNER_URL, RW_URL
 from tests.leaks import record_secret
 from tests.logcapture import ensure_capture
 from tests.probes import build_probe_router
 from tests.responses import record_response
+
+# F03: the test-only CSV source kind (never registered by the application).
+csv_source.register()
 
 # Every other setting keeps its coded default: a variable exported in the developer's
 # shell (or the CI job's DATABASE_OWNER_URL) does not reach the application under test.
@@ -96,14 +99,16 @@ def _capture_logs() -> None:
 
 @pytest.fixture(scope="session")
 def owner_engine() -> Iterator[Engine]:
-    engine = create_engine(OWNER_URL)
+    # Built like the application's engine (F03): the same JSON codec, so what a
+    # test reads from a JSONB column is what the application would read.
+    engine = create_app_engine(OWNER_URL)
     yield engine
     engine.dispose()
 
 
 @pytest.fixture(scope="session")
 def rw_engine() -> Iterator[Engine]:
-    engine = create_engine(RW_URL)
+    engine = create_app_engine(RW_URL)
     yield engine
     engine.dispose()
 

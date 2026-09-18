@@ -32,4 +32,23 @@ export async function api(method, path, body) {
   return data;
 }
 
+// Multipart upload (F03). Same CSRF header and cookie handling as api(); the
+// browser sets the multipart Content-Type itself. Never called from an effect.
+export async function upload(path, formData) {
+  const r = await fetch(path, {
+    method: "POST",
+    headers: { [CSRF_HEADER]: "fetch" },
+    body: formData,
+    credentials: "same-origin",
+  });
+  let data = null;
+  try {
+    data = await r.json();
+  } catch {
+    data = null;
+  }
+  if (!r.ok) throw new ApiError(r.status, data && data.detail);
+  return data;
+}
+
 export const getMe = () => api("GET", "/api/session/me");

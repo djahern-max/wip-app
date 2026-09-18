@@ -99,6 +99,36 @@ class TenantCreatedOut(_Out):
     slug: str
 
 
+class ImportBatchOut(_Out):
+    """An uploaded file (F03). ``object_key`` is deliberately absent."""
+
+    id: str
+    source_kind: str
+    sha256: str
+    byte_size: int
+    original_filename: str
+    content_type: str | None
+    uploaded_by: str | None
+    uploaded_by_email: str | None  # from the global user table; never a credential
+    uploaded_at: str
+    status: str
+    rows_loaded: int
+    rows_rejected: int
+    error: str | None
+    processed_at: str | None
+
+
+class ImportUploadOut(_Out):
+    batch: ImportBatchOut
+    duplicate: bool
+
+
+class SourceKindOut(_Out):
+    name: str
+    description: str
+    extensions: list[str]
+
+
 class AuditRowOut(_Out):
     id: str
     occurred_at: str

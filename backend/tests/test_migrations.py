@@ -23,7 +23,14 @@ EXPECTED_TABLES = {
     "audit_log",
     "firm_audit_log",
     "firm_membership",
+    # F03 (0004)
+    "connection",
+    "sync_run",
+    "import_batch",
+    "raw_record",
+    "task",
 }
+F03_TABLES = {"connection", "sync_run", "import_batch", "raw_record", "task"}
 F02_USER_COLUMNS = {"password_hash", "totp_secret_enc", "totp_key_id", "recovery_code_hashes"}
 F02_1_USER_COLUMNS = {"activation_token_hash", "activation_expires_at"}
 F02_ONLY_USER_COLUMNS = {"password_reset_token_hash", "password_reset_expires_at"}
@@ -66,6 +73,10 @@ def _user_columns(url: str) -> set[str]:
     )
 
 
+def _triggers(url: str) -> set[str]:
+    return _query(url, "SELECT tgname FROM pg_trigger WHERE NOT tgisinternal")
+
+
 def _constraints(url: str, table: str) -> set[str]:
     return _query(
         url,
@@ -97,6 +108,14 @@ def test_upgrade_head_then_downgrade_base(scratch_db_url: str) -> None:
     command.upgrade(cfg, "0002")
     assert F02_ONLY_USER_COLUMNS <= _user_columns(scratch_db_url)
     assert "firm_membership" not in _public_tables(scratch_db_url)
+    # 0004 alone is reversible (F03): the five tables go, the audit tables keep
+    # their append-only triggers and the function.
+    command.upgrade(cfg, "head")
+    assert "raw_record_append_only_row" in _triggers(scratch_db_url)
+    command.downgrade(cfg, "0003")
+    assert F03_TABLES.isdisjoint(_public_tables(scratch_db_url))
+    assert "audit_log_append_only_row" in _triggers(scratch_db_url)
+    assert APPEND_ONLY_FUNCTION in _functions(scratch_db_url)
     # 0003 alone is reversible.
     command.upgrade(cfg, "head")
     command.downgrade(cfg, "0002")

@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { PRODUCT_NAME } from "../product.js";
+import Imports from "./Imports.jsx";
 import { styles } from "./Login.jsx";
+
+// Roles with can_manage_imports (app/core/authz.py). The server enforces it; this
+// only decides whether to show the link.
+const IMPORT_ROLES = ["firm_admin", "firm_staff", "client_admin"];
 
 // Signed-in frame: product name, tenant switcher, user, sign-out. The active
 // tenant lives in the server-side session; the switcher only asks to change it.
@@ -9,6 +14,7 @@ export default function Shell({ me, onChanged, onLogout }) {
   const [tenants, setTenants] = useState([]);
   const [health, setHealth] = useState(null);
   const [error, setError] = useState(null);
+  const [view, setView] = useState("home");
 
   useEffect(() => {
     api("GET", "/api/session/tenants").then(setTenants).catch((e) => setError(String(e.message)));
@@ -26,6 +32,7 @@ export default function Shell({ me, onChanged, onLogout }) {
   }
 
   const active = tenants.find((t) => t.tenant_id === me.active_tenant_id);
+  const canImport = Boolean(active) && IMPORT_ROLES.includes(me.role);
 
   return (
     <div style={{ fontFamily: "system-ui, sans-serif" }}>
@@ -46,6 +53,16 @@ export default function Shell({ me, onChanged, onLogout }) {
             ))}
           </select>
         </label>
+        {canImport && (
+          <nav style={{ display: "flex", gap: "1rem", fontSize: 14 }}>
+            <button type="button" style={styles.linkButton} onClick={() => setView("home")}>
+              Home
+            </button>
+            <button type="button" style={styles.linkButton} onClick={() => setView("imports")}>
+              Imports
+            </button>
+          </nav>
+        )}
         <span style={{ marginLeft: "auto", fontSize: 14 }}>
           {me.user.email}
           {me.firm_role ? ` · ${me.firm_role}` : ""}
@@ -54,7 +71,9 @@ export default function Shell({ me, onChanged, onLogout }) {
       </header>
       <main style={{ padding: "2rem" }}>
         {error && <p style={styles.error}>{error}</p>}
-        {active ? (
+        {active && view === "imports" && canImport ? (
+          <Imports me={me} />
+        ) : active ? (
           <>
             <h1 style={{ marginTop: 0 }}>{active.name}</h1>
             <p>

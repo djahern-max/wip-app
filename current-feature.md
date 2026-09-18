@@ -1,35 +1,35 @@
 # current-feature.md
 
-_No feature in flight (2026-09-17)._ F02.1 closed; its brief is `docs/briefs/F02.1.md`.
-The owner's browser pass was completed on 2026-09-17 (criteria ticked in
-`docs/briefs/F02.1.md` and `docs/briefs/F02.md`); the D-18 CLAUDE.md sentence was
-approved earlier (7139397). Nothing is carried over from F02.1.
+_No feature in flight (2026-09-17)._ F03 is built; its brief is `docs/briefs/F03.md`.
+The owner's browser pass (last F03 acceptance criterion) is still open: with `make api`,
+`make web`, `make worker` running, upload a file as `unparsed_file` → status reaches
+`loaded` after a manual Refresh → upload the same file again and see the duplicate notice
+and still one row → download it and get the same bytes → stop the worker, upload a
+different file, see it wait at `received`, start the worker, see it complete. When done,
+tick it in `docs/briefs/F03.md` and flip F03 to ☑ in `ROADMAP.md`. Also pending from F03
+close-out: the owner appends `DECISIONS_D-19_to_D-21.md` to `docs/DECISIONS.md`.
 
-Next per ROADMAP: **F03 · Ingestion framework**. Copy its block here, expand it, and
+**Local dev database note (2026-09-17)**: the `wip` database was emptied by a migration
+round-trip run during F03 close-out. Re-create the dev firm user with
+`scripts/create_user.py` (OPERATIONS.md, "Authentication and sessions") before the
+browser pass.
+
+Next per ROADMAP: **F04 · Tenant configuration**. Copy its block here, expand it, and
 restate the acceptance criteria before coding.
 
 ## Discovered
-From the F02.1 enrolment idempotency fix (2026-09-17). Not fixed in passing.
-- **Pending TOTP secret is per user, not per session.** Two *live* sessions of one
-  client user (optional TOTP, started from a normal session) now get the same pending
-  secret; before the fix each call made a new one. Someone holding that user's password
-  and a concurrent session could read the secret the user then confirms. Firm users are
-  not exposed: only a link opens their enrolment session, and issuing or redeeming a link
-  ends every other session and clears the pending secret. Closing it means binding the
-  pending secret to the session that started it (owner call; no UI reaches optional
-  client enrolment today).
-  **Deferred by the owner (2026-09-17); no code change.** Rule for later: "When optional client TOTP enrolment gets a UI, starting enrolment requires re-entering the password and ends the user's other sessions, so exactly one session exists when the secret is shown."
-- ~~**`Activate.jsx` has no double-submit guard.**~~ Fixed 2026-09-17 (F02.1 · enrolment
-  follow-ups): `busy` flag, submit disabled while the request is in flight. Login,
-  TotpVerify and the TotpEnrol confirm form already had it.
-- ~~**Proposed check, no new dependency.**~~ Built 2026-09-17:
-  `backend/tests/test_frontend_effects.py`. A rendered StrictMode test (jsdom or a
-  browser driver) still needs a new dependency: ask first.
-- **No rendered-browser test dependency for now** (owner, 2026-09-17): no jsdom or
-  browser driver is added. Revisit when an admin UI exists. Until then the static check
-  above and the owner's browser pass cover the React screens.
+Carried from F03 (`docs/briefs/F03.md`, Discovered):
+- **Money in API responses (F08).** FastAPI's default encoder turns `Decimal` into
+  `float` on the way out; the first feature that returns money must serialize it as a
+  string through the response schemas, with a response-scan assertion.
+- **Migration round-trip checks run on a scratch database only.** Add the sentence to
+  the OPERATIONS "Migrations" runbook when it is next touched.
+- **`sync_run` and `connection` have no API yet** (F05).
+
+Carried from F02.1 (`docs/briefs/F02.1.md`, Discovered), still open:
+- **Pending TOTP secret is per user, not per session.** Deferred by the owner
+  (2026-09-17). Rule for later: when optional client TOTP enrolment gets a UI, starting
+  enrolment requires re-entering the password and ends the user's other sessions.
+- **No rendered-browser test dependency for now** (owner, 2026-09-17).
 - **A client user's optional enrol confirm records a second `login_success`** (and a
-  second `tenant_enter` when a tenant is active): the session was already usable after
-  the password, but `_verified_session` completes the login again because
-  `totp_verified_at` was NULL. Seen while adding auto-selection at confirm
-  (2026-09-17); no UI reaches optional client enrolment today. Not fixed in passing.
+  second `tenant_enter` when a tenant is active). Not fixed in passing.

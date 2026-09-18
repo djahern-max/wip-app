@@ -10,6 +10,8 @@ from sqlalchemy import create_engine, pool
 
 # Imported for their side effect: register every model on Base.metadata.
 import app.audit.models  # noqa: F401
+import app.ingest.models  # noqa: F401
+import app.worker.models  # noqa: F401
 from app.core.config import get_migration_settings
 from app.tenancy.models import Base
 

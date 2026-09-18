@@ -69,6 +69,51 @@ class Settings(BaseSettings):
     # One-time activation link (D-16).
     activation_link_ttl_hours: int = 72
 
+    # --- F03 · object storage (D-21) --------------------------------------------
+    # "local" (development, tests, CI) or "s3" (DigitalOcean Spaces). The Spaces
+    # variables have no defaults and are required only when OBJECT_STORE=s3;
+    # ``require_object_store_settings`` checks them at start-up by name.
+    object_store: str = "local"
+    local_object_store_dir: str = str(REPO_ROOT / ".object-store")
+    spaces_endpoint_url: str | None = None
+    spaces_region: str | None = None
+    spaces_bucket: str | None = None
+    spaces_access_key_id: str | None = None
+    spaces_secret_access_key: str | None = None
+    signed_url_ttl_seconds: int = 60
+    # Uploads (F03): refused beyond this size before anything is stored.
+    max_upload_bytes: int = 25 * 1024 * 1024
+
+    # --- F03 · worker (D-19; plan call 1) -----------------------------------------
+    worker_poll_seconds: float = 5
+    # A task must finish inside its lease or split its work; an expired lease makes
+    # the task claimable again. No heartbeat (owner answer to plan call 1).
+    worker_lease_seconds: int = 300
+    task_max_attempts: int = 5
+    # Backoff between attempts: base × 2^(attempt−1), capped.
+    task_backoff_base_seconds: int = 30
+    task_backoff_cap_seconds: int = 900
+
+
+SPACES_SETTINGS: tuple[str, ...] = (
+    "spaces_endpoint_url",
+    "spaces_region",
+    "spaces_bucket",
+    "spaces_access_key_id",
+    "spaces_secret_access_key",
+)
+
+
+def require_object_store_settings(settings: "Settings") -> None:
+    """Exit naming the missing variable(s) when ``OBJECT_STORE=s3`` lacks a credential
+    or the store name is unknown. Never prints a value."""
+    if settings.object_store not in ("local", "s3"):
+        raise MissingSettings("invalid configuration: OBJECT_STORE must be 'local' or 's3'")
+    if settings.object_store == "s3":
+        missing = [name.upper() for name in SPACES_SETTINGS if not getattr(settings, name)]
+        if missing:
+            raise MissingSettings("missing required environment variable(s): " + ", ".join(missing))
+
 
 class MigrationSettings(BaseSettings):
     """All that ``alembic/env.py`` reads. No migration needs anything else."""

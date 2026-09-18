@@ -8,6 +8,7 @@ from sqlalchemy.exc import DBAPIError
 
 from app.audit.models import AuditLog, FirmAuditLog
 from app.core.db import tenant_session, untenanted_session
+from app.ingest.models import ImportBatch, RawRecord
 from app.tenancy.rls import APPEND_ONLY_FUNCTION, APPEND_ONLY_TABLES, append_only_trigger_names
 from tests.conftest import Seed
 
@@ -105,10 +106,51 @@ def test_firm_audit_log_rejects_changes(
             s.execute(text(sql), {"id": row.id})
 
 
+@pytest.mark.parametrize("engine_name", ["rw_engine", "owner_engine"])
+@pytest.mark.parametrize("stmt", ["UPDATE", "DELETE", "TRUNCATE"])
+def test_raw_record_rejects_changes(
+    request: pytest.FixtureRequest, seed: Seed, engine_name: str, stmt: str
+) -> None:
+    """D-20: a change to a raw record is a new version, never an UPDATE or DELETE."""
+    engine: Engine = request.getfixturevalue(engine_name)
+    sql = {
+        "UPDATE": "UPDATE raw_record SET is_deleted = true WHERE id = :id",
+        "DELETE": "DELETE FROM raw_record WHERE id = :id",
+        "TRUNCATE": "TRUNCATE raw_record",
+    }[stmt]
+    with pytest.raises(DBAPIError, match=APPEND_ONLY_ERROR):
+        with tenant_session(engine, seed.tenant_a) as s:
+            batch = ImportBatch(
+                tenant_id=seed.tenant_a,
+                source_kind="unparsed_file",
+                sha256=uuid.uuid4().hex * 2,
+                byte_size=1,
+                original_filename="x",
+                object_key=f"tenant/{seed.tenant_a}/imports/x",
+            )
+            s.add(batch)
+            s.flush()
+            row = RawRecord(
+                tenant_id=seed.tenant_a,
+                source="test",
+                entity_type="row",
+                external_id=uuid.uuid4().hex,
+                version=1,
+                payload={},
+                payload_sha256="0" * 64,
+                import_batch_id=batch.id,
+            )
+            s.add(row)
+            s.flush()
+            s.execute(text(sql), {"id": row.id})
+
+
 @pytest.mark.parametrize(
     "stmt",
     [
         "DROP TRIGGER audit_log_append_only_row ON audit_log",
+        "DROP TRIGGER raw_record_append_only_row ON raw_record",
+        "ALTER TABLE raw_record DISABLE TRIGGER ALL",
         "ALTER TABLE audit_log DISABLE TRIGGER audit_log_append_only_row",
         "ALTER TABLE audit_log DISABLE TRIGGER ALL",
         "DROP TRIGGER firm_audit_log_append_only_truncate ON firm_audit_log",

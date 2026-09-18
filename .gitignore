@@ -8,3 +8,5 @@ frontend/node_modules/
 frontend/dist/
 .DS_Store
 *.egg-info/
+# F03: local object store (development); never tracked
+.object-store/

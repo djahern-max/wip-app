@@ -212,13 +212,17 @@ F03 will use the same ring for OAuth tokens. No key material is ever committed:
 2. Add the new key to `CRYPTO_KEYS` (keep the old one) and point
    `CRYPTO_ACTIVE_KEY_ID` at it. Restart the API. New enrolments use the new key;
    existing rows still decrypt with the old key.
-3. Re-encrypt existing rows under the new key (a maintenance task; for TOTP secrets
-   the practical route is a TOTP reset per user, or wait for the re-encrypt
-   command that F03 adds with token storage).
-4. Only when no row references the old key id
-   (`SELECT count(*) FROM "user" WHERE totp_key_id = 'old'`), remove it from the ring.
-   Removing it earlier makes those rows unreadable (the app raises a clear error,
-   it does not silently fail).
+3. Re-encrypt existing rows under the new key: `make reencrypt` (F03;
+   `backend/scripts/reencrypt.py`, `--dry-run` to count only). It covers
+   `user.totp_secret_enc` and the token columns of `connection`, one transaction per
+   tenant for the tenant table, prints counts by key id before and after and never a
+   value, and is idempotent (a second run reports 0 rows). It exits 1, leaving the
+   rows as they are, if any blob cannot be decrypted (the key that sealed it is not
+   in the ring): add that key and run again. Run it with the API and worker
+   environment (`DATABASE_URL`, both keys in `CRYPTO_KEYS`, the new key active).
+4. Only when the "after" counts show zero rows on the old key id, remove it from
+   the ring and restart the API and the worker. Removing it earlier makes those rows
+   unreadable (the app raises a clear error, it does not silently fail).
 
 ### Reading the audit tables
 
@@ -233,3 +237,102 @@ F03 will use the same ring for OAuth tokens. No key material is ever committed:
   them; a wrong row is corrected by a later row.
 - Database errors are logged as SQLSTATE plus the server's primary message only; the
   engine hides bound parameters, so no row value reaches a log or an error body.
+
+## Ingestion: worker, object store, imports (F03)
+
+### Running the worker
+
+`make worker` (`python -m app.worker`) runs one worker process with the same
+environment as the API (`DATABASE_URL`, `CRYPTO_KEYS`, `CRYPTO_ACTIVE_KEY_ID`,
+`OBJECT_STORE` and its settings). It exits at start-up naming any missing variable.
+Run one or more; they share the queue safely (`FOR UPDATE SKIP LOCKED`). Stop with
+SIGTERM or Ctrl-C; a task in flight finishes, then the loop ends.
+
+The worker reads the tenant list, and **for each tenant** opens one transaction
+with that tenant's context and claims at most one due task (D-19). `LISTEN` on the
+`wip_tasks` channel wakes it as soon as the API enqueues something; polling every
+`WORKER_POLL_SECONDS` (default 5) is the fallback. Log lines carry
+`task=… kind=… tenant=… attempt=n/m` and the outcome; never a payload, a filename or
+a token.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `WORKER_POLL_SECONDS` | 5 | Poll interval when no `NOTIFY` arrives. |
+| `WORKER_LEASE_SECONDS` | 300 | A claimed task is leased for this long. No heartbeat: a task must finish inside its lease or split its work. The worker logs a warning when a task runs past 80% of the lease. |
+| `TASK_MAX_ATTEMPTS` | 5 | After this many failed attempts the task is `failed`. |
+| `TASK_BACKOFF_BASE_SECONDS` / `TASK_BACKOFF_CAP_SECONDS` | 30 / 900 | Delay before the retry after attempt *n*: `base × 2^(n−1)`, capped (30 s, 1, 2, 4 min, …). |
+
+### What a stuck or failed task looks like, and how to requeue it
+
+`task` is a tenant table: read it with tenant context, as the application does.
+
+```sql
+BEGIN;
+SELECT set_config('app.tenant_id', '<tenant uuid>', true);
+SELECT id, kind, status, attempts, max_attempts, run_after, locked_by, locked_until, last_error
+FROM task WHERE status IN ('queued', 'running', 'failed') ORDER BY created_at DESC;
+COMMIT;
+```
+
+- **`running` with `locked_until` in the past**: the worker died or the task outlived
+  its lease. Nothing to do: the next pass reclaims it (`attempts` increments), or
+  marks it `failed` if `attempts` already equals `max_attempts`. A worker that finishes
+  a task after losing its lease writes nothing and logs `outcome=lease lost`.
+- **`queued` with `run_after` in the future**: a retry waiting out its backoff.
+  `last_error` is the exception type (or SQLSTATE and message for a database error),
+  never file content.
+- **`failed`**: `attempts = max_attempts`, or an expired lease at the limit. Look at
+  `last_error`, and for `import.process_batch` at `import_batch.error` (a parse
+  failure is `parse failed: <ExceptionType>`). Fix the cause, then requeue:
+
+```sql
+BEGIN;
+SELECT set_config('app.tenant_id', '<tenant uuid>', true);
+UPDATE task SET status = 'queued', attempts = 0, run_after = now(),
+       locked_by = NULL, locked_until = NULL, last_error = NULL
+WHERE id = '<task uuid>' AND status = 'failed';
+SELECT pg_notify('wip_tasks', '<tenant uuid>');
+COMMIT;
+```
+
+Re-processing an import batch is safe: identical payloads write nothing (D-20).
+The partial unique index on `(tenant_id, kind, dedupe_key)` covers only `queued`
+and `running` rows, so requeueing a `failed` row never conflicts.
+
+### Object store
+
+`OBJECT_STORE=local` (development, tests, CI) keeps objects under
+`LOCAL_OBJECT_STORE_DIR` (default: repo-root `.object-store`, gitignored; CI fails
+if anything under it is tracked). `OBJECT_STORE=s3` is DigitalOcean Spaces through
+`boto3`: `SPACES_ENDPOINT_URL`, `SPACES_REGION`, `SPACES_BUCKET`,
+`SPACES_ACCESS_KEY_ID`, `SPACES_SECRET_ACCESS_KEY` have no defaults and the process
+exits naming a missing one. Objects are private; every key starts
+`tenant/{tenant_id}/` and the store builds that prefix itself. Downloads from S3 are
+a redirect to a signed URL valid for `SIGNED_URL_TTL_SECONDS` (default 60); the local
+store streams the file.
+
+Before the first deployment (D-21): create the Space and an access key, set the
+five variables, then upload one file through the Imports page and download it, and
+record the date and the bucket name here.
+
+_First manual upload/download against Spaces: not yet done._
+
+### Imports
+
+- `POST /api/imports` (multipart: `source_kind`, `file`) for `firm_admin`,
+  `firm_staff`, `client_admin` in the active tenant. Files over `MAX_UPLOAD_BYTES`
+  (default 25 MB) and extensions the source kind does not accept are refused before
+  anything is stored. The object is written before the `import_batch` row commits
+  (raw before normalized); the row, the `import.process_batch` task and the
+  `import_uploaded` audit row land in one transaction.
+- The same bytes for the same tenant and source kind return the existing batch with
+  `duplicate: true` (HTTP 200, audit `import_duplicate`); no second row, object or task.
+- `GET /api/imports`, `GET /api/imports/{id}`, `GET /api/imports/{id}/download`
+  (audit `import_downloaded`). A batch of another tenant is 404.
+- Statuses: `received` → `processing` → `loaded` | `loaded_with_issues`
+  (`rows_rejected` > 0; the rest loaded) | `failed` (`parse` raised; the task retries
+  up to `TASK_MAX_ATTEMPTS`). F03 ships one production source kind,
+  `unparsed_file`, which stores and checksums the file and yields no records; LMN
+  and isolved parsers register their kinds in F06/F11.
+- Source data lives in `raw_record` (insert-only, versioned per external id, D-20)
+  and in the object store; never in an audit row or a task payload.

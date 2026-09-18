@@ -1,0 +1,289 @@
+"""Upload and import pipeline (F03). Raw before normalized: the object is written
+before the ``import_batch`` row is committed; the row, the task and the audit row
+land in one transaction.
+
+``receive_upload`` streams the file to a temporary file while hashing, enforces
+``MAX_UPLOAD_BYTES`` and the source kind's extensions before anything is stored,
+writes the object (content-addressed: ``imports/{sha256}.{ext}`` under the tenant
+prefix, so a retried upload overwrites the identical object), then inserts the
+batch. The same bytes for the same tenant and source kind return the existing
+batch with ``duplicate=True``: no second batch, object or task.
+
+The task ``import.process_batch`` opens the object, runs the source's ``parse``,
+calls ``store_raw`` per item, and sets counts and status. A ``parse`` that raises
+marks the batch ``failed`` with the exception type (never file content) and
+re-raises so the queue's attempts and backoff apply; a rejected item is counted
+and the rest still loads (``loaded_with_issues``). Re-processing is safe:
+identical payloads write nothing (D-20).
+"""
+
+import hashlib
+import logging
+import re
+import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import BinaryIO
+from uuid import UUID
+
+from sqlalchemy import Engine, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from app.core.audit import RequestMeta, TenantEvent, write_tenant_audit
+from app.core.config import get_settings
+from app.core.db import tenant_session
+from app.core.storage import ObjectStore
+from app.ingest.models import ImportBatch
+from app.ingest.raw import RawOrigin, store_raw
+from app.integrations.base import RawItem, RejectedItem, get_source_kind
+from app.tenancy.models import Role
+from app.worker.queue import enqueue
+from app.worker.registry import task
+
+log = logging.getLogger("app.ingest")
+
+PROCESS_BATCH = "import.process_batch"
+CHUNK = 1024 * 1024
+_EXT = re.compile(r"^[a-z0-9]{1,10}$")
+
+
+class UploadRefused(Exception):
+    def __init__(self, status_code: int, detail: str) -> None:
+        super().__init__(detail)
+        self.status_code = status_code
+        self.detail = detail
+
+
+@dataclass(frozen=True)
+class Spooled:
+    file: BinaryIO
+    sha256: str
+    byte_size: int
+
+
+def spool_and_hash(stream: BinaryIO, max_bytes: int) -> Spooled:
+    """Copy ``stream`` to a temporary file while hashing; refuse past ``max_bytes``
+    before anything reaches the object store or the database."""
+    tmp = tempfile.TemporaryFile()
+    digest = hashlib.sha256()
+    size = 0
+    while chunk := stream.read(CHUNK):
+        size += len(chunk)
+        if size > max_bytes:
+            tmp.close()
+            raise UploadRefused(413, f"file exceeds MAX_UPLOAD_BYTES ({max_bytes})")
+        digest.update(chunk)
+        tmp.write(chunk)
+    tmp.seek(0)
+    return Spooled(file=tmp, sha256=digest.hexdigest(), byte_size=size)
+
+
+def safe_extension(filename: str) -> str:
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    return ext if _EXT.match(ext) else "bin"
+
+
+def relative_key(batch: ImportBatch) -> str:
+    prefix = f"tenant/{batch.tenant_id}/"
+    if not batch.object_key.startswith(prefix):
+        raise ValueError("object key does not belong to this tenant")
+    return batch.object_key[len(prefix) :]
+
+
+def find_batch(db: Session, tenant_id: UUID, source_kind: str, sha256: str) -> ImportBatch | None:
+    return db.execute(
+        select(ImportBatch).where(
+            ImportBatch.tenant_id == tenant_id,
+            ImportBatch.source_kind == source_kind,
+            ImportBatch.sha256 == sha256,
+        )
+    ).scalar_one_or_none()
+
+
+def receive_upload(
+    db: Session,
+    store: ObjectStore,
+    *,
+    tenant_id: UUID,
+    source_kind: str,
+    filename: str,
+    content_type: str | None,
+    stream: BinaryIO,
+    actor_user_id: UUID | None,
+    actor_role: Role | None,
+    meta: RequestMeta | None = None,
+) -> tuple[ImportBatch, bool]:
+    """``(batch, duplicate)``. Requires ``app.tenant_id`` = ``tenant_id`` on ``db``."""
+    try:
+        kind = get_source_kind(source_kind)
+    except LookupError:
+        raise UploadRefused(422, "unknown source kind") from None
+    # The filename is data: stored as text on the row, never part of a key.
+    name = (filename or "").strip()[:255] or "upload"
+    if not kind.accepts(name):
+        raise UploadRefused(415, f"source kind {kind.name!r} does not accept this file extension")
+    spooled = spool_and_hash(stream, get_settings().max_upload_bytes)
+    with spooled.file:
+        existing = find_batch(db, tenant_id, kind.name, spooled.sha256)
+        if existing is not None:
+            _audit(db, TenantEvent.import_duplicate, existing, actor_user_id, actor_role, meta)
+            return existing, True
+        # Raw before normalized: the object exists before the row is committed. A
+        # store failure leaves no row (the transaction is rolled back by the 503).
+        try:
+            object_key = store.put(
+                tenant_id, f"imports/{spooled.sha256}.{safe_extension(name)}", spooled.file
+            )
+        except Exception as exc:  # noqa: BLE001 - logged by type; nothing about the file
+            log.error("object store put failed: %s", type(exc).__name__)
+            raise UploadRefused(503, "object store unavailable") from None
+    batch = ImportBatch(
+        tenant_id=tenant_id,
+        source_kind=kind.name,
+        sha256=spooled.sha256,
+        byte_size=spooled.byte_size,
+        original_filename=name,
+        content_type=content_type[:120] if content_type else None,
+        object_key=object_key,
+        uploaded_by=actor_user_id,
+        status="received",
+    )
+    try:
+        with db.begin_nested():
+            db.add(batch)
+            db.flush()
+    except IntegrityError:
+        # A concurrent upload of the same bytes won the race: theirs is the batch.
+        existing = find_batch(db, tenant_id, kind.name, spooled.sha256)
+        if existing is None:
+            raise
+        _audit(db, TenantEvent.import_duplicate, existing, actor_user_id, actor_role, meta)
+        return existing, True
+    enqueue(
+        db,
+        tenant_id,
+        PROCESS_BATCH,
+        {"import_batch_id": str(batch.id)},
+        dedupe_key=str(batch.id),
+    )
+    _audit(db, TenantEvent.import_uploaded, batch, actor_user_id, actor_role, meta)
+    return batch, False
+
+
+def _audit(
+    db: Session,
+    action: TenantEvent,
+    batch: ImportBatch,
+    actor_user_id: UUID | None,
+    actor_role: Role | None,
+    meta: RequestMeta | None,
+) -> None:
+    write_tenant_audit(
+        db,
+        tenant_id=batch.tenant_id,
+        action=action,
+        entity_type="import_batch",
+        entity_id=batch.id,
+        actor_user_id=actor_user_id,
+        actor_role=actor_role,
+        detail={
+            "source_kind": batch.source_kind,
+            "sha256": batch.sha256,
+            "byte_size": batch.byte_size,
+        },
+        meta=meta,
+    )
+
+
+def audit_download(
+    db: Session,
+    batch: ImportBatch,
+    *,
+    actor_user_id: UUID | None,
+    actor_role: Role | None,
+    meta: RequestMeta | None,
+) -> None:
+    _audit(db, TenantEvent.import_downloaded, batch, actor_user_id, actor_role, meta)
+
+
+@contextmanager
+def open_batch_object(store: ObjectStore, batch: ImportBatch) -> Iterator[BinaryIO]:
+    with store.open(batch.tenant_id, relative_key(batch)) as f:
+        yield f
+
+
+# --- the task ---------------------------------------------------------------------------------
+
+
+@dataclass
+class _Counts:
+    loaded: int = 0
+    rejected: int = 0
+
+
+def process_batch_now(
+    engine: Engine, store: ObjectStore, tenant_id: UUID, import_batch_id: UUID
+) -> None:
+    """The work of ``import.process_batch``, callable without the queue (tests)."""
+    with tenant_session(engine, tenant_id) as s:
+        batch = s.get(ImportBatch, import_batch_id)
+        if batch is None:
+            raise LookupError("import batch not found in this tenant")
+        batch.status = "processing"
+        batch.error = None
+        source_kind, key = batch.source_kind, relative_key(batch)
+    kind = get_source_kind(source_kind)
+    counts = _Counts()
+    error: str | None = None
+    try:
+        with store.open(tenant_id, key) as stream, tenant_session(engine, tenant_id) as s:
+            origin = RawOrigin(import_batch_id=import_batch_id)
+            for item in kind.parse(stream):
+                if isinstance(item, RejectedItem):
+                    counts.rejected += 1
+                    continue
+                if not isinstance(item, RawItem):
+                    counts.rejected += 1
+                    continue
+                try:
+                    with s.begin_nested():
+                        store_raw(
+                            s,
+                            tenant_id,
+                            kind.source,
+                            item.entity_type,
+                            item.external_id,
+                            item.payload,
+                            origin,
+                            deleted=item.deleted,
+                        )
+                except Exception as exc:  # noqa: BLE001 - one bad row never fails the file
+                    counts.rejected += 1
+                    log.info("batch=%s rejected item: %s", import_batch_id, type(exc).__name__)
+                else:
+                    counts.loaded += 1
+    except Exception as exc:  # noqa: BLE001 - recorded on the batch as a type name only
+        error = f"parse failed: {type(exc).__name__}"
+        raise
+    finally:
+        with tenant_session(engine, tenant_id) as s:
+            batch = s.get(ImportBatch, import_batch_id)
+            if batch is not None:
+                batch.rows_loaded = counts.loaded
+                batch.rows_rejected = counts.rejected
+                batch.processed_at = datetime.now(UTC)
+                if error is not None:
+                    batch.status = "failed"
+                    batch.error = error
+                else:
+                    batch.status = "loaded_with_issues" if counts.rejected else "loaded"
+
+
+@task(PROCESS_BATCH)
+def process_batch(tenant_id: UUID, *, engine: Engine, import_batch_id: str) -> None:
+    from app.core.storage import build_object_store
+
+    process_batch_now(engine, build_object_store(get_settings()), tenant_id, UUID(import_batch_id))

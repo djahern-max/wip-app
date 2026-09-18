@@ -67,12 +67,15 @@ def _stored_credential_values(engine: Engine) -> dict[str, set[str]]:
         values["activation_token_hash"].add(sha256_hex(token))
     for token in LEAKS["session_token"]:
         values.setdefault("session_token_hash", set()).add(sha256_hex(token))
+    # F03: connection tokens in clear (the ciphertext never leaves a service function).
+    values["connection_token"] = set(LEAKS["connection_token"])
     return values
 
 
 def test_no_stored_credential_value_in_any_json_body(seed, owner_engine: Engine) -> None:
     values = _stored_credential_values(owner_engine)
     assert values["password_hash"] and values["recovery_code_hashes"]
+    assert values["connection_token"], "no connection token was recorded by the suite"
     hits = []
     for where, body in _json_bodies():
         for kind, vals in values.items():

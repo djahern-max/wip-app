@@ -2,6 +2,8 @@
 cell by cell, plus 401 for an unauthenticated request on every one. Firm roles are
 read from ``firm_membership``; the firm users' rows in tenants are entry rows."""
 
+import hashlib
+import io
 import uuid
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
@@ -12,7 +14,10 @@ from sqlalchemy import Engine, delete, select
 
 from app.core.authz import CAPABILITIES
 from app.core.db import tenant_session, untenanted_session
+from app.core.storage import LocalObjectStore
+from app.ingest.models import ImportBatch
 from app.tenancy.models import FirmMembership, Membership, Role
+from tests._env import OBJECT_STORE_DIR
 from tests.conftest import CSRF, Seed, full_login, make_client
 
 ROLES = ["firm_admin", "firm_staff", "client_admin", "client_pm", "client_viewer"]
@@ -31,6 +36,8 @@ class Route:
     # "no_member" (nothing anywhere), "firm_member" (firm_staff, no client rows)
     prepare: str | None = None
     tags: tuple[str, ...] = field(default_factory=tuple)
+    # F03: a multipart upload; (form fields, files) built fresh per cell.
+    multipart: Callable[[], tuple[dict, dict]] | None = None
 
 
 def _routes() -> list[Route]:
@@ -40,6 +47,20 @@ def _routes() -> list[Route]:
         Route("GET", "/api/audit", frozenset({FA, FS, CA})),
         Route("GET", "/api/firm-audit", frozenset({FA, FS})),
         Route("GET", "/api/session/tenants", ALL),
+        # F03: imports (can_manage_imports); {batch} is a batch seeded in tenant A.
+        Route("GET", "/api/imports", frozenset({FA, FS, CA})),
+        Route("GET", "/api/imports/source-kinds", frozenset({FA, FS, CA})),
+        Route("GET", "/api/imports/{batch}", frozenset({FA, FS, CA})),
+        Route("GET", "/api/imports/{batch}/download", frozenset({FA, FS, CA})),
+        Route(
+            "POST",
+            "/api/imports",
+            frozenset({FA, FS, CA}),
+            multipart=lambda: (
+                {"source_kind": "unparsed_file"},
+                {"file": ("matrix.bin", uuid.uuid4().bytes, "application/octet-stream")},
+            ),
+        ),
         Route("GET", "/api/admin/users", frozenset({FA})),
         Route(
             "POST",
@@ -136,9 +157,38 @@ def _prepare(seed: Seed, owner_engine: Engine, state: str | None) -> None:
             s.add(Membership(tenant_id=seed.tenant_b, user_id=scratch, role=Role.client_viewer))
 
 
-def _fill(route: Route, seed: Seed) -> tuple[str, dict | None]:
+_BATCH_ID: dict[str, str] = {}
+
+
+def _seed_batch(seed: Seed, owner_engine: Engine) -> str:
+    """One import batch in tenant A with a real object, for the {batch} routes."""
+    if "id" not in _BATCH_ID:
+        content = b"role-matrix"
+        sha = hashlib.sha256(content).hexdigest()
+        LocalObjectStore(OBJECT_STORE_DIR).put(
+            seed.tenant_a, f"imports/{sha}.bin", io.BytesIO(content)
+        )
+        with tenant_session(owner_engine, seed.tenant_a) as s:
+            batch = ImportBatch(
+                tenant_id=seed.tenant_a,
+                source_kind="unparsed_file",
+                sha256=sha,
+                byte_size=len(content),
+                original_filename="matrix.bin",
+                object_key=f"tenant/{seed.tenant_a}/imports/{sha}.bin",
+            )
+            s.add(batch)
+            s.flush()
+            _BATCH_ID["id"] = str(batch.id)
+    return _BATCH_ID["id"]
+
+
+def _fill(route: Route, seed: Seed, owner_engine: Engine | None = None) -> tuple[str, dict | None]:
     scratch = str(seed.users["scratch"].id)
     path = route.path.replace("{B}", str(seed.tenant_b)).replace("{scratch}", scratch)
+    if "{batch}" in path:
+        batch = _seed_batch(seed, owner_engine) if owner_engine is not None else str(uuid.uuid4())
+        path = path.replace("{batch}", batch)
     body = None
     if route.body is not None:
         body = {
@@ -155,8 +205,12 @@ def test_role_matrix_cell_by_cell(
     failures: list[str] = []
     for role in ROLES:
         _prepare(seed, owner_engine, route.prepare)
-        path, body = _fill(route, seed)
-        r = role_clients[role].request(route.method, path, json=body, headers=CSRF)
+        path, body = _fill(route, seed, owner_engine)
+        if route.multipart is not None:
+            data, files = route.multipart()
+            r = role_clients[role].request(route.method, path, data=data, files=files, headers=CSRF)
+        else:
+            r = role_clients[role].request(route.method, path, json=body, headers=CSRF)
         expected = "2xx" if role in route.allowed else "403"
         got = "2xx" if r.status_code in OK else str(r.status_code)
         if got != expected:
@@ -168,7 +222,11 @@ def test_role_matrix_cell_by_cell(
 @pytest.mark.parametrize("route", ROUTES, ids=[f"{r.method} {r.path}" for r in ROUTES])
 def test_unauthenticated_gets_401(route: Route, client: TestClient, seed: Seed) -> None:
     path, body = _fill(route, seed)
-    r = client.request(route.method, path, json=body, headers=CSRF)
+    if route.multipart is not None:
+        data, files = route.multipart()
+        r = client.request(route.method, path, data=data, files=files, headers=CSRF)
+    else:
+        r = client.request(route.method, path, json=body, headers=CSRF)
     assert r.status_code == 401, r.text
 
 

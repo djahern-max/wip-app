@@ -41,6 +41,9 @@ FORBIDDEN_DETAIL_KEYS = frozenset(
         "session_id",
         "cookie",
         "email",  # F02.1: an attempted address is stored only as email_sha256
+        "access_token",  # F03: connection tokens are never written anywhere in clear
+        "refresh_token",
+        "payload",  # F03: source data belongs in raw_record, not in an audit row
     }
 )
 
@@ -68,6 +71,11 @@ class TenantEvent(enum.StrEnum):
     membership_created = "membership_created"
     membership_role_changed = "membership_role_changed"
     membership_removed = "membership_removed"
+    # F03
+    import_uploaded = "import_uploaded"
+    import_duplicate = "import_duplicate"
+    import_downloaded = "import_downloaded"
+    connection_tokens_set = "connection_tokens_set"
 
 
 @dataclass(frozen=True)

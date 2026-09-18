@@ -14,6 +14,9 @@ dependencies = [
     "argon2-cffi>=23.1",
     "pyotp>=2.9",
     "cryptography>=42",
+    # F03 (D-21): object storage (DigitalOcean Spaces) and multipart uploads
+    "boto3>=1.34",
+    "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]

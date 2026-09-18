@@ -34,8 +34,18 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.jsoncodec import canonical_json, json_loads
 
-PRODUCTION_ENGINE_OPTIONS: dict = {"pool_pre_ping": True, "hide_parameters": True, "echo": False}
+# JSON codec (F03, D-20): one serializer and deserializer for every JSON/JSONB
+# column. The psycopg dialect installs them on each connection's adapters map,
+# so raw SQL and the ORM read and write JSON the same way (app.core.jsoncodec).
+PRODUCTION_ENGINE_OPTIONS: dict = {
+    "pool_pre_ping": True,
+    "hide_parameters": True,
+    "echo": False,
+    "json_serializer": canonical_json,
+    "json_deserializer": json_loads,
+}
 ENGINE_OPTIONS: dict = dict(PRODUCTION_ENGINE_OPTIONS)
 
 

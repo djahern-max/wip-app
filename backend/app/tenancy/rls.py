@@ -32,7 +32,7 @@ OWN_MEMBERSHIP_PREDICATE = "user_id = NULLIF(current_setting('app.user_id', true
 APPEND_ONLY_FUNCTION = "raise_append_only"
 # Register of insert-only tables (D-13). Add a table here in the same migration
 # that calls make_append_only() for it.
-APPEND_ONLY_TABLES: tuple[str, ...] = ("audit_log", "firm_audit_log")
+APPEND_ONLY_TABLES: tuple[str, ...] = ("audit_log", "firm_audit_log", "raw_record")  # D-20
 
 
 def _q(table_name: str) -> str:

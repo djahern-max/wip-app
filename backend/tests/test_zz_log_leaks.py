@@ -22,6 +22,7 @@ def test_suite_produced_logs_and_secrets() -> None:
         "totp_code",
         "activation_token",
         "attempted_email",
+        "connection_token",  # F03
     )
     for kind in kinds:
         assert LEAKS[kind], f"no {kind} was recorded by the suite"
@@ -29,7 +30,14 @@ def test_suite_produced_logs_and_secrets() -> None:
 
 def test_no_secret_appears_in_any_log_line() -> None:
     leaks: list[str] = []
-    verbatim = ["password", "totp_secret", "recovery_code", "session_token", "activation_token"]
+    verbatim = [
+        "password",
+        "totp_secret",
+        "recovery_code",
+        "session_token",
+        "activation_token",
+        "connection_token",
+    ]
     for kind in verbatim:
         for secret in LEAKS[kind]:
             for name, msg in RECORDS:

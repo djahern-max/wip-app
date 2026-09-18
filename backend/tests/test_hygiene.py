@@ -378,3 +378,105 @@ def test_membership_role_is_read_only_inside_effective_role() -> None:
             if line_no not in allowed:
                 offenders.append(f"{rel}:{line_no}")
     assert offenders == []
+
+
+# --- F03: money-safe JSON, worker isolation, local object store never tracked ------------------
+
+
+def _code_only(source: str) -> str:
+    """The source with strings and comments blanked (newlines kept): docstrings
+    that *mention* a forbidden name do not count."""
+    import io
+    import tokenize
+
+    out = []
+    last = (1, 0)
+    lines = source.splitlines(keepends=True)
+
+    def pos_to_index(row: int, col: int) -> int:
+        return sum(len(ln) for ln in lines[: row - 1]) + col
+
+    for tok in tokenize.generate_tokens(io.StringIO(source).readline):
+        start = pos_to_index(*tok.start)
+        out.append(source[pos_to_index(*last) : start])
+        if tok.type in (tokenize.STRING, tokenize.COMMENT):
+            out.append(re.sub(r"[^\n]", " ", tok.string))
+        else:
+            out.append(tok.string)
+        last = tok.end
+    out.append(source[pos_to_index(*last) :])
+    return "".join(out)
+
+
+def _app_sources() -> list[tuple[str, str]]:
+    return [
+        (str(p.relative_to(BACKEND)), _code_only(p.read_text()))
+        for p in sorted(APP_DIR.rglob("*.py"))
+    ]
+
+
+def test_json_loads_appears_only_in_the_codec_and_always_with_parse_float() -> None:
+    """CLAUDE.md Money: JSON is parsed as string → Decimal. The only ``json.loads``
+    in ``app/`` is the codec's partial with ``parse_float=Decimal``; every other
+    module reads JSON through the engine or ``app.core.jsoncodec.json_loads``."""
+    offenders = []
+    for rel, src in _app_sources():
+        for m in re.finditer(r"\bjson\.loads?\b", src):
+            line = src[src.rfind("\n", 0, m.start()) + 1 : src.find("\n", m.end())]
+            if rel != "app/core/jsoncodec.py" or "parse_float=Decimal" not in line:
+                offenders.append(f"{rel}: {line.strip()}")
+    assert offenders == []
+    codec = (APP_DIR / "core" / "jsoncodec.py").read_text()
+    assert "partial(json.loads, parse_float=Decimal)" in codec
+
+
+def test_no_float_conversion_on_ingestion_paths() -> None:
+    """No ``float(`` call in the modules that carry payloads."""
+    hits = []
+    for rel, src in _app_sources():
+        if rel.startswith(
+            ("app/ingest/", "app/worker/", "app/core/jsoncodec.py", "app/integrations/")
+        ):
+            for m in re.finditer(r"(?<![\w.])float\(", src):
+                hits.append(f"{rel}:{src.count(chr(10), 0, m.start()) + 1}")
+    assert hits == []
+
+
+_PRINCIPAL_WORDS = re.compile(r"\b(Principal|active_tenant_id|firm_ids)\b")
+
+
+def _worker_and_task_sources() -> list[tuple[str, str]]:
+    from app.worker.runner import TASK_MODULES
+
+    files = sorted((APP_DIR / "worker").rglob("*.py"))
+    files += [APP_DIR.parent / (m.replace(".", "/") + ".py") for m in TASK_MODULES]
+    return [(str(p.relative_to(BACKEND)), _code_only(p.read_text())) for p in files]
+
+
+def test_worker_and_task_modules_never_reference_the_request_principal() -> None:
+    """D-19: a task knows its tenant only from its explicit ``tenant_id`` argument."""
+    sources = _worker_and_task_sources()
+    assert {rel for rel, _ in sources} >= {"app/worker/runner.py", "app/ingest/imports.py"}
+    offenders = [
+        f"{rel}:{src.count(chr(10), 0, m.start()) + 1}: {m.group(0)}"
+        for rel, src in sources
+        for m in _PRINCIPAL_WORDS.finditer(src)
+    ]
+    assert offenders == []
+
+
+def test_worker_isolation_check_would_catch_a_reference() -> None:
+    """Mutation check in-process: the pattern finds each forbidden name."""
+    for word in ("Principal", "active_tenant_id", "firm_ids"):
+        assert _PRINCIPAL_WORDS.search(f"x = actor.{word}") is not None
+    assert _PRINCIPAL_WORDS.search("tenant_id = payload['tenant_id']") is None
+
+
+def test_local_object_store_directory_is_ignored_and_untracked() -> None:
+    assert ".object-store/" in (REPO / ".gitignore").read_text().splitlines()
+    if subprocess.run(["git", "rev-parse"], cwd=REPO, capture_output=True).returncode != 0:
+        pytest.skip("not a git checkout; CI enforces this")
+    tracked = subprocess.run(
+        ["git", "ls-files", ".object-store"], cwd=REPO, capture_output=True, text=True
+    )
+    assert tracked.stdout.strip() == "", "files under .object-store are tracked"

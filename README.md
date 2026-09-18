@@ -131,3 +131,14 @@ transaction as the action and the tables are insert-only by trigger (D-12, D-13)
 
 Migrations never name `app_rw`; its access comes from the default privileges set
 in `db/init/01_roles.sh`.
+
+## Adding a source kind (F03)
+
+A source kind is a `SourceKind` registered in `app/integrations/base.py` (or in the
+integration's own module, imported from there): a name, the accepted extensions,
+`parse(stream) -> Iterable[RawItem | RejectedItem]`, and the `source` name written to
+`raw_record.source`. The import pipeline (`app/ingest/imports.py`) stores and checksums
+the file, runs `parse`, and hands each `RawItem` to `store_raw`; a bad row is a
+`RejectedItem` (counted, the rest still loads), and a `parse` that raises fails the
+batch. Money in payloads is `Decimal`; a `float` anywhere in a payload is refused at
+the engine. Test-only kinds live under `tests/` (see `tests/csv_source.py`).

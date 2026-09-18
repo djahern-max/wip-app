@@ -1,9 +1,13 @@
 """Application-layer encryption: AES-256-GCM with a key ring (BLUEPRINT §11).
 
 The key id is stored next to the ciphertext so keys can rotate: the active key
-encrypts, every configured key decrypts. F02 uses this for TOTP secrets; F03
-reuses it for OAuth tokens. Keys come from the environment (``CRYPTO_KEYS``,
-``CRYPTO_ACTIVE_KEY_ID``), never from the repo.
+encrypts, every configured key decrypts. F02 uses this for TOTP secrets (associated
+data: the user id); F03 uses it for connection tokens with associated data
+``tenant_id | connection_id | field`` built by ``aad_for``, so a blob copied to
+another row, field or tenant fails to decrypt. ``aad`` is optional: a blob sealed
+without it decrypts without it. Keys come from the environment (``CRYPTO_KEYS``,
+``CRYPTO_ACTIVE_KEY_ID``), never from the repo. ``scripts/reencrypt.py`` moves
+stored blobs to the active key after a rotation.
 
 Blob layout: 12-byte random nonce || ciphertext || 16-byte GCM tag.
 Error messages never contain key material or plaintext.
@@ -12,6 +16,7 @@ Error messages never contain key material or plaintext.
 import base64
 import os
 from dataclasses import dataclass
+from uuid import UUID
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -71,6 +76,11 @@ class Keyring:
             return AESGCM(key).decrypt(blob[:NONCE_BYTES], blob[NONCE_BYTES:], aad)
         except InvalidTag as exc:
             raise CryptoError("decryption failed (wrong key, tampered data, or wrong aad)") from exc
+
+
+def aad_for(*parts: UUID | str) -> bytes:
+    """Associated data binding a ciphertext to its row: ``part|part|…`` as UTF-8."""
+    return "|".join(str(p) for p in parts).encode()
 
 
 def get_keyring() -> Keyring:

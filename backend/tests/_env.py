@@ -11,6 +11,7 @@ repo-root ``.env``. The guard refuses that order instead of letting it pass sile
 import base64
 import os
 import sys
+import tempfile
 
 if "app.core.config" in sys.modules:
     raise RuntimeError("tests._env must be imported before the application package")
@@ -31,6 +32,9 @@ TEST_KEYS: dict[str, str] = {
 }
 ACTIVE_KEY_ID = "test1"
 
+# F03: a throwaway local object store per run, outside the repo.
+OBJECT_STORE_DIR = tempfile.mkdtemp(prefix="wip-object-store-")
+
 # Never read the developer's .env: a path that does not exist disables file loading.
 ENVIRONMENT: dict[str, str] = {
     "ENV_FILE": "/nonexistent/.env.for-tests",
@@ -39,5 +43,8 @@ ENVIRONMENT: dict[str, str] = {
     "CRYPTO_ACTIVE_KEY_ID": ACTIVE_KEY_ID,
     "SESSION_COOKIE_SECURE": "true",
     "APP_BASE_URL": "https://app.example.test",
+    "OBJECT_STORE": "local",
+    "LOCAL_OBJECT_STORE_DIR": OBJECT_STORE_DIR,
+    "WORKER_POLL_SECONDS": "0.2",
 }
 os.environ.update(ENVIRONMENT)
