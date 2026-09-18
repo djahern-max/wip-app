@@ -41,6 +41,14 @@ IMPORT_STATUSES: tuple[str, ...] = (
     "loaded_with_issues",
     "failed",
 )
+# The one status → label mapping (D-22): what a person sees for each status.
+IMPORT_STATUS_LABELS: dict[str, str] = {
+    "received": "Received",
+    "processing": "Processing",
+    "loaded": "Loaded",
+    "loaded_with_issues": "Loaded with issues",
+    "failed": "Failed",
+}
 IMPORT_STATUS_CHECK = "ck_import_batch_status"
 IMPORT_STATUS_CHECK_SQL = (
     "status IN ('received','processing','loaded','loaded_with_issues','failed')"

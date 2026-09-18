@@ -55,6 +55,7 @@ test_csv = SourceKind(
     extensions=frozenset({"csv"}),
     parse=parse_csv,
     source="test",
+    label="Test CSV",
     description="Test-only CSV source.",
 )
 

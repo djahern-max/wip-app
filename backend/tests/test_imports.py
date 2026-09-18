@@ -97,7 +97,13 @@ def test_same_file_twice_is_one_batch_and_another_tenant_gets_its_own(
         len(content),
         "report.bin",
     )
-    assert "object_key" not in b
+    assert (b["status_label"], b["source_label"], b["message"], b["error_detail"]) == (
+        "Received",
+        "Unparsed file",
+        None,
+        None,
+    )
+    assert "object_key" not in b and "error" not in b
     assert b["uploaded_by"] == str(seed.users["firm_admin"].id)
     before = objects_under(seed.tenant_a)
 
@@ -185,7 +191,8 @@ def test_upload_requires_the_csrf_header(login_as: Callable[..., TestClient]) ->
 def test_source_kinds_are_listed(login_as: Callable[..., TestClient]) -> None:
     kinds = {k["name"]: k for k in login_as("firm_admin").get("/api/imports/source-kinds").json()}
     assert kinds["unparsed_file"]["extensions"] == []
-    assert kinds["test_csv"]["extensions"] == ["csv"]
+    assert kinds["unparsed_file"]["label"] == "Unparsed file"
+    assert kinds["test_csv"]["extensions"] == ["csv"] and kinds["test_csv"]["label"] == "Test CSV"
 
 
 # --- limits and filenames ---------------------------------------------------------------------
@@ -205,13 +212,22 @@ def test_upload_limits_refuse_before_anything_is_stored(
     get_settings.cache_clear()
     try:
         r = upload(c, "unparsed_file", "big.bin", os.urandom(65))
-        assert r.status_code == 413 and "MAX_UPLOAD_BYTES" in r.json()["detail"]
+        assert r.status_code == 413
+        assert r.json()["detail"] == "This file is larger than 64 bytes. Upload a smaller file."
         assert upload(c, "unparsed_file", "ok.bin", os.urandom(64)).status_code == 201
     finally:
         monkeypatch.delenv("MAX_UPLOAD_BYTES")
         get_settings.cache_clear()
-    assert upload(c, "test_csv", "notes.txt", b"external_id\n1\n").status_code == 415
-    assert upload(c, "no_such_kind", "x.csv", b"x").status_code == 422
+    r = upload(c, "test_csv", "notes.txt", b"external_id\n1\n")
+    assert r.status_code == 415
+    assert r.json()["detail"] == (
+        "Test CSV files must end in .csv. Choose a .csv file and upload it again."
+    )
+    r = upload(c, "no_such_kind", "x.csv", b"x")
+    assert (r.status_code, r.json()["detail"]) == (422, "Choose a source from the list.")
+    # Messages never name a setting, an exception type or a machine identifier (D-22).
+    for body in (r.text,):
+        assert "MAX_UPLOAD_BYTES" not in body and "source kind" not in body
     with tenant_session(rw_engine, seed.tenant_a) as s:
         after_rows = s.execute(select(ImportBatch.id)).scalars().all()
     assert len(after_rows) == len(before_rows) + 1  # only ok.bin
@@ -309,6 +325,15 @@ def test_parse_that_raises_fails_the_batch_and_the_task_with_no_retry(
     assert (row.status, row.error) == ("failed", "parse failed: ValueError")
     assert secret not in (row.error or "") and secret not in (t.last_error or "")
     assert w.run_once() == 0  # nothing left to retry
+    # On screen: a sentence that says what happened and what to do next; the exception
+    # type stays in error_detail for OPERATIONS.
+    out = login_as("firm_admin").get(f"/api/imports/{bid}").json()
+    assert out["status_label"] == "Failed"
+    assert out["message"] == (
+        "This file could not be read. Check that it is the right export and upload it again."
+    )
+    assert out["error_detail"] == "parse failed: ValueError"
+    assert "ValueError" not in out["message"] and secret not in out["message"]
 
 
 def test_a_failed_batch_never_goes_back_to_processing(
@@ -377,6 +402,11 @@ def test_object_open_failure_retries_with_backoff_and_does_not_fail_the_batch(
     assert t.run_after > datetime.now(UTC) + timedelta(seconds=20)
     row = batch_row(rw_engine, seed.tenant_a, bid)
     assert (row.status, row.error) == ("received", "OSError (will retry)")
+    out = login_as("firm_admin").get(f"/api/imports/{bid}").json()
+    assert (
+        out["message"].startswith("Processing did not finish") and "OSError" not in out["message"]
+    )
+    assert out["error_detail"] == "OSError (will retry)"
     monkeypatch.undo()
     with tenant_session(rw_engine, seed.tenant_a) as s:
         s.execute(text("UPDATE task SET run_after = now() WHERE id = :id"), {"id": t.id})
@@ -430,6 +460,11 @@ def test_one_bad_item_of_five_ends_loaded_with_issues(
     assert (row.status, row.rows_loaded, row.rows_rejected) == ("loaded_with_issues", 4, 1)
     (t,) = tasks_for(rw_engine, seed.tenant_a, bid)
     assert t.status == "succeeded"
+    out = login_as("firm_admin").get(f"/api/imports/{bid}").json()
+    assert (out["status_label"], out["message"]) == (
+        "Loaded with issues",
+        "1 row could not be read and was skipped; the rest were loaded.",
+    )
 
 
 def test_an_item_the_store_refuses_is_rejected_not_fatal(
@@ -469,7 +504,8 @@ def test_object_write_failure_leaves_no_batch_row(
     finally:
         app.state.object_store = good
     assert r.status_code == 503
-    assert "disk full" not in r.text
+    assert r.json()["detail"] == "The file could not be stored. Try again in a minute."
+    assert "disk full" not in r.text and "OSError" not in r.text
     with tenant_session(rw_engine, seed.tenant_a) as s:
         assert (
             s.execute(select(ImportBatch).where(ImportBatch.sha256 == _sha(content))).first()
@@ -534,3 +570,19 @@ def test_task_payload_holds_ids_only(
     run_worker(rw_engine)
     row = batch_row(rw_engine, seed.tenant_a, bid)
     assert (row.status, row.rows_loaded) == ("loaded", 0)  # unparsed_file yields no records
+
+
+def test_the_test_csv_kind_never_exists_in_a_normally_started_app() -> None:
+    """``tests/csv_source.py`` is registered by the harness only. A fresh process that
+    imports the application sees exactly the production kinds."""
+    from tests.test_hygiene import _start_app
+
+    proc = _start_app(
+        {},
+        code=(
+            "import app.main; from app.integrations.base import SOURCE_KINDS; "
+            "print(sorted(SOURCE_KINDS))"
+        ),
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == "['unparsed_file']"

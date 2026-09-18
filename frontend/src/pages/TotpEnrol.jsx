@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 import { api } from "../api.js";
-import { styles } from "./Login.jsx";
 
 // Firm roles must enrol before anything else works. The secret is shown exactly
 // once (QR plus manual key); recovery codes are shown exactly once after confirmation.
@@ -29,7 +28,7 @@ export default function TotpEnrol({ me, onEnrolled, onLogout }) {
         if (!cancelled) setQr(dataUrl);
       })
       .catch((err) => {
-        if (!cancelled) setError(err.detail || "Could not start enrolment.");
+        if (!cancelled) setError("Two-factor setup could not start. Reload the page; if it happens again, ask your firm administrator for a new link.");
       });
     return () => {
       cancelled = true;
@@ -52,33 +51,33 @@ export default function TotpEnrol({ me, onEnrolled, onLogout }) {
 
   if (recoveryCodes) {
     return (
-      <main style={styles.page}>
-        <div style={styles.card}>
-          <h1 style={{ marginTop: 0 }}>Recovery codes</h1>
+      <main className="page">
+        <div className="card">
+          <h1>Recovery codes</h1>
           <p>Each code works once, if you lose your authenticator. They are shown only now. Store them somewhere safe.</p>
-          <ol style={styles.code}>
+          <ol className="code">
             {recoveryCodes.map((c) => (
               <li key={c}>{c}</li>
             ))}
           </ol>
-          <button type="button" style={styles.button} onClick={onEnrolled}>I have saved these codes</button>
+          <button type="button" className="button-primary" onClick={onEnrolled}>I have saved these codes</button>
         </div>
       </main>
     );
   }
 
   return (
-    <main style={styles.page}>
-      <form onSubmit={confirm} style={styles.card}>
-        <h1 style={{ marginTop: 0 }}>Set up two-factor</h1>
-        <p style={styles.hint}>{me.user.email}. Your role requires an authenticator app.</p>
+    <main className="page">
+      <form onSubmit={confirm} className="card">
+        <h1>Set up two-factor</h1>
+        <p className="hint">{me.user.email}. Your role requires an authenticator app.</p>
         {!setup && !error && <p>Preparing…</p>}
         {setup && (
           <>
             {qr && <img src={qr} alt="Scan with your authenticator app" width={200} height={200} />}
-            <p style={styles.hint}>Or enter this key manually:</p>
-            <p style={styles.code}>{setup.secret.match(/.{1,4}/g).join(" ")}</p>
-            <label style={styles.label}>
+            <p className="hint">Or enter this key manually:</p>
+            <p className="code">{setup.secret.match(/.{1,4}/g).join(" ")}</p>
+            <label className="label">
               Code from the app
               <input
                 value={code}
@@ -86,17 +85,17 @@ export default function TotpEnrol({ me, onEnrolled, onLogout }) {
                 inputMode="numeric"
                 autoComplete="one-time-code"
                 required
-                style={{ ...styles.input, ...styles.code }}
+                className="input code"
               />
             </label>
           </>
         )}
-        {error && <p style={styles.error}>{error}</p>}
+        {error && <p className="error">{error}</p>}
         {setup && (
-          <button type="submit" disabled={busy} style={styles.button}>Confirm</button>
+          <button type="submit" disabled={busy} className="button-primary">Confirm code</button>
         )}
         <p>
-          <button type="button" style={styles.linkButton} onClick={onLogout}>Sign out</button>
+          <button type="button" className="link-button" onClick={onLogout}>Sign out</button>
         </p>
       </form>
     </main>

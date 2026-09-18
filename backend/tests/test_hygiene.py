@@ -100,7 +100,9 @@ def test_the_suite_never_reads_the_developers_env_file() -> None:
 _START_KEY = base64.b64encode(os.urandom(32)).decode()  # generated per run, never written
 
 
-def _start_app(env_overrides: dict[str, str | None]) -> subprocess.CompletedProcess:
+def _start_app(
+    env_overrides: dict[str, str | None], code: str = "import app.main"
+) -> subprocess.CompletedProcess:
     env = {
         k: v
         for k, v in os.environ.items()
@@ -116,7 +118,7 @@ def _start_app(env_overrides: dict[str, str | None]) -> subprocess.CompletedProc
         else:
             env[k] = v
     return subprocess.run(
-        [sys.executable, "-c", "import app.main"],
+        [sys.executable, "-c", code],
         cwd=BACKEND,
         env=env,
         capture_output=True,
@@ -214,6 +216,15 @@ def test_foreign_origin_preflight_and_requests_are_refused(client: TestClient, s
 
 
 # --- no pytest in the application; probes only in the suite ---------------------------------------
+
+
+def test_application_package_never_imports_the_test_package() -> None:
+    hits = [
+        str(p.relative_to(BACKEND))
+        for p in APP_DIR.rglob("*.py")
+        if re.search(r"^\s*(from|import)\s+tests\b", p.read_text(), re.M)
+    ]
+    assert hits == []
 
 
 def test_application_package_does_not_mention_pytest() -> None:

@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { PRODUCT_NAME } from "../product.js";
 import Imports from "./Imports.jsx";
-import { styles } from "./Login.jsx";
 
 // Roles with can_manage_imports (app/core/authz.py). The server enforces it; this
 // only decides whether to show the link.
@@ -17,7 +16,9 @@ export default function Shell({ me, onChanged, onLogout }) {
   const [view, setView] = useState("home");
 
   useEffect(() => {
-    api("GET", "/api/session/tenants").then(setTenants).catch((e) => setError(String(e.message)));
+    api("GET", "/api/session/tenants")
+      .then(setTenants)
+      .catch(() => setError("The list of companies could not be loaded. Reload the page."));
     fetch("/api/health").then((r) => r.json()).then(setHealth).catch(() => setHealth(null));
   }, [me.active_tenant_id]);
 
@@ -26,8 +27,8 @@ export default function Shell({ me, onChanged, onLogout }) {
     try {
       await api("POST", "/api/session/tenant", { tenant_id: tenantId });
       onChanged();
-    } catch (e) {
-      setError(e.detail || "Could not switch tenant.");
+    } catch {
+      setError("The company could not be switched. Try again; if it keeps failing, sign out and back in.");
     }
   }
 
@@ -35,10 +36,10 @@ export default function Shell({ me, onChanged, onLogout }) {
   const canImport = Boolean(active) && IMPORT_ROLES.includes(me.role);
 
   return (
-    <div style={{ fontFamily: "system-ui, sans-serif" }}>
-      <header style={header}>
+    <div>
+      <header className="header">
         <strong>{PRODUCT_NAME}</strong>
-        <label style={{ fontSize: 14 }}>
+        <label className="small">
           Company{" "}
           <select
             value={me.active_tenant_id || ""}
@@ -54,28 +55,28 @@ export default function Shell({ me, onChanged, onLogout }) {
           </select>
         </label>
         {canImport && (
-          <nav style={{ display: "flex", gap: "1rem", fontSize: 14 }}>
-            <button type="button" style={styles.linkButton} onClick={() => setView("home")}>
+          <nav className="header-nav">
+            <button type="button" className="link-button" onClick={() => setView("home")}>
               Home
             </button>
-            <button type="button" style={styles.linkButton} onClick={() => setView("imports")}>
+            <button type="button" className="link-button" onClick={() => setView("imports")}>
               Imports
             </button>
           </nav>
         )}
-        <span style={{ marginLeft: "auto", fontSize: 14 }}>
+        <span className="header-user">
           {me.user.email}
           {me.firm_role ? ` · ${me.firm_role}` : ""}
         </span>
-        <button type="button" style={styles.button} onClick={onLogout}>Sign out</button>
+        <button type="button" className="button" onClick={onLogout}>Sign out</button>
       </header>
-      <main style={{ padding: "1rem", maxWidth: "100%", boxSizing: "border-box" }}>
-        {error && <p style={styles.error}>{error}</p>}
+      <main className="main">
+        {error && <p className="error">{error}</p>}
         {active && view === "imports" && canImport ? (
           <Imports me={me} />
         ) : active ? (
           <>
-            <h1 style={{ marginTop: 0 }}>{active.name}</h1>
+            <h1>{active.name}</h1>
             <p>
               Your role here: <strong>{active.role}</strong>. Job cost &amp; WIP reporting arrives with the next features.
             </p>
@@ -84,7 +85,7 @@ export default function Shell({ me, onChanged, onLogout }) {
           <p>Choose a company to start.</p>
         )}
         {health && (
-          <p style={styles.hint}>
+          <p className="hint">
             API {health.status} · database {health.db}
           </p>
         )}
@@ -92,13 +93,3 @@ export default function Shell({ me, onChanged, onLogout }) {
     </div>
   );
 }
-
-const header = {
-  display: "flex",
-  flexWrap: "wrap", // phone width: the switcher, nav and user wrap instead of overflowing
-  alignItems: "center",
-  gap: "0.75rem 1.5rem",
-  padding: "0.75rem 1rem",
-  borderBottom: "1px solid #ddd",
-  background: "#fafafa",
-};

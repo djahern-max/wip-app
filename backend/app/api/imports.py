@@ -3,6 +3,7 @@
 session's active tenant; a batch in another tenant is 404 because RLS never
 returns it. Uploads need the CSRF header like every state-changing route."""
 
+import logging
 from typing import Annotated
 from urllib.parse import quote
 from uuid import UUID
@@ -20,13 +21,16 @@ from app.core.storage import ObjectStore, ObjectStoreError
 from app.ingest.imports import (
     UploadRefused,
     audit_download,
+    batch_message,
     open_batch_object,
     receive_upload,
     relative_key,
 )
-from app.ingest.models import ImportBatch
+from app.ingest.models import IMPORT_STATUS_LABELS, ImportBatch
 from app.integrations.base import SOURCE_KINDS
 from app.tenancy.models import User
+
+log = logging.getLogger("app.ingest")
 
 router = APIRouter(prefix="/imports", tags=["imports"])
 
@@ -41,9 +45,11 @@ Store = Annotated[ObjectStore, Depends(get_object_store)]
 
 
 def _out(b: ImportBatch, email: str | None = None) -> ImportBatchOut:
+    kind = SOURCE_KINDS.get(b.source_kind)
     return ImportBatchOut(
         id=str(b.id),
         source_kind=b.source_kind,
+        source_label=kind.label if kind else b.source_kind.replace("_", " ").capitalize(),
         sha256=b.sha256,
         byte_size=b.byte_size,
         original_filename=b.original_filename,
@@ -52,9 +58,11 @@ def _out(b: ImportBatch, email: str | None = None) -> ImportBatchOut:
         uploaded_by_email=email,
         uploaded_at=b.uploaded_at.isoformat(),
         status=b.status,
+        status_label=IMPORT_STATUS_LABELS[b.status],
         rows_loaded=b.rows_loaded,
         rows_rejected=b.rows_rejected,
-        error=b.error,
+        message=batch_message(b),
+        error_detail=b.error,
         processed_at=b.processed_at.isoformat() if b.processed_at else None,
     )
 
@@ -69,7 +77,9 @@ def _batch_or_404(db: TenantSession, batch_id: UUID) -> ImportBatch:
 @router.get("/source-kinds", response_model=list[SourceKindOut])
 def source_kinds(_actor: Actor):
     return [
-        SourceKindOut(name=k.name, description=k.description, extensions=sorted(k.extensions))
+        SourceKindOut(
+            name=k.name, label=k.label, description=k.description, extensions=sorted(k.extensions)
+        )
         for k in SOURCE_KINDS.values()
     ]
 
@@ -98,6 +108,9 @@ def upload(
             meta=request_meta(request),
         )
     except UploadRefused as exc:
+        # The person sees the sentence; the machine detail goes to the log with the
+        # request id (echoed as X-Request-Id) so OPERATIONS can match them up.
+        log.info("upload refused request_id=%s: %s", request.state.request_id, exc.reason)
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
     if duplicate:
         response.status_code = 200  # nothing was created: the existing batch is returned

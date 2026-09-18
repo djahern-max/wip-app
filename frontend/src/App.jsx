@@ -37,7 +37,7 @@ export default function App() {
     }
     return <Activate token={window.__activationToken || ""} />;
   }
-  if (me === undefined) return <p style={{ fontFamily: "system-ui, sans-serif", padding: "2rem" }}>Loading…</p>;
+  if (me === undefined) return <p className="main">Loading…</p>;
   if (me === null) return <Login onLoggedIn={refresh} />;
   if (me.totp === "enrol_required") return <TotpEnrol me={me} onEnrolled={refresh} onLogout={logout} />;
   if (me.totp === "verify_required") return <TotpVerify me={me} onVerified={refresh} onLogout={logout} />;

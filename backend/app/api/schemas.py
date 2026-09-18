@@ -100,10 +100,13 @@ class TenantCreatedOut(_Out):
 
 
 class ImportBatchOut(_Out):
-    """An uploaded file (F03). ``object_key`` is deliberately absent."""
+    """An uploaded file (F03). ``object_key`` is deliberately absent. ``source_label``,
+    ``status_label`` and ``message`` are what a person sees (D-22); ``source_kind``,
+    ``status`` and ``error_detail`` are the machine values for OPERATIONS."""
 
     id: str
     source_kind: str
+    source_label: str
     sha256: str
     byte_size: int
     original_filename: str
@@ -112,9 +115,11 @@ class ImportBatchOut(_Out):
     uploaded_by_email: str | None  # from the global user table; never a credential
     uploaded_at: str
     status: str
+    status_label: str
     rows_loaded: int
     rows_rejected: int
-    error: str | None
+    message: str | None
+    error_detail: str | None
     processed_at: str | None
 
 
@@ -125,6 +130,7 @@ class ImportUploadOut(_Out):
 
 class SourceKindOut(_Out):
     name: str
+    label: str
     description: str
     extensions: list[str]
 

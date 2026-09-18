@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { api } from "../api.js";
-import { styles } from "./Login.jsx";
 
 // Reached from the one-time activation link a firm administrator hands over
 // (D-16: no e-mail). The token arrives in the URL fragment (App.jsx reads it and
@@ -42,25 +41,25 @@ export default function Activate({ token }) {
   }
 
   return (
-    <main style={styles.page}>
-      <form onSubmit={submit} style={styles.card}>
-        <h1 style={{ marginTop: 0 }}>Set your password</h1>
+    <main className="page">
+      <form onSubmit={submit} className="card">
+        <h1>Set your password</h1>
         {done ? (
           <p>
             Done. <a href="/">Sign in</a>.
           </p>
         ) : (
           <>
-            <label style={styles.label}>
+            <label className="label">
               New password (12+ characters)
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required style={styles.input} />
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="input" />
             </label>
-            <label style={styles.label}>
+            <label className="label">
               Again
-              <input type="password" value={again} onChange={(e) => setAgain(e.target.value)} required style={styles.input} />
+              <input type="password" value={again} onChange={(e) => setAgain(e.target.value)} required className="input" />
             </label>
-            {error && <p style={styles.error}>{error}</p>}
-            <button type="submit" disabled={busy} style={styles.button}>{busy ? "Saving…" : "Save"}</button>
+            {error && <p className="error">{error}</p>}
+            <button type="submit" disabled={busy} className="button-primary">{busy ? "Saving…" : "Save password"}</button>
           </>
         )}
       </form>

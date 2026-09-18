@@ -1,0 +1,231 @@
+/* The one hand-written stylesheet (CLAUDE.md "Interface conventions", D-22).
+   Imported once, in main.jsx. No framework, no component library. Plain and quiet:
+   system font stack, one accent colour for the primary action and links only, no
+   gradients, shadows, animations or decorative imagery. Components carry no inline
+   styles (tests/test_frontend_styles.py fails on `style={{`). */
+
+:root {
+  --accent: #0b5cad; /* the one accent colour: primary action and links */
+  --text: #1a1a1a;
+  --muted: #666;
+  --rule: #ddd;
+  --rule-light: #eee;
+  --surface: #fff;
+  --surface-alt: #fafafa;
+  --error: #b00020;
+}
+
+html {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--text);
+  background: var(--surface);
+  line-height: 1.4;
+}
+
+body {
+  margin: 0;
+}
+
+a {
+  color: var(--accent);
+}
+
+h1 {
+  margin-top: 0;
+}
+
+h2 {
+  margin-top: 0;
+}
+
+/* --- text roles ------------------------------------------------------------------- */
+
+.hint {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.error {
+  color: var(--error); /* colour second: the text says what happened and what to do */
+}
+
+.code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 15px;
+  letter-spacing: 1px;
+}
+
+/* --- centred single-form screens (sign in, activation, two-factor) ---------------- */
+
+.page {
+  display: flex;
+  justify-content: center;
+  padding: 4rem 1rem;
+}
+
+.card {
+  width: 100%;
+  max-width: 380px;
+  box-sizing: border-box;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 1.5rem;
+  background: var(--surface);
+}
+
+.card-wide {
+  max-width: 520px;
+}
+
+/* --- forms ------------------------------------------------------------------------- */
+
+.label {
+  display: block;
+  margin: 0.75rem 0;
+  font-size: 14px;
+}
+
+.input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.5rem;
+  margin-top: 4px;
+  font-size: 16px;
+}
+
+.button {
+  padding: 0.6rem 1rem;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.button:disabled {
+  cursor: default;
+}
+
+/* One primary action per screen, in the accent colour. */
+.button-primary {
+  padding: 0.6rem 1rem;
+  font-size: 16px;
+  cursor: pointer;
+  color: var(--surface);
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+}
+
+.button-primary:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.link-button {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+  font-size: 14px;
+  text-decoration: underline;
+}
+
+/* --- signed-in frame --------------------------------------------------------------- */
+
+.header {
+  display: flex;
+  flex-wrap: wrap; /* phone width: the switcher, nav and user wrap instead of overflowing */
+  align-items: center;
+  gap: 0.75rem 1.5rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface-alt);
+}
+
+.header-nav {
+  display: flex;
+  gap: 1rem;
+  font-size: 14px;
+}
+
+.header-user {
+  margin-left: auto;
+  font-size: 14px;
+}
+
+.main {
+  padding: 1rem;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.small {
+  font-size: 14px;
+}
+
+/* --- the table pattern (D-22) -----------------------------------------------------------
+   A wide table scrolls sideways inside .table-wrap; the page itself never scrolls
+   sideways. The first column (job or account on reports) is held in place. Numbers
+   are right-aligned with tabular figures (.num); the totals row is distinct. Reports
+   (F08+) must use this pattern; Imports uses .num here and cards below 640 px. */
+
+.table-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 14px;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  vertical-align: top;
+  border-bottom: 1px solid var(--rule-light);
+}
+
+.table th {
+  border-bottom: 1px solid var(--rule);
+}
+
+.table th:first-child,
+.table td:first-child {
+  position: sticky;
+  left: 0;
+  background: var(--surface);
+}
+
+.table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.table tr.totals td {
+  font-weight: 600;
+  border-top: 2px solid var(--text);
+  border-bottom: 1px solid var(--text);
+}
+
+.wrap-anywhere {
+  overflow-wrap: anywhere;
+}
+
+/* --- Imports: stacked cards below 640 px (admin screen; laptop first) ----------------- */
+
+.card-list .item {
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+  font-size: 14px;
+}
+
+.item-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}

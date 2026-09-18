@@ -47,6 +47,8 @@ class SourceKind:
     parse: Callable[[BinaryIO], Iterable[RawItem | RejectedItem]]
     # ``raw_record.source`` for items of this kind (and the connection system in F05).
     source: str
+    # What a person sees (D-22: human labels, never machine tokens on screen).
+    label: str = ""
     description: str = ""
 
     def accepts(self, filename: str) -> bool:
@@ -60,6 +62,8 @@ SOURCE_KINDS: dict[str, SourceKind] = {}
 
 
 def register_source_kind(kind: SourceKind) -> SourceKind:
+    if not kind.label:
+        raise ValueError(f"source kind {kind.name!r} needs a display label")
     if kind.name in SOURCE_KINDS and SOURCE_KINDS[kind.name] is not kind:
         raise ValueError(f"source kind {kind.name!r} is already registered")
     SOURCE_KINDS[kind.name] = kind
@@ -83,6 +87,7 @@ unparsed_file = register_source_kind(
         extensions=frozenset(),
         parse=_parse_nothing,
         source="file",
+        label="Unparsed file",
         description="Stores and checksums a file; yields no records (F03 pipeline check).",
     )
 )

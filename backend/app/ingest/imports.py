@@ -54,10 +54,14 @@ _EXT = re.compile(r"^[a-z0-9]{1,10}$")
 
 
 class UploadRefused(Exception):
-    def __init__(self, status_code: int, detail: str) -> None:
-        super().__init__(detail)
+    """``detail`` is the sentence shown to the person (what happened, what to do
+    next; D-22); ``reason`` is the machine detail for the log, never shown."""
+
+    def __init__(self, status_code: int, detail: str, reason: str) -> None:
+        super().__init__(reason)
         self.status_code = status_code
         self.detail = detail
+        self.reason = reason
 
 
 @dataclass(frozen=True)
@@ -77,16 +81,47 @@ def spool_and_hash(stream: BinaryIO, max_bytes: int) -> Spooled:
         size += len(chunk)
         if size > max_bytes:
             tmp.close()
-            raise UploadRefused(413, f"file exceeds MAX_UPLOAD_BYTES ({max_bytes})")
+            raise UploadRefused(
+                413,
+                f"This file is larger than {human_size(max_bytes)}. Upload a smaller file.",
+                f"file exceeds MAX_UPLOAD_BYTES ({max_bytes})",
+            )
         digest.update(chunk)
         tmp.write(chunk)
     tmp.seek(0)
     return Spooled(file=tmp, sha256=digest.hexdigest(), byte_size=size)
 
 
+def human_size(n: int) -> str:
+    """``26214400`` → ``25 MB``; ``64`` → ``64 bytes`` (for a message a person reads)."""
+    if n >= 1024 * 1024:
+        mb = n / (1024 * 1024)
+        return f"{mb:.0f} MB" if mb == int(mb) else f"{mb:.1f} MB"
+    if n >= 1024:
+        return f"{n / 1024:.0f} KB"
+    return f"{n} bytes"
+
+
 def safe_extension(filename: str) -> str:
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     return ext if _EXT.match(ext) else "bin"
+
+
+def batch_message(batch: ImportBatch) -> str | None:
+    """The sentence shown next to a batch's status (D-22): what happened and what to
+    do next, never a setting or an exception type. ``batch.error`` keeps the machine
+    detail for OPERATIONS and the logs."""
+    if batch.status == "failed":
+        return "This file could not be read. Check that it is the right export and upload it again."
+    if batch.status == "received" and batch.error:
+        return "Processing did not finish; it will be tried again shortly. Refresh in a minute."
+    if batch.status == "loaded_with_issues":
+        n = batch.rows_rejected
+        rows = (
+            "1 row could not be read and was" if n == 1 else f"{n} rows could not be read and were"
+        )
+        return f"{rows} skipped; the rest were loaded."
+    return None
 
 
 def relative_key(batch: ImportBatch) -> str:
@@ -123,11 +158,19 @@ def receive_upload(
     try:
         kind = get_source_kind(source_kind)
     except LookupError:
-        raise UploadRefused(422, "unknown source kind") from None
+        raise UploadRefused(
+            422, "Choose a source from the list.", f"unknown source kind {source_kind!r}"
+        ) from None
     # The filename is data: stored as text on the row, never part of a key.
     name = (filename or "").strip()[:255] or "upload"
     if not kind.accepts(name):
-        raise UploadRefused(415, f"source kind {kind.name!r} does not accept this file extension")
+        accepted = ", ".join(f".{e}" for e in sorted(kind.extensions))
+        raise UploadRefused(
+            415,
+            f"{kind.label} files must end in {accepted}. "
+            f"Choose a {accepted} file and upload it again.",
+            f"source kind {kind.name!r} does not accept this file extension",
+        )
     spooled = spool_and_hash(stream, get_settings().max_upload_bytes)
     with spooled.file:
         existing = find_batch(db, tenant_id, kind.name, spooled.sha256)
@@ -142,7 +185,11 @@ def receive_upload(
             )
         except Exception as exc:  # noqa: BLE001 - logged by type; nothing about the file
             log.error("object store put failed: %s", type(exc).__name__)
-            raise UploadRefused(503, "object store unavailable") from None
+            raise UploadRefused(
+                503,
+                "The file could not be stored. Try again in a minute.",
+                f"object store put failed: {type(exc).__name__}",
+            ) from None
     batch = ImportBatch(
         tenant_id=tenant_id,
         source_kind=kind.name,

@@ -390,3 +390,10 @@ _First manual upload/download against Spaces: not yet done._
   and isolved parsers register their kinds in F06/F11.
 - Source data lives in `raw_record` (insert-only, versioned per external id, D-20)
   and in the object store; never in an audit row or a task payload.
+- What a person sees vs. what you read (D-22, F03.1): the API's `status_label`,
+  `source_label` and `message` are the words on screen; `status`, `source_kind` and
+  `error_detail` (= the `import_batch.error` column: exception type, `(will retry)`)
+  are the machine values for this runbook. Upload refusals show one plain sentence;
+  the machine reason (limit name, exception type) is logged as
+  `upload refused request_id=… : …`, and the request id is the response's
+  `X-Request-Id` header.

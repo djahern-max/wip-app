@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { api } from "../api.js";
-import { styles } from "./Login.jsx";
 
 export default function TotpVerify({ me, onVerified, onLogout }) {
   const [code, setCode] = useState("");
@@ -24,11 +23,11 @@ export default function TotpVerify({ me, onVerified, onLogout }) {
   }
 
   return (
-    <main style={styles.page}>
-      <form onSubmit={submit} style={styles.card}>
-        <h1 style={{ marginTop: 0 }}>Two-factor check</h1>
-        <p style={styles.hint}>Signed in as {me.user.email}</p>
-        <label style={styles.label}>
+    <main className="page">
+      <form onSubmit={submit} className="card">
+        <h1>Two-factor check</h1>
+        <p className="hint">Signed in as {me.user.email}</p>
+        <label className="label">
           {useRecovery ? "Recovery code" : "Code from your authenticator app"}
           <input
             value={code}
@@ -37,18 +36,18 @@ export default function TotpVerify({ me, onVerified, onLogout }) {
             autoComplete="one-time-code"
             autoFocus
             required
-            style={{ ...styles.input, ...styles.code }}
+            className="input code"
           />
         </label>
-        {error && <p style={styles.error}>{error}</p>}
-        <button type="submit" disabled={busy} style={styles.button}>Verify</button>
+        {error && <p className="error">{error}</p>}
+        <button type="submit" disabled={busy} className="button-primary">Verify code</button>
         <p>
-          <button type="button" style={styles.linkButton} onClick={() => setUseRecovery(!useRecovery)}>
+          <button type="button" className="link-button" onClick={() => setUseRecovery(!useRecovery)}>
             {useRecovery ? "Use my authenticator app instead" : "Use a recovery code instead"}
           </button>
         </p>
         <p>
-          <button type="button" style={styles.linkButton} onClick={onLogout}>Sign out</button>
+          <button type="button" className="link-button" onClick={onLogout}>Sign out</button>
         </p>
       </form>
     </main>
