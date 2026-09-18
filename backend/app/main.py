@@ -7,9 +7,12 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import DBAPIError
 
+# Imported for their side effect: register the production source kinds (F04).
+import app.integrations.chart_of_accounts  # noqa: E402, F401
 from app.api.admin import router as admin_router
 from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
+from app.api.config import router as config_router
 from app.api.health import router as health_router
 from app.api.imports import router as imports_router
 from app.api.session import router as session_router
@@ -103,6 +106,7 @@ def create_app() -> FastAPI:
         admin_router,
         audit_router,
         imports_router,
+        config_router,
     ):
         app.include_router(router, prefix="/api")
     return app

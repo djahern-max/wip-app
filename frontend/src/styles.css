@@ -229,3 +229,77 @@ h2 {
   font-weight: 600;
   overflow-wrap: anywhere;
 }
+
+/* --- F04 configuration screens ---------------------------------------------------------- */
+
+.subnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+  margin: 0 0 1rem;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+}
+
+.subnav .current {
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--text);
+  cursor: default;
+}
+
+.counts {
+  margin: 0 0 0.75rem;
+  font-size: 14px;
+}
+
+.counts strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.25rem;
+  margin-bottom: 0.75rem;
+  font-size: 14px;
+}
+
+.inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem 1rem;
+  margin: 0.5rem 0 1rem;
+}
+
+.inline-form .label {
+  margin: 0;
+}
+
+.inline-form .input {
+  width: auto;
+  min-width: 8rem;
+}
+
+.grid-code {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.grid-none {
+  color: var(--muted);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.confirm-step {
+  border: 1px solid var(--rule);
+  padding: 0.75rem;
+  margin: 0.5rem 0;
+  font-size: 14px;
+}

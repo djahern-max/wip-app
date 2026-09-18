@@ -76,6 +76,24 @@ class TenantEvent(enum.StrEnum):
     import_duplicate = "import_duplicate"
     import_downloaded = "import_downloaded"
     connection_tokens_set = "connection_tokens_set"
+    # F04 (tenant configuration; every create, change, confirm, deactivate)
+    division_created = "division_created"
+    division_changed = "division_changed"
+    division_deactivated = "division_deactivated"
+    cost_categories_seeded = "cost_categories_seeded"
+    cost_category_changed = "cost_category_changed"
+    cost_category_deactivated = "cost_category_deactivated"
+    gl_account_added = "gl_account_added"
+    gl_account_renamed = "gl_account_renamed"
+    gl_account_deactivated = "gl_account_deactivated"
+    account_map_suggested = "account_map_suggested"
+    account_map_suggestion_removed = "account_map_suggestion_removed"
+    account_map_set = "account_map_set"
+    account_map_confirmed = "account_map_confirmed"
+    suggest_rules_loaded = "suggest_rules_loaded"
+    policy_set = "policy_set"
+    burden_rate_added = "burden_rate_added"
+    burden_rate_deactivated = "burden_rate_deactivated"
 
 
 @dataclass(frozen=True)

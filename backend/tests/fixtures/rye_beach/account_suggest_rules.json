@@ -1,5 +1,5 @@
 {
-  "note": "Semantics for Rye Beach's numbering scheme. Claude Code may change the shape to fit account_suggest_rule; the results must equal account_map_expected.csv. First matching rule wins.",
+  "note": "Rye Beach's numbering scheme as account_suggest_rule rows (plan call 2, approved 2026-09-18). First matching rule wins. Patterns are regular expressions anchored to the whole account number string (any length). division_from_digit is a 1-based position looked up in division.code_digit; cost_category_from_slot takes the last two characters as the slot; a derivation that finds nothing means the rule does not match. The final rule matches only account numbers outside 4000-5999: an income or cost-of-goods-sold account that matches no earlier rule gets no suggestion and is listed as unmapped (owner amendment A). The results equal account_map_expected.csv, whose 'rule' column names the original six semantic rules; 'income by division' is rows 1-6 here, 'material sales' rows 9-10, 'shared fuel' rows 11-12.",
   "divisions": [
     {
       "code": "LS",
@@ -35,83 +35,107 @@
   "rules": [
     {
       "order": 1,
-      "name": "income by division",
-      "match": {
-        "accounts": {
-          "4100": "LS",
-          "4200": "EX",
-          "4300": "GC",
-          "4400": "SNOW",
-          "4510": "MS",
-          "4520": "MS",
-          "4800": "DES"
-        }
-      },
-      "sets": {
-        "division": "from table",
-        "cost_category": null,
-        "in_job_cost": false
-      }
+      "name": "income LS",
+      "pattern": "^4100$",
+      "division": "LS",
+      "cost_category": null,
+      "in_job_cost": false
     },
     {
       "order": 2,
-      "name": "division header",
-      "match": {
-        "pattern": "5[1-4]00"
-      },
-      "sets": {
-        "division": "from second digit",
-        "cost_category": null,
-        "in_job_cost": false
-      }
+      "name": "income EX",
+      "pattern": "^4200$",
+      "division": "EX",
+      "cost_category": null,
+      "in_job_cost": false
     },
     {
       "order": 3,
-      "name": "division cost slot",
-      "match": {
-        "pattern": "5[1-4]NN"
-      },
-      "sets": {
-        "division": "from second digit",
-        "cost_category": "from last two digits (slot)",
-        "in_job_cost": true
-      }
+      "name": "income GC",
+      "pattern": "^4300$",
+      "division": "GC",
+      "cost_category": null,
+      "in_job_cost": false
     },
     {
       "order": 4,
-      "name": "material sales",
-      "match": {
-        "pattern": "55NN"
-      },
-      "sets": {
-        "division": "MS",
-        "cost_category": "Materials (none for 5500)",
-        "in_job_cost": false
-      }
+      "name": "income SNOW",
+      "pattern": "^4400$",
+      "division": "SNOW",
+      "cost_category": null,
+      "in_job_cost": false
     },
     {
       "order": 5,
-      "name": "shared fuel",
-      "match": {
-        "pattern": "56NN"
-      },
-      "sets": {
-        "division": null,
-        "cost_category": "Fuel (none for 5600)",
-        "in_job_cost": false
-      }
+      "name": "income MS",
+      "pattern": "^45(10|20)$",
+      "division": "MS",
+      "cost_category": null,
+      "in_job_cost": false
     },
     {
       "order": 6,
+      "name": "income DES",
+      "pattern": "^4800$",
+      "division": "DES",
+      "cost_category": null,
+      "in_job_cost": false
+    },
+    {
+      "order": 7,
+      "name": "division header",
+      "pattern": "^5[1-4]00$",
+      "division_from_digit": 2,
+      "cost_category": null,
+      "in_job_cost": false
+    },
+    {
+      "order": 8,
+      "name": "division cost slot",
+      "pattern": "^5[1-4][0-9]{2}$",
+      "division_from_digit": 2,
+      "cost_category_from_slot": true,
+      "in_job_cost": true
+    },
+    {
+      "order": 9,
+      "name": "material sales header",
+      "pattern": "^5500$",
+      "division": "MS",
+      "cost_category": null,
+      "in_job_cost": false
+    },
+    {
+      "order": 10,
+      "name": "material sales",
+      "pattern": "^55[0-9]{2}$",
+      "division": "MS",
+      "cost_category": "Materials",
+      "in_job_cost": false
+    },
+    {
+      "order": 11,
+      "name": "shared fuel header",
+      "pattern": "^5600$",
+      "division": null,
+      "cost_category": null,
+      "in_job_cost": false
+    },
+    {
+      "order": 12,
+      "name": "shared fuel",
+      "pattern": "^56[0-9]{2}$",
+      "division": null,
+      "cost_category": "Fuel",
+      "in_job_cost": false
+    },
+    {
+      "order": 13,
       "name": "outside income and cost of goods sold",
-      "match": {
-        "pattern": "anything else"
-      },
-      "sets": {
-        "division": null,
-        "cost_category": null,
-        "in_job_cost": false
-      }
+      "pattern": "^(?![45][0-9]{3}$).*$",
+      "division": null,
+      "cost_category": null,
+      "in_job_cost": false
     }
   ]
 }

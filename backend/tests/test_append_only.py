@@ -116,7 +116,9 @@ def test_raw_record_rejects_changes(
     sql = {
         "UPDATE": "UPDATE raw_record SET is_deleted = true WHERE id = :id",
         "DELETE": "DELETE FROM raw_record WHERE id = :id",
-        "TRUNCATE": "TRUNCATE raw_record",
+        # CASCADE names the tables that reference raw_record (gl_account, F04); the
+        # append-only trigger still refuses the statement before anything happens.
+        "TRUNCATE": "TRUNCATE raw_record CASCADE",
     }[stmt]
     with pytest.raises(DBAPIError, match=APPEND_ONLY_ERROR):
         with tenant_session(engine, seed.tenant_a) as s:

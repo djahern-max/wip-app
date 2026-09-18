@@ -67,6 +67,11 @@ can_reopen_period = require_roles(Role.firm_admin)  # CLAUDE.md: firm_admin acti
 can_read_tenant_audit = require_roles(*FIRM_AND_CLIENT_ADMIN)  # D-12: who accessed my company
 can_list_tenant_users = require_roles(Role.firm_admin)
 can_manage_imports = require_roles(*FIRM_AND_CLIENT_ADMIN)  # F03: upload, list, download files
+# F04: tenant configuration. Read for firm roles and client_admin; write for firm
+# roles; accounting-policy keys are set by firm_admin only.
+can_view_tenant_config = require_roles(*FIRM_AND_CLIENT_ADMIN)
+can_manage_tenant_config = require_roles(*FIRM)
+can_set_policy = require_roles(Role.firm_admin)
 # Firm-level (no active tenant needed)
 can_manage_users = require_firm_role(Role.firm_admin)
 can_manage_memberships = require_firm_role(Role.firm_admin)
@@ -89,6 +94,9 @@ CAPABILITIES: dict[str, tuple[Guard, frozenset[Role], str]] = {
     "read_tenant_audit": (can_read_tenant_audit, frozenset(FIRM_AND_CLIENT_ADMIN), "tenant"),
     "list_tenant_users": (can_list_tenant_users, frozenset({Role.firm_admin}), "tenant"),
     "manage_imports": (can_manage_imports, frozenset(FIRM_AND_CLIENT_ADMIN), "tenant"),
+    "view_tenant_config": (can_view_tenant_config, frozenset(FIRM_AND_CLIENT_ADMIN), "tenant"),
+    "manage_tenant_config": (can_manage_tenant_config, frozenset(FIRM), "tenant"),
+    "set_policy": (can_set_policy, frozenset({Role.firm_admin}), "tenant"),
     "manage_users": (can_manage_users, frozenset({Role.firm_admin}), "firm"),
     "manage_memberships": (can_manage_memberships, frozenset({Role.firm_admin}), "firm"),
     "manage_firm_memberships": (

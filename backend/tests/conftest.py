@@ -406,3 +406,22 @@ def login_as(
         return c
 
     return _login
+
+
+@pytest.fixture
+def fresh_tenant(seed: Seed, owner_engine: Engine) -> uuid.UUID:
+    """A new tenant in the seed firm for tests that import a chart or seed
+    configuration (F04): the same bytes dedupe per tenant and configuration is
+    per tenant, so sharing A/B across tests would leak state. Entry rows for
+    ``rotate_me`` (firm_admin) and ``recover_me`` (firm_staff), whose tenant lists no
+    other test pins; log in with ``login_as("rotate_me", tenant=fresh_tenant)``."""
+    marker = uuid.uuid4().hex[:8]
+    with untenanted_session(owner_engine) as s:
+        t = Tenant(firm_id=seed.firm_id, name=f"Fresh {marker}", slug=f"fresh-{marker}")
+        s.add(t)
+        s.flush()
+        tid = t.id
+    with tenant_session(owner_engine, tid) as s:
+        for key in ("rotate_me", "recover_me"):
+            s.add(Membership(tenant_id=tid, user_id=seed.users[key].id, role=None))
+    return tid

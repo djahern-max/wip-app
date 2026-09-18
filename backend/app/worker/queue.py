@@ -103,6 +103,17 @@ def enqueue(
     return row
 
 
+def open_task(db: Session, kind: str, dedupe_key: str) -> Task | None:
+    """The queued or running task holding this dedupe key, if any."""
+    return db.execute(
+        select(Task).where(
+            Task.kind == kind,
+            Task.dedupe_key == dedupe_key,
+            Task.status.in_(("queued", "running")),
+        )
+    ).scalar_one_or_none()
+
+
 def notify(db: Session, tenant_id: UUID) -> None:
     db.execute(
         text("SELECT pg_notify(:channel, :tenant)"),

@@ -4,6 +4,7 @@ read from ``firm_membership``; the firm users' rows in tenants are entry rows.""
 
 import hashlib
 import io
+import itertools
 import uuid
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
@@ -15,6 +16,7 @@ from sqlalchemy import Engine, delete, select
 from app.core.authz import CAPABILITIES
 from app.core.db import tenant_session, untenanted_session
 from app.core.storage import LocalObjectStore
+from app.domain.config.models import AccountMap, GlAccount
 from app.ingest.models import ImportBatch
 from app.tenancy.models import FirmMembership, Membership, Role
 from tests._env import OBJECT_STORE_DIR
@@ -40,6 +42,15 @@ class Route:
     multipart: Callable[[], tuple[dict, dict]] | None = None
 
 
+_BURDEN_YEARS = itertools.count(2100)
+
+
+def _burden_period() -> dict:
+    """A one-month period in a year no other cell used: no overlap between cells."""
+    year = next(_BURDEN_YEARS)
+    return {"effective_from": f"{year}-01-01", "effective_to": f"{year}-02-01", "rate": "0.1"}
+
+
 def _routes() -> list[Route]:
     routes = [
         Route("GET", "/api/_probe/rows", ALL),
@@ -60,6 +71,47 @@ def _routes() -> list[Route]:
                 {"source_kind": "unparsed_file"},
                 {"file": ("matrix.bin", uuid.uuid4().bytes, "application/octet-stream")},
             ),
+        ),
+        # F04: tenant configuration. {account} is an account seeded in tenant A.
+        Route("GET", "/api/config/accounts", frozenset({FA, FS, CA})),
+        Route("GET", "/api/config/divisions", frozenset({FA, FS, CA})),
+        Route("GET", "/api/config/cost-categories", frozenset({FA, FS, CA})),
+        Route("GET", "/api/config/cost-codes", frozenset({FA, FS, CA})),
+        Route("GET", "/api/config/burden-rates", frozenset({FA, FS, CA})),
+        Route("GET", "/api/config/policy", frozenset({FA, FS, CA})),
+        Route("GET", "/api/config/suggest-rules", frozenset({FA, FS, CA})),
+        Route(
+            "PUT",
+            "/api/config/accounts/{account}/map",
+            frozenset({FA, FS}),
+            body=lambda: {"in_job_cost": False, "confirm": False},
+        ),
+        Route("POST", "/api/config/accounts/{account}/confirm", frozenset({FA, FS})),
+        Route("POST", "/api/config/accounts/confirm-all", frozenset({FA, FS})),
+        Route("POST", "/api/config/accounts/suggest", frozenset({FA, FS})),
+        Route(
+            "POST",
+            "/api/config/divisions",
+            frozenset({FA, FS}),
+            body=lambda: {"code": f"M{uuid.uuid4().hex[:5]}", "name": "Matrix"},
+        ),
+        Route(
+            "POST",
+            "/api/config/burden-rates",
+            frozenset({FA, FS}),
+            body=lambda: _burden_period(),
+        ),
+        Route(
+            "PUT",
+            "/api/config/suggest-rules",
+            frozenset({FA, FS}),
+            body=lambda: {"divisions": [], "rules": []},
+        ),
+        Route(
+            "PUT",
+            "/api/config/policy/timezone",
+            frozenset({FA}),
+            body=lambda: {"value": "America/New_York", "decision_ref": "matrix"},
         ),
         Route("GET", "/api/admin/users", frozenset({FA})),
         Route(
@@ -183,12 +235,32 @@ def _seed_batch(seed: Seed, owner_engine: Engine) -> str:
     return _BATCH_ID["id"]
 
 
+_ACCOUNT_ID: dict[str, str] = {}
+
+
+def _seed_account(seed: Seed, owner_engine: Engine) -> str:
+    """One gl_account in tenant A for the {account} routes."""
+    if "id" not in _ACCOUNT_ID:
+        with tenant_session(owner_engine, seed.tenant_a) as s:
+            a = GlAccount(
+                tenant_id=seed.tenant_a, account_no="9999", name="Matrix", ledger_type="t"
+            )
+            s.add(a)
+            s.flush()
+            s.add(AccountMap(tenant_id=seed.tenant_a, gl_account_id=a.id, in_job_cost=False))
+            _ACCOUNT_ID["id"] = str(a.id)
+    return _ACCOUNT_ID["id"]
+
+
 def _fill(route: Route, seed: Seed, owner_engine: Engine | None = None) -> tuple[str, dict | None]:
     scratch = str(seed.users["scratch"].id)
     path = route.path.replace("{B}", str(seed.tenant_b)).replace("{scratch}", scratch)
     if "{batch}" in path:
         batch = _seed_batch(seed, owner_engine) if owner_engine is not None else str(uuid.uuid4())
         path = path.replace("{batch}", batch)
+    if "{account}" in path:
+        acct = _seed_account(seed, owner_engine) if owner_engine is not None else str(uuid.uuid4())
+        path = path.replace("{account}", acct)
     body = None
     if route.body is not None:
         body = {

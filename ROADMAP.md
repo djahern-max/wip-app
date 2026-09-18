@@ -43,7 +43,7 @@ Firm authority as a `firm_membership` row with entry rows in tenants (D-15), act
 `connection`, `sync_run`, `import_batch`, `raw_record` with versioning; file upload to Spaces under tenant prefix; Postgres-backed worker queue; idempotency by file checksum and by external id; crypto helper for tokens.
 **Accept**: uploading the same file twice creates one batch; a modified file creates new raw versions and leaves history; worker task always runs with explicit tenant context.
 
-### F04 · Tenant configuration  ☐
+### F04 · Tenant configuration  ◐ (built 2026-09-18; ☑ after the owner's browser pass)
 `division`, `cost_category` (seeded), `account_map`, `tenant_policy`, `burden_rate`. Admin UI to map GL accounts → division + cost category + in-job-cost flag, with a "suggest from account number pattern" helper.
 **Accept**: loading the Rye Beach chart auto-suggests the correct division and category for every 4xxx/5xxx account from the slot scheme; unmapped accounts are listed.
 

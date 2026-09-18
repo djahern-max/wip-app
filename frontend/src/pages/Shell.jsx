@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { PRODUCT_NAME } from "../product.js";
+import Config from "./Config.jsx";
 import Imports from "./Imports.jsx";
 
-// Roles with can_manage_imports (app/core/authz.py). The server enforces it; this
-// only decides whether to show the link.
+// Roles with can_manage_imports and can_view_tenant_config (app/core/authz.py). The
+// server enforces them; this only decides whether to show the links.
 const IMPORT_ROLES = ["firm_admin", "firm_staff", "client_admin"];
+const CONFIG_ROLES = ["firm_admin", "firm_staff", "client_admin"];
 
 // Signed-in frame: product name, tenant switcher, user, sign-out. The active
 // tenant lives in the server-side session; the switcher only asks to change it.
@@ -34,6 +36,7 @@ export default function Shell({ me, onChanged, onLogout }) {
 
   const active = tenants.find((t) => t.tenant_id === me.active_tenant_id);
   const canImport = Boolean(active) && IMPORT_ROLES.includes(me.role);
+  const canConfig = Boolean(active) && CONFIG_ROLES.includes(me.role);
 
   return (
     <div>
@@ -54,14 +57,21 @@ export default function Shell({ me, onChanged, onLogout }) {
             ))}
           </select>
         </label>
-        {canImport && (
+        {(canImport || canConfig) && (
           <nav className="header-nav">
             <button type="button" className="link-button" onClick={() => setView("home")}>
               Home
             </button>
-            <button type="button" className="link-button" onClick={() => setView("imports")}>
-              Imports
-            </button>
+            {canImport && (
+              <button type="button" className="link-button" onClick={() => setView("imports")}>
+                Imports
+              </button>
+            )}
+            {canConfig && (
+              <button type="button" className="link-button" onClick={() => setView("config")}>
+                Configuration
+              </button>
+            )}
           </nav>
         )}
         <span className="header-user">
@@ -74,6 +84,8 @@ export default function Shell({ me, onChanged, onLogout }) {
         {error && <p className="error">{error}</p>}
         {active && view === "imports" && canImport ? (
           <Imports me={me} />
+        ) : active && view === "config" && canConfig ? (
+          <Config me={me} />
         ) : active ? (
           <>
             <h1>{active.name}</h1>

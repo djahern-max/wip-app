@@ -397,3 +397,74 @@ _First manual upload/download against Spaces: not yet done._
   the machine reason (limit name, exception type) is logged as
   `upload refused request_id=… : …`, and the request id is the response's
   `X-Request-Id` header.
+
+## Tenant configuration (F04)
+
+### Loading a chart of accounts
+
+1. Load the tenant's suggestion rules first (once; below). Without rules a chart
+   loads with every account unmapped and no suggestions.
+2. Imports page → Source "Chart of accounts" → choose the `.csv` (columns
+   `account_no,account_name,ledger_type`) or `.xlsx` (the owner's workbook layout:
+   title row, section headings, a legend at the bottom; those rows are skipped one by
+   one and counted as rejected) → Upload file. The batch reaches "Loaded. Updating
+   accounts…" then "Loaded. Accounts updated." after a Refresh. The follow-on task is
+   `config.normalize_chart` (`task.dedupe_key = config.normalize_chart:<batch id>`);
+   "Loaded, but the accounts could not be updated." means it failed: the machine
+   detail is in the batch's `error_detail` and the task's `last_error` (requeue as in
+   the worker runbook).
+3. Configuration → Accounts: the unmapped count is at the top. Correct a suggestion
+   with Edit (Save, or Save and confirm), confirm one row with Confirm, or "Confirm all
+   suggestions" (a confirmation step follows; one audit row per account). Only
+   **confirmed** mappings are used by later features.
+4. A revised chart (same page, new file): renamed accounts keep their mapping, new
+   accounts get a suggestion, accounts missing from the newer file are marked inactive
+   (never deleted; raw history keeps every version). The same file uploaded again is one
+   batch and changes nothing.
+
+Command line, from `backend/` with `.env`:
+
+```sh
+.venv/bin/python scripts/load_suggest_rules.py --tenant rye-beach \
+    --file tests/fixtures/rye_beach/account_suggest_rules.json --suggest
+```
+
+### Editing suggestion rules
+
+Rules are data (`account_suggest_rule`), ordered, first match wins. A rule is a
+regular expression over the whole account-number string (any length), plus what it
+sets: a division (explicit code, or `division_from_digit` = a 1-based position in the
+number looked up in `division.code_digit`), a cost category (explicit name, or
+`cost_category_from_slot` = the last two characters as the slot), and `in_job_cost`.
+A derivation that finds nothing means the rule does not match and the next is tried;
+no match at all means **no suggestion**, and the account is listed as unmapped. Rye
+Beach's rules are `backend/tests/fixtures/rye_beach/account_suggest_rules.json` (the
+JSON explains each rule). To change them: edit a copy of the JSON, load it with the
+script above (it replaces the tenant's rules; an invalid pattern or one over 100
+characters refuses the whole load naming the rule; the load is audited
+`suggest_rules_loaded` with before and after), then re-run suggestions from the
+Accounts page ("Re-run suggestions") or with `--suggest`. Suggestions never change a
+confirmed mapping. `PUT /api/config/suggest-rules` takes the same JSON.
+
+### Setting a policy key
+
+Configuration → Policy (firm_admin only): each key shows its value or "Not decided",
+who decided, when, and the decision reference. Decide or Change → value + reference →
+Record decision. Keys: `timezone`, `fiscal_year_start_month`, `wip_basis` (cost
+category slots), `small_job_threshold` (an amount, entered as text), 
+`deposit_identification`, `fuel_surcharge_treatment`. **No key has a default**: a
+feature that needs an undecided key stops with a message naming it rather than
+assuming a value. Every change is audited `policy_set` with before and after.
+
+### Divisions, cost categories, cost codes, burden rates
+
+- Divisions: Configuration → Divisions (firm roles). The code digit is unique per
+  tenant. Deactivating keeps the row and its mappings.
+- Cost categories: the D-23 list is seeded per tenant the first time configuration is
+  read (audited `cost_categories_seeded`); rename or deactivate only. Adding one needs a
+  new decision.
+- Cost codes: read-only grid; "no account" = nothing mapped to that division × category.
+- Burden rates: a fraction (0.3250 = 32.50%), from a date, optionally to an exclusive
+  end date, per division or whole company; overlapping periods for the same division
+  are refused; the rate in force on a date is the division's own, else the whole-company
+  rate.

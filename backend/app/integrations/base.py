@@ -50,6 +50,11 @@ class SourceKind:
     # What a person sees (D-22: human labels, never machine tokens on screen).
     label: str = ""
     description: str = ""
+    # F04 (plan call 3): the task kind enqueued, in the batch's final transaction,
+    # when a batch of this kind ends loaded or loaded_with_issues; and the noun the
+    # Imports page uses for it ("accounts": "Loaded. Updating accounts…").
+    after_load: str | None = None
+    after_load_subject: str = ""
 
     def accepts(self, filename: str) -> bool:
         if not self.extensions:

@@ -19,6 +19,7 @@ from app.core.authz import can_manage_imports
 from app.core.config import get_settings
 from app.core.storage import ObjectStore, ObjectStoreError
 from app.ingest.imports import (
+    FOLLOWUP_LABELS,
     UploadRefused,
     audit_download,
     batch_message,
@@ -29,6 +30,7 @@ from app.ingest.imports import (
 from app.ingest.models import IMPORT_STATUS_LABELS, ImportBatch
 from app.integrations.base import SOURCE_KINDS
 from app.tenancy.models import User
+from app.worker.models import Task
 
 log = logging.getLogger("app.ingest")
 
@@ -44,8 +46,24 @@ def get_object_store(request: Request) -> ObjectStore:
 Store = Annotated[ObjectStore, Depends(get_object_store)]
 
 
-def _out(b: ImportBatch, email: str | None = None) -> ImportBatchOut:
+def _followup(db: TenantSession, b: ImportBatch) -> tuple[str | None, str | None]:
+    """(status, last_error) of the batch's after_load task, if any."""
+    if b.followup_task_id is None:
+        return None, None
+    row = db.execute(
+        select(Task.status, Task.last_error).where(Task.id == b.followup_task_id)
+    ).one_or_none()
+    return (row[0], row[1]) if row else (None, None)
+
+
+def _out(
+    b: ImportBatch, email: str | None = None, followup: tuple[str | None, str | None] = (None, None)
+) -> ImportBatchOut:
     kind = SOURCE_KINDS.get(b.source_kind)
+    followup_status, followup_error = followup
+    error_detail = b.error
+    if error_detail is None and followup_status == "failed" and followup_error:
+        error_detail = f"follow-up task failed: {followup_error}"
     return ImportBatchOut(
         id=str(b.id),
         source_kind=b.source_kind,
@@ -61,9 +79,11 @@ def _out(b: ImportBatch, email: str | None = None) -> ImportBatchOut:
         status_label=IMPORT_STATUS_LABELS[b.status],
         rows_loaded=b.rows_loaded,
         rows_rejected=b.rows_rejected,
-        message=batch_message(b),
-        error_detail=b.error,
+        message=batch_message(b, followup_status),
+        error_detail=error_detail,
         processed_at=b.processed_at.isoformat() if b.processed_at else None,
+        followup_status=followup_status,
+        followup_label=FOLLOWUP_LABELS.get(followup_status or ""),
     )
 
 
@@ -114,7 +134,9 @@ def upload(
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
     if duplicate:
         response.status_code = 200  # nothing was created: the existing batch is returned
-    return ImportUploadOut(batch=_out(batch, _email(db, batch)), duplicate=duplicate)
+    return ImportUploadOut(
+        batch=_out(batch, _email(db, batch), _followup(db, batch)), duplicate=duplicate
+    )
 
 
 def _email(db: TenantSession, batch: ImportBatch) -> str | None:
@@ -131,13 +153,13 @@ def list_batches(_actor: Actor, db: TenantSession):
         .order_by(ImportBatch.uploaded_at.desc(), ImportBatch.id)
         .limit(500)
     )
-    return [_out(b, email) for b, email in db.execute(stmt)]
+    return [_out(b, email, _followup(db, b)) for b, email in db.execute(stmt)]
 
 
 @router.get("/{batch_id}", response_model=ImportBatchOut)
 def get_batch(_actor: Actor, db: TenantSession, batch_id: UUID):
     batch = _batch_or_404(db, batch_id)
-    return _out(batch, _email(db, batch))
+    return _out(batch, _email(db, batch), _followup(db, batch))
 
 
 @router.get("/{batch_id}/download")

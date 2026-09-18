@@ -30,7 +30,7 @@ from app.worker.registry import get_task
 log = logging.getLogger("app.worker")
 
 # Modules whose import registers the production task kinds.
-TASK_MODULES: tuple[str, ...] = ("app.ingest.imports",)
+TASK_MODULES: tuple[str, ...] = ("app.ingest.imports", "app.domain.config.chart")
 
 
 def load_task_modules() -> None:

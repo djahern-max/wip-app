@@ -142,6 +142,10 @@ class ImportBatch(Base):
     rows_rejected: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error: Mapped[str | None] = mapped_column(String(500))
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # F04 (owner amendment C): the after_load task enqueued when this batch loaded.
+    followup_task_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("task.id", ondelete="RESTRICT")
+    )
 
 
 class RawRecord(Base):

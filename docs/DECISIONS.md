@@ -85,3 +85,27 @@ _D-01 … D-09 are open (BLUEPRINT §14); P0-5 records them here._
 **Decision**: The interface stays plain: semantic HTML, one hand-written stylesheet, no UI framework or component library. Money always shows cents, negatives in parentheses, zero as 0.00. Every screen is legible on a phone, with read-only reports as the priority (tables scroll inside their own container, first column held in place). The full conventions live in CLAUDE.md under "Interface conventions".
 **Reasoning**: The owner prefers the simple design of the first screens and wants it carried forward. Nearly every later screen is a table of numbers for accountants and contractors, where consistency and legibility matter more than decoration, and no UI library means nothing extra to maintain. Parentheses and 0.00 are the owner's presentation conventions for financial schedules. Client owners will check reports from the field, so phone legibility is planned from the first report rather than retrofitted.
 **Affected**: Every feature with a screen, starting with the F03 Imports page; F08, F12, F13, F17 most of all. XLSX and PDF exports follow the same number formats (BLUEPRINT §9). CLAUDE.md gains the "Interface conventions" section.
+
+## D-23 · 2026-09-18 · A cost code is the division plus the cost category
+**Decision**: Rye Beach does not keep a separate list of work-type codes. A cost code is two things the platform already tracks, read together: the **division** (one digit: 1 LS, 2 EX, 3 GC, 4 SNOW) and the **cost category** (a two-digit slot). SNOW Labor is 410; EX Subcontractors is 240. The same fourteen cost categories apply to every division:
+
+| Slot | Cost category | Status at Rye Beach today |
+|---|---|---|
+| 10 | Labor | Ledger accounts exist (5n10) |
+| 20 | Labor Burden | Ledger accounts exist (5n20, payroll taxes) |
+| 30 | Materials | Ledger accounts exist (5n30) |
+| 35 | Supplies | Ledger accounts exist (5n35) |
+| 40 | Subcontractors | Exist for LS, EX, GC; none for SNOW |
+| 45 | Equipment (owned) | **New.** No ledger account; cost reaches jobs only by a method D-04 has yet to decide |
+| 47 | Vehicles (owned) | **New.** As for slot 45 |
+| 50 | Equipment Rental | Exist for LS, EX, SNOW |
+| 55 | Equipment Maintenance | Exists for GC only (5355) |
+| 60 | Disposal | Exist for LS, EX |
+| 65 | Fuel | **New as a job cost.** Fuel is posted to shared accounts 5610–5630 today; D-04 decides whether and how it reaches jobs |
+| 70 | Permits & Bonds | Exist for LS, EX |
+| 80 | Warranty | Exist for LS, EX |
+| 90 | Other | No account; catch-all |
+
+The code equals the ledger account number without its leading 5 (code 410 ↔ account 5410), so the chart of accounts, the platform, and what people say aloud all agree. This list replaces the cost category list in CLAUDE.md Vocabulary. Categories are deactivated, never deleted; adding one needs a new decision. Material Sales keeps its two accounts (5510 Bulk Material, 5520 Bulk Salt) as an exception: it sells material rather than running jobs, and its account numbers do not follow the slot scheme.
+**Reasoning**: The owner and the snow manager reworked the draft snow codes into Labor, Equipment, Vehicles, Fuel, Materials, Supplies, and the owner wants the same method in every division. That list is a list of cost categories, and division × cost category is what the revamped chart of accounts already encodes, so a second list would duplicate it and invite miscoding. One short list that everyone learns once is what the owner asked for; finer detail about the kind of work comes from LMN work-area names, not from codes. The earlier draft of work-type codes (MasterFormat-style, 23 codes) was never appended and is withdrawn. Equipment (owned), Vehicles (owned), and Fuel are added because the people running the work want to see them on jobs and because LMN estimates already price them into every work area; adding the categories does not decide how their cost gets to a job or whether they are in the WIP basis, which remains D-04.
+**Affected**: F04 (`cost_category` seeded with slots, `division.code_digit`, Cost codes view; no `cost_code` table). CLAUDE.md Vocabulary (cost category list replaced; add "**Cost code**: division digit plus cost category slot, e.g. 410 = SNOW Labor"). F06 (estimated cost by cost category per estimate), F10, F11, F12. D-04 (WIP basis; owned equipment, vehicles, fuel). BLUEPRINT §5, §8.1.

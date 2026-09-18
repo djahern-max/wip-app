@@ -41,9 +41,9 @@ from app.core.jsoncodec import JSONEncodeError
 from app.core.storage import ObjectStore
 from app.ingest.models import ImportBatch
 from app.ingest.raw import RawOrigin, store_raw
-from app.integrations.base import RawItem, get_source_kind
+from app.integrations.base import SOURCE_KINDS, RawItem, get_source_kind
 from app.tenancy.models import Role
-from app.worker.queue import PermanentTaskError, describe_error, enqueue
+from app.worker.queue import PermanentTaskError, describe_error, enqueue, open_task
 from app.worker.registry import task
 
 log = logging.getLogger("app.ingest")
@@ -107,21 +107,50 @@ def safe_extension(filename: str) -> str:
     return ext if _EXT.match(ext) else "bin"
 
 
-def batch_message(batch: ImportBatch) -> str | None:
+FOLLOWUP_LABELS: dict[str, str] = {
+    "queued": "Updating",
+    "running": "Updating",
+    "succeeded": "Updated",
+    "failed": "Not updated",
+}
+
+
+def followup_message(subject: str, followup_status: str | None) -> str | None:
+    """Owner amendment C: what the after_load task's state means, in one sentence."""
+    if not followup_status or not subject:
+        return None
+    if followup_status in ("queued", "running"):
+        return f"Updating {subject}…"
+    if followup_status == "succeeded":
+        return f"{subject.capitalize()} updated."
+    return f"but the {subject} could not be updated. Try uploading again, or contact support."
+
+
+def batch_message(batch: ImportBatch, followup_status: str | None = None) -> str | None:
     """The sentence shown next to a batch's status (D-22): what happened and what to
     do next, never a setting or an exception type. ``batch.error`` keeps the machine
-    detail for OPERATIONS and the logs."""
+    detail for OPERATIONS and the logs. With a follow-on task (amendment C) the
+    sentence continues: "Loaded. Updating accounts…" / "Loaded. Accounts updated." /
+    "Loaded, but the accounts could not be updated. …"."""
     if batch.status == "failed":
         return "This file could not be read. Check that it is the right export and upload it again."
     if batch.status == "received" and batch.error:
         return "Processing did not finish; it will be tried again shortly. Refresh in a minute."
+    base: str | None = None
     if batch.status == "loaded_with_issues":
         n = batch.rows_rejected
         rows = (
             "1 row could not be read and was" if n == 1 else f"{n} rows could not be read and were"
         )
-        return f"{rows} skipped; the rest were loaded."
-    return None
+        base = f"{rows} skipped; the rest were loaded."
+    kind = SOURCE_KINDS.get(batch.source_kind)
+    tail = followup_message(kind.after_load_subject if kind else "", followup_status)
+    if tail is None:
+        return base
+    if followup_status == "failed":
+        head = base or "Loaded"
+        return f"{head.rstrip('.')}, {tail}"
+    return f"{base or 'Loaded.'} {tail}"
 
 
 def relative_key(batch: ImportBatch) -> str:
@@ -365,6 +394,22 @@ def process_batch_now(
                     batch.error = error
                 else:
                     batch.status = "loaded_with_issues" if counts.rejected else "loaded"
+                    if kind.after_load:
+                        # Same tenant, same transaction as the status (plan call 3): the
+                        # follow-on commits only with it; the dedupe key stops a second
+                        # run if this batch task is ever re-executed.
+                        dedupe = f"{kind.after_load}:{import_batch_id}"
+                        task_row = enqueue(
+                            s,
+                            tenant_id,
+                            kind.after_load,
+                            {"import_batch_id": str(import_batch_id)},
+                            dedupe_key=dedupe,
+                        )
+                        if task_row is None:
+                            task_row = open_task(s, kind.after_load, dedupe)
+                        if task_row is not None:
+                            batch.followup_task_id = task_row.id
 
 
 @task(PROCESS_BATCH)

@@ -585,4 +585,4 @@ def test_the_test_csv_kind_never_exists_in_a_normally_started_app() -> None:
         ),
     )
     assert proc.returncode == 0, proc.stderr
-    assert proc.stdout.strip() == "['unparsed_file']"
+    assert proc.stdout.strip() == "['chart_of_accounts', 'unparsed_file']"

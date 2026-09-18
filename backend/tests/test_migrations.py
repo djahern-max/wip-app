@@ -29,8 +29,25 @@ EXPECTED_TABLES = {
     "import_batch",
     "raw_record",
     "task",
+    # F04 (0005)
+    "division",
+    "cost_category",
+    "gl_account",
+    "account_map",
+    "account_suggest_rule",
+    "tenant_policy",
+    "burden_rate",
 }
 F03_TABLES = {"connection", "sync_run", "import_batch", "raw_record", "task"}
+F04_TABLES = {
+    "division",
+    "cost_category",
+    "gl_account",
+    "account_map",
+    "account_suggest_rule",
+    "tenant_policy",
+    "burden_rate",
+}
 F02_USER_COLUMNS = {"password_hash", "totp_secret_enc", "totp_key_id", "recovery_code_hashes"}
 F02_1_USER_COLUMNS = {"activation_token_hash", "activation_expires_at"}
 F02_ONLY_USER_COLUMNS = {"password_reset_token_hash", "password_reset_expires_at"}
@@ -65,12 +82,16 @@ def _functions(url: str) -> set[str]:
     )
 
 
-def _user_columns(url: str) -> set[str]:
+def _columns(url: str, table: str) -> set[str]:
     return _query(
         url,
         "SELECT column_name FROM information_schema.columns "
-        "WHERE table_schema = 'public' AND table_name = 'user'",
+        f"WHERE table_schema = 'public' AND table_name = '{table}'",
     )
+
+
+def _user_columns(url: str) -> set[str]:
+    return _columns(url, "user")
 
 
 def _triggers(url: str) -> set[str]:
@@ -108,6 +129,16 @@ def test_upgrade_head_then_downgrade_base(scratch_db_url: str) -> None:
     command.upgrade(cfg, "0002")
     assert F02_ONLY_USER_COLUMNS <= _user_columns(scratch_db_url)
     assert "firm_membership" not in _public_tables(scratch_db_url)
+    # 0005 alone is reversible (F04): the seven tables and the followup column go;
+    # no tenant_policy or cost_category row is seeded by the migration.
+    command.upgrade(cfg, "head")
+    assert F04_TABLES <= _public_tables(scratch_db_url)
+    assert "followup_task_id" in _columns(scratch_db_url, "import_batch")
+    assert _query(scratch_db_url, "SELECT count(*) FROM cost_category") == {0}
+    assert _query(scratch_db_url, "SELECT count(*) FROM tenant_policy") == {0}
+    command.downgrade(cfg, "0004")
+    assert F04_TABLES.isdisjoint(_public_tables(scratch_db_url))
+    assert "followup_task_id" not in _columns(scratch_db_url, "import_batch")
     # 0004 alone is reversible (F03): the five tables go, the audit tables keep
     # their append-only triggers and the function.
     command.upgrade(cfg, "head")

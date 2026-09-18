@@ -121,6 +121,9 @@ class ImportBatchOut(_Out):
     message: str | None
     error_detail: str | None
     processed_at: str | None
+    # F04 (owner amendment C): the after_load task's state; machine status and label.
+    followup_status: str | None
+    followup_label: str | None
 
 
 class ImportUploadOut(_Out):
@@ -148,3 +151,116 @@ class AuditRowOut(_Out):
     request_id: str | None
     tenant_id: str | None = None
     firm_id: str | None = None
+
+
+# --- F04 · tenant configuration ---------------------------------------------------------------
+
+
+class DivisionOut(_Out):
+    id: str
+    code: str
+    name: str
+    code_digit: str | None
+    active: bool
+    sort_order: int
+
+
+class CostCategoryOut(_Out):
+    id: str
+    slot: str
+    name: str
+    active: bool
+    sort_order: int
+
+
+class AccountMapOut(_Out):
+    division_id: str | None
+    division_code: str | None
+    cost_category_id: str | None
+    cost_category_name: str | None
+    in_job_cost: bool
+    status: str
+    status_label: str
+    suggested_by_rule: str | None
+    confirmed_by_email: str | None
+    confirmed_at: str | None
+
+
+class GlAccountOut(_Out):
+    id: str
+    account_no: str
+    name: str
+    ledger_type: str
+    active: bool
+    cost_code: str | None
+    map: AccountMapOut | None
+    map_status_label: str  # "Unmapped", "Suggested", "Confirmed"
+
+
+class AccountsOut(_Out):
+    total_active: int
+    unmapped_count: int
+    suggested_count: int
+    confirmed_count: int
+    accounts: list[GlAccountOut]
+
+
+class ConfirmAllOut(_Out):
+    confirmed: int
+    unmapped_count: int
+
+
+class CostCodeCellOut(_Out):
+    cost_category_id: str
+    slot: str
+    code: str | None
+    accounts: list[dict]
+
+
+class CostCodeRowOut(_Out):
+    division_id: str
+    code: str
+    name: str
+    code_digit: str | None
+    cells: list[CostCodeCellOut]
+
+
+class CostCodesOut(_Out):
+    categories: list[CostCategoryOut]
+    rows: list[CostCodeRowOut]
+
+
+class BurdenRateOut(_Out):
+    id: str
+    division_id: str | None
+    division_code: str | None
+    effective_from: str
+    effective_to: str | None
+    rate: str  # a fraction as a string, Decimal end to end
+    basis_note: str | None
+    active: bool
+
+
+class PolicyOut(_Out):
+    key: str
+    label: str
+    kind: str
+    description: str
+    decided: bool
+    value: object | None  # money as a string
+    decided_by_email: str | None
+    decided_at: str | None
+    decision_ref: str | None
+
+
+class SuggestRuleOut(_Out):
+    id: str
+    sort_order: int
+    name: str
+    pattern: str
+    division_code: str | None
+    division_from_digit: int | None
+    cost_category_name: str | None
+    cost_category_from_slot: bool
+    in_job_cost: bool
+    active: bool

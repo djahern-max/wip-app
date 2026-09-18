@@ -82,7 +82,8 @@ The owner is a CPA and the domain expert. When accounting treatment is unclear, 
 ## Vocabulary (use these words in code and UI)
 - **Estimate**: a priced proposal from the estimating system. **Job**: the unit we track and report. One job has one or more estimates (roles: original, change_order, ignored).
 - **Revised contract** = original + approved change orders. **EAC** = estimated total cost at completion. **Cost to date**, **Billed to date**, **Earned revenue**, **Over/(under) billed**, **Backlog**, **Fade/Gain**: as defined in BLUEPRINT §8.2. Do not invent synonyms.
-- **Division**: line of business (LS, EX, GC, SNOW…). **Cost category**: Labor, Labor Burden, Materials, Supplies, Subcontractors, Equipment Rental, Disposal, Permits & Bonds, Warranty, Other.
+- **Division**: line of business (LS, EX, GC, SNOW…). **Cost category** (D-23, in slot order): Labor, Labor Burden, Materials, Supplies, Subcontractors, Equipment (owned), Vehicles (owned), Equipment Rental, Equipment Maintenance, Disposal, Fuel, Permits & Bonds, Warranty, Other.
+- **Cost code**: division digit plus cost category slot, e.g. 410 = SNOW Labor. Computed, never stored.
 - **WIP basis**: the set of cost categories included in both cost to date and EAC for percent complete.
 - **Unassigned**: ledger amounts in job-cost accounts with no job. Always displayed, never dropped.
 

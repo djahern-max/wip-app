@@ -1,12 +1,23 @@
 """Tenant isolation is enforced by the database (BLUEPRINT §3.8, §11; F01 acceptance)."""
 
 import uuid
+from datetime import date
+from decimal import Decimal
 
 import pytest
 from sqlalchemy import Engine, select, text
 from sqlalchemy.exc import ProgrammingError
 
 from app.core.db import set_user_context, tenant_session, untenanted_session
+from app.domain.config.models import (
+    AccountMap,
+    AccountSuggestRule,
+    BurdenRate,
+    CostCategory,
+    Division,
+    GlAccount,
+    TenantPolicy,
+)
 from app.ingest.models import Connection, ImportBatch, RawRecord, SyncRun
 from app.tenancy.models import Membership, RlsProbe, Role
 from app.tenancy.rls import OWN_MEMBERSHIP_POLICY, POLICY_NAME
@@ -36,6 +47,15 @@ def _tenant_tables(engine: Engine) -> list[str]:
 
 
 F03_TABLES = ("connection", "sync_run", "import_batch", "raw_record", "task")
+F04_TABLES = (
+    "division",
+    "cost_category",
+    "gl_account",
+    "account_map",
+    "account_suggest_rule",
+    "tenant_policy",
+    "burden_rate",
+)
 
 
 def test_every_tenant_table_is_enumerated(migrated_db: None, owner_engine: Engine) -> None:
@@ -45,6 +65,7 @@ def test_every_tenant_table_is_enumerated(migrated_db: None, owner_engine: Engin
         "_rls_probe",
         "audit_log",
         *F03_TABLES,
+        *F04_TABLES,
     }
 
 
@@ -189,6 +210,61 @@ def _seed_f03_rows(owner_engine: Engine, tenant_id: uuid.UUID, marker: str) -> N
             )
         )
         s.add(Task(tenant_id=tenant_id, kind="probe", payload={}, max_attempts=1))
+
+
+def _seed_f04_rows(owner_engine: Engine, tenant_id: uuid.UUID, marker: str) -> None:
+    """One row per F04 table in ``tenant_id`` (as the owner, with context)."""
+    with tenant_session(owner_engine, tenant_id) as s:
+        d = Division(
+            tenant_id=tenant_id, code=f"D{marker[:6]}".upper(), name="Div", code_digit=None
+        )
+        c = CostCategory(tenant_id=tenant_id, slot=marker[:2], name="Cat", sort_order=0)
+        s.add_all([d, c])
+        s.flush()
+        a = GlAccount(tenant_id=tenant_id, account_no=marker, name="Acct", ledger_type="t")
+        s.add(a)
+        s.flush()
+        s.add(AccountMap(tenant_id=tenant_id, gl_account_id=a.id, in_job_cost=False))
+        s.add(
+            AccountSuggestRule(
+                tenant_id=tenant_id,
+                sort_order=int(marker[:6], 16),
+                name="r",
+                pattern="^x$",
+                in_job_cost=False,
+            )
+        )
+        s.add(
+            TenantPolicy(tenant_id=tenant_id, key=f"k-{marker}", value={"v": 1}, decision_ref="t")
+        )
+        s.add(
+            BurdenRate(tenant_id=tenant_id, effective_from=date(2026, 1, 1), rate=Decimal("0.1000"))
+        )
+
+
+@pytest.mark.parametrize("table", F04_TABLES)
+def test_f04_tables_read_zero_rows_of_another_tenant(
+    seed: Seed, owner_engine: Engine, rw_engine: Engine, table: str
+) -> None:
+    marker = uuid.uuid4().hex[:12]
+    _seed_f04_rows(owner_engine, seed.tenant_b, marker)
+    model = {
+        "division": Division,
+        "cost_category": CostCategory,
+        "gl_account": GlAccount,
+        "account_map": AccountMap,
+        "account_suggest_rule": AccountSuggestRule,
+        "tenant_policy": TenantPolicy,
+        "burden_rate": BurdenRate,
+    }[table]
+    with tenant_session(rw_engine, seed.tenant_a) as s:
+        orm_tenants = {r.tenant_id for r in s.execute(select(model)).scalars()}
+        raw = s.execute(
+            text(f'SELECT count(*) FROM "{table}" WHERE tenant_id = :b'), {"b": seed.tenant_b}
+        ).scalar_one()
+    assert seed.tenant_b not in orm_tenants and raw == 0
+    with tenant_session(rw_engine, seed.tenant_b) as s:
+        assert s.execute(text(f'SELECT count(*) FROM "{table}"')).scalar_one() >= 1
 
 
 @pytest.mark.parametrize("table", F03_TABLES)
