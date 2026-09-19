@@ -137,13 +137,21 @@ def batch_message(batch: ImportBatch, followup_status: str | None = None) -> str
     if batch.status == "received" and batch.error:
         return "Processing did not finish; it will be tried again shortly. Refresh in a minute."
     base: str | None = None
+    kind = SOURCE_KINDS.get(batch.source_kind)
+    if batch.status == "loaded_with_issues" and batch.rows_loaded == 0:
+        # Nothing was loaded, so nothing follows: never "the rest were loaded".
+        what = kind.records_noun if kind else "rows"
+        export = kind.file_noun if kind else "the right export"
+        return (
+            f"No {what} could be read from this file. "
+            f"Check that it is {export} and upload it again."
+        )
     if batch.status == "loaded_with_issues":
         n = batch.rows_rejected
         rows = (
             "1 row could not be read and was" if n == 1 else f"{n} rows could not be read and were"
         )
         base = f"{rows} skipped; the rest were loaded."
-    kind = SOURCE_KINDS.get(batch.source_kind)
     tail = followup_message(kind.after_load_subject if kind else "", followup_status)
     if tail is None:
         return base
@@ -400,7 +408,10 @@ def process_batch_now(
                     batch.error = error
                 else:
                     batch.status = "loaded_with_issues" if counts.rejected else "loaded"
-                    if kind.after_load:
+                    if kind.after_load and counts.loaded > 0:
+                        # Never for a batch with no loaded row: a follow-on that reads
+                        # "the file holds nothing" as "everything was removed" would
+                        # change records from a file nobody could read.
                         # Same tenant, same transaction as the status (plan call 3): the
                         # follow-on commits only with it; the dedupe key stops a second
                         # run if this batch task is ever re-executed.

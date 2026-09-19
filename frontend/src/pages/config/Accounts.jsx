@@ -160,7 +160,7 @@ export default function Accounts({ me, canManage }) {
                 />
               ) : (
                 <tr key={a.id}>
-                  <td className="wrap-anywhere">
+                  <td>
                     <span className="grid-code">{a.account_no}</span> {a.name}
                   </td>
                   <td>{a.ledger_type}</td>
@@ -220,7 +220,7 @@ function EditRow({ account, lists, busy, onCancel, onSave }) {
   });
   return (
     <tr>
-      <td className="wrap-anywhere">
+      <td>
         <span className="grid-code">{account.account_no}</span> {account.name}
       </td>
       <td>{account.ledger_type}</td>

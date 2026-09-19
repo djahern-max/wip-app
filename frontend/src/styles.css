@@ -164,19 +164,37 @@ h2 {
 }
 
 /* --- the table pattern (D-22) -----------------------------------------------------------
-   A wide table scrolls sideways inside .table-wrap; the page itself never scrolls
-   sideways. The first column (job or account on reports) is held in place. Numbers
-   are right-aligned with tabular figures (.num); the totals row is distinct. Reports
-   (F08+) must use this pattern; Imports uses .num here and cards below 640 px. */
+   A table scrolls inside .table-wrap, both ways; the page itself never scrolls
+   sideways. The box is at most three quarters of the viewport high, so its sideways
+   scrollbar is on screen however many rows the table has; a short table keeps its own
+   height. The header row is held at the top of the box and the first column (job or
+   account on reports) at its left; the top-left cell stays above both. Held cells are
+   opaque, and the first column has a plain right border so the columns sliding under
+   it read as intended. Text wraps between words only, in headers and in the first
+   column; a cell that must break inside a word (a file name) opts in with
+   .wrap-anywhere. Columns are as wide as their content, up to a maximum per cell. Numbers are right-aligned with tabular figures (.num); the totals
+   row is distinct. Reports (F08+) must use this pattern; Imports uses it on a laptop
+   and cards below 640 px.
+
+   Borders are drawn per cell (border-collapse: separate, no spacing): a collapsed
+   border belongs to the table, not the cell, and would scroll away from a held cell. */
 
 .table-wrap {
-  overflow-x: auto;
+  overflow: auto;
   max-width: 100%;
+  max-height: 75vh;
+  max-height: 75dvh; /* phones: the viewport that is actually visible */
+  border: 1px solid var(--rule);
 }
 
 .table {
-  border-collapse: collapse;
-  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  /* Columns take the width their content asks for, up to the cell maximum below, and
+     the box scrolls; with width: 100% alone every column is first squeezed to one
+     word per line. */
+  width: max-content;
+  min-width: 100%;
   font-size: 14px;
 }
 
@@ -185,18 +203,53 @@ h2 {
   text-align: left;
   padding: 0.4rem 0.6rem;
   vertical-align: top;
+  max-width: 20rem; /* longer text wraps between words */
   border-bottom: 1px solid var(--rule-light);
 }
 
 .table th {
   border-bottom: 1px solid var(--rule);
+  overflow-wrap: normal; /* between words only */
+  word-break: normal;
+  hyphens: manual;
+}
+
+.table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface);
 }
 
 .table th:first-child,
 .table td:first-child {
   position: sticky;
   left: 0;
+  z-index: 1;
+  min-width: 12rem; /* an account number and name, or a job name */
+  max-width: 22rem;
   background: var(--surface);
+  border-right: 1px solid var(--rule);
+  overflow-wrap: normal;
+  word-break: normal;
+  hyphens: manual;
+}
+
+.table thead th:first-child {
+  z-index: 3; /* above the header row and the first column */
+}
+
+.table td.wrap-anywhere:first-child {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .table th:first-child,
+  .table td:first-child {
+    /* fixed on a phone: leaves more than half of a 375 px screen for the other columns */
+    min-width: 9.5rem;
+    max-width: 9.5rem;
+  }
 }
 
 .table .num {

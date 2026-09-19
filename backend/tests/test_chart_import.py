@@ -9,14 +9,16 @@ from collections.abc import Callable
 import pytest
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
-from sqlalchemy import Engine, select, text
+from sqlalchemy import Engine, func, select, text
 
+from app.audit.models import AuditLog
 from app.core.db import tenant_session
 from app.domain.config.audit import Actor
 from app.domain.config.chart import normalize_chart, suggest
 from app.domain.config.models import AccountMap, AccountSuggestRule, GlAccount
 from app.domain.config.rules import RuleError
 from app.domain.config.service import confirm_account_map, load_suggest_rules
+from app.ingest.models import ImportBatch
 from app.ingest.raw import raw_history
 from app.worker.models import Task
 from app.worker.queue import PermanentTaskError
@@ -188,6 +190,170 @@ def test_owner_workbook_layout_rejects_headings_and_legend_individually(
     }
     assert b["message"].startswith("6 rows could not be read and were skipped")
     assert b["message"].endswith("Accounts updated.")
+
+
+def _owner_workbook(accounts: list[tuple[int, str, str]]) -> bytes:
+    """A synthetic workbook with the layout of the owner's real file (which is never a
+    fixture): three sheets, the chart on the first; column A empty on every row; the
+    title in B1, two blank rows, the header "No. / Account Name / QuickBooks Type" in
+    B4:D4; section headings with only column B filled; account numbers as integer
+    cells; some account names that begin with digits; frozen panes; no merged cells."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Chart of Accounts"
+    ws["B1"] = "Synthetic Landscaping — Chart of Accounts"
+    for col, text_ in zip("BCD", ("No.", "Account Name", "QuickBooks Type"), strict=True):
+        ws[f"{col}4"] = text_
+    row = 5
+    section = None
+    for no, name, ledger_type in accounts:
+        if str(no)[0] != section:
+            section = str(no)[0]
+            ws.cell(row=row, column=2, value=f"SECTION {section} ({section}000–{section}999)")
+            row += 1
+        ws.cell(row=row, column=2, value=no)
+        ws.cell(row=row, column=3, value=name)
+        ws.cell(row=row, column=4, value=ledger_type)
+        row += 1
+    ws.freeze_panes = "A5"
+    guide = wb.create_sheet("Numbering Guide")
+    guide.append(["Range", "Meaning", "Example"])
+    guide.append([9999, "Not an account: a guide row on another sheet", "x"])
+    checklist = wb.create_sheet("Setup Checklist")
+    checklist.append(["Step", "Done"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+OWNER_LAYOUT_ACCOUNTS = [
+    (1010, "Bank account 01", "Bank"),
+    (1520, "2019 Truck 01", "Fixed Assets"),  # a name that begins with digits
+    (2630, "Loan 01", "Long Term Liabilities"),
+    (5110, "Gross Payroll - LS", "Cost of Goods Sold"),
+    (5410, "Gross Payroll - SNOW", "Cost of Goods Sold"),
+]
+
+
+def test_owner_workbook_with_an_empty_first_column_loads_every_account(
+    seed: Seed, rw_engine: Engine, login_as: Callable[..., TestClient], fresh_tenant
+) -> None:
+    load_rye_beach_rules(rw_engine, fresh_tenant)
+    client = login_as("recover_me", tenant=fresh_tenant)
+    batch = upload_chart(client, _owner_workbook(OWNER_LAYOUT_ACCOUNTS), "owner.xlsx")["batch"]
+    run_until_quiet(rw_engine)
+    b = batch_json(client, batch["id"])
+    # Skipped: the title and the three section headings. The header row and the blank
+    # rows are passed over silently; the other sheets are not read.
+    assert (b["status"], b["rows_loaded"], b["rows_rejected"]) == ("loaded_with_issues", 5, 4)
+    assert b["message"] == (
+        "4 rows could not be read and were skipped; the rest were loaded. Accounts updated."
+    )
+    state = account_state(rw_engine, fresh_tenant)
+    assert set(state) == {"1010", "1520", "2630", "5110", "5410"}
+    assert (state["1520"]["name"], state["1520"]["ledger_type"]) == (
+        "2019 Truck 01",
+        "Fixed Assets",
+    )
+    assert (state["5410"]["division"], state["5410"]["cost_category"]) == ("SNOW", "Labor")
+
+
+def test_parse_chart_finds_the_columns_with_or_without_a_header() -> None:
+    from app.integrations.base import RawItem
+    from app.integrations.chart_of_accounts import parse_chart
+
+    def accounts(data: bytes) -> list[tuple[str, str, str]]:
+        return [
+            (i.payload["account_no"], i.payload["account_name"], i.payload["ledger_type"])
+            for i in parse_chart(io.BytesIO(data))
+            if isinstance(i, RawItem)
+        ]
+
+    def reasons(data: bytes) -> list[str]:
+        return [i.reason for i in parse_chart(io.BytesIO(data)) if not isinstance(i, RawItem)]
+
+    want = [("1010", "Cash", "Bank"), ("67010", "North Labor", "COGS")]
+    plain = b"1010,Cash,Bank\n67010,North Labor,COGS\n"
+    assert accounts(plain) == want  # no header, first column
+    assert accounts(b"No.,Account Name,QuickBooks Type\n" + plain) == want
+    shifted = b",,No.,Account Name,Type\n,,1010,Cash,Bank\n,,67010,North Labor,COGS\n"
+    assert accounts(shifted) == want and reasons(shifted) == []
+    # No header: the first row that starts with an account number fixes the column.
+    assert accounts(b",Title\n,1010,Cash,Bank\n,67010,North Labor,COGS\n") == want
+    # Once the column is known, a row with nothing in it is an empty account number,
+    # even when a later cell is filled; a title is not mistaken for the header.
+    mixed = b"Chart of Accounts\nAccount,Name,Type\n1010,Cash,Bank\n,Notes,\nNotes,,\n"
+    assert accounts(mixed) == [("1010", "Cash", "Bank")]
+    assert reasons(mixed) == [
+        "not_an_account_number",
+        "empty_account_number",
+        "not_an_account_number",
+    ]
+
+
+# --- a file with nothing readable ------------------------------------------------------------
+
+
+def test_a_chart_with_zero_readable_rows_changes_no_account_and_runs_no_follow_on(
+    rye_beach: dict, seed: Seed, rw_engine: Engine
+) -> None:
+    """Owner browser pass 2026-09-19: a file from which no account could be read
+    enqueued the follow-on and said "Accounts updated"; on a confirmed chart that path
+    would have marked every account inactive."""
+    tenant = rye_beach["tenant"]
+    with tenant_session(rw_engine, tenant) as s:
+        for a in s.execute(
+            select(GlAccount).where(GlAccount.account_no.in_(["5130", "5230"]))
+        ).scalars():
+            confirm_account_map(s, tenant, a.id, Actor(user_id=seed.users["rotate_me"].id))
+    before = account_state(rw_engine, tenant)
+    with tenant_session(rw_engine, tenant) as s:
+        tasks_before = s.execute(
+            select(func.count()).select_from(Task).where(Task.kind == "config.normalize_chart")
+        ).scalar_one()
+        audit_before = s.execute(select(func.count()).select_from(AuditLog)).scalar_one()
+
+    unreadable = "Revised chart\nASSETS (1000–1999)\nsee the other tab\n".encode()
+    batch = upload_chart(rye_beach["client"], unreadable, "revised.csv")["batch"]
+    run_until_quiet(rw_engine)
+
+    b = batch_json(rye_beach["client"], batch["id"])
+    assert (b["rows_loaded"], b["rows_rejected"]) == (0, 3)
+    assert (b["followup_status"], b["followup_label"]) == (None, None)
+    assert b["message"] == (
+        "No accounts could be read from this file. "
+        "Check that it is a chart of accounts export and upload it again."
+    )
+    after = account_state(rw_engine, tenant)
+    assert after == before and len(after) == 159
+    assert all(v["active"] for v in after.values())
+    assert after["5130"]["status"] == "confirmed" and after["5230"]["status"] == "confirmed"
+    with tenant_session(rw_engine, tenant) as s:
+        assert (
+            s.execute(
+                select(func.count()).select_from(Task).where(Task.kind == "config.normalize_chart")
+            ).scalar_one()
+            == tasks_before
+        )
+        row = s.get(ImportBatch, uuid.UUID(batch["id"]))
+        assert row.followup_task_id is None
+        # One audit row for the upload itself; nothing about any account or mapping.
+        assert (
+            s.execute(select(func.count()).select_from(AuditLog)).scalar_one() == audit_before + 1
+        )
+
+
+def test_the_normalizer_never_deactivates_from_a_file_with_no_accounts(
+    rye_beach: dict, seed: Seed, rw_engine: Engine
+) -> None:
+    """The second guard: even if the follow-on is run for a batch whose file holds no
+    account (a requeue by hand, a later code path), nothing is marked inactive."""
+    with tenant_session(rw_engine, rye_beach["tenant"]) as s:
+        counts = normalize_chart(
+            s, rye_beach["tenant"], uuid.UUID(rye_beach["batch_id"]), present=set()
+        )
+    assert counts.deactivated == 0
+    assert all(v["active"] for v in account_state(rw_engine, rye_beach["tenant"]).values())
 
 
 # --- suggestions ---------------------------------------------------------------------------------

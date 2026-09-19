@@ -420,12 +420,25 @@ _First manual upload/download against Spaces: not yet done._
 2. Imports page → Source "Chart of accounts" → choose the `.csv` (columns
    `account_no,account_name,ledger_type`) or `.xlsx` (the owner's workbook layout:
    title row, section headings, a legend at the bottom; those rows are skipped one by
-   one and counted as rejected) → Upload file. The batch reaches "Loaded. Updating
+   one and counted as rejected) → Upload file. Supported layout: the chart is the
+   **first sheet** of a workbook (other sheets are not read); account number, account
+   name and ledger type are three neighbouring columns in that order, starting in any
+   column (the owner's workbook keeps column A empty). The starting column is taken
+   from the header row ("No.", "Account", "Account number", …, with at least two
+   filled cells) or, without a header, from the first row that starts with an account
+   number. Account numbers may be number cells or text; merged cells are not needed
+   and a number and a name combined in one cell are not read. The Source stays as
+   chosen for the company until the browser is closed. The batch reaches "Loaded. Updating
    accounts…" then "Loaded. Accounts updated." after a Refresh. The follow-on task is
    `config.normalize_chart` (`task.dedupe_key = config.normalize_chart:<batch id>`);
    "Loaded, but the accounts could not be updated." means it failed: the machine
    detail is in the batch's `error_detail` and the task's `last_error` (requeue as in
    the worker runbook).
+   **"No accounts could be read from this file."** (Loaded with issues, 0 rows
+   loaded): nothing was changed. A batch with no loaded row never starts the
+   follow-on, and the normalizer never marks accounts inactive from a file that holds
+   no account. Check the Source, the sheet order and the layout above, then upload a
+   corrected file (the same bytes are one batch and are not processed again).
 3. Configuration → Accounts: the unmapped count is at the top. Correct a suggestion
    with Edit (Save, or Save and confirm), confirm one row with Confirm, or "Confirm all
    suggestions" (a confirmation step follows; one audit row per account). Only

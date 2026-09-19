@@ -95,3 +95,70 @@ def test_machine_tokens_are_not_rendered_by_the_imports_page() -> None:
     assert not re.search(r"\{b\.status\}", src)
     for shown in ("b.source_label", "b.status_label", "b.message", "k.label"):
         assert shown in src, shown
+
+
+def _rules(css: str) -> dict[str, str]:
+    """selector → declarations, top-level rules only (media blocks are skipped)."""
+    flat = re.sub(r"@media[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}", "", css)
+    out: dict[str, str] = {}
+    for block in re.finditer(r"([^{}]+)\{([^{}]*)\}", flat):
+        for selector in block.group(1).split(","):
+            key = " ".join(selector.split())
+            out[key] = out.get(key, "") + block.group(2)
+    return out
+
+
+def test_the_table_pattern_holds_the_header_and_the_first_column_inside_a_bounded_box() -> None:
+    """Owner browser pass 2026-09-19: fixed once for every report from F08 on. The box
+    scrolls both ways inside itself and is bounded by the viewport, so its sideways
+    scrollbar is on screen; the header row and the first column are held, opaque, the
+    top-left cell above both; the first column has a plain right border and a minimum
+    width; nothing in the pattern breaks a word unless a cell opts in."""
+    rules = _rules(_css())
+    wrap = rules[".table-wrap"]
+    assert re.search(r"overflow:\s*auto", wrap)
+    assert re.search(r"max-height:\s*\d+d?vh", wrap)
+    # A collapsed border does not travel with a held cell.
+    assert re.search(r"border-collapse:\s*separate", rules[".table"])
+    head, first, corner = (
+        rules[".table thead th"],
+        rules[".table td:first-child"],
+        rules[".table thead th:first-child"],
+    )
+    assert "position: sticky" in head and re.search(r"top:\s*0", head)
+    assert "position: sticky" in first and re.search(r"left:\s*0", first)
+    for held in (head, first):
+        assert "background: var(--surface)" in held  # opaque
+    assert re.search(r"border-right:\s*1px solid", first)
+    assert re.search(r"min-width:\s*\d", first)
+
+    def z(decl: str) -> int:
+        return int(re.search(r"z-index:\s*(\d+)", decl).group(1))
+
+    assert z(corner) > z(head) > z(first)
+    for selector in (".table th", ".table td:first-child"):
+        assert re.search(r"overflow-wrap:\s*normal", rules[selector]), selector
+    breakers = [
+        s
+        for s, d in rules.items()
+        if re.search(r"overflow-wrap:\s*anywhere|word-break:\s*break", d)
+    ]
+    assert sorted(breakers) == [
+        ".item-title",
+        ".table td.wrap-anywhere:first-child",
+        ".wrap-anywhere",
+    ]
+
+
+def test_the_account_column_never_opts_in_to_breaking_inside_a_word() -> None:
+    src = (FRONTEND_SRC / "pages/config/Accounts.jsx").read_text()
+    assert "wrap-anywhere" not in src
+
+
+def test_imports_keeps_the_chosen_source() -> None:
+    """The Source is read from and written to ``sourceChoice.js`` (its behaviour is
+    tested with ``node --test``); the page never goes back to a hard-coded source."""
+    src = (FRONTEND_SRC / "pages/Imports.jsx").read_text()
+    assert 'useState("unparsed_file")' not in src
+    assert "rememberedSource(" in src and "rememberSource(" in src
+    assert "onChange={(e) => chooseKind(e.target.value)}" in src

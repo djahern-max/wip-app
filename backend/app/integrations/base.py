@@ -55,6 +55,11 @@ class SourceKind:
     # Imports page uses for it ("accounts": "Loaded. Updating accounts…").
     after_load: str | None = None
     after_load_subject: str = ""
+    # For the sentence shown when no row of a file could be read (D-22): "No accounts
+    # could be read from this file. Check that it is a chart of accounts export and
+    # upload it again."
+    records_noun: str = "rows"
+    file_noun: str = "the right export"
 
     def accepts(self, filename: str) -> bool:
         if not self.extensions:

@@ -86,7 +86,8 @@ def normalize_chart(
     present: set[str] | None = None,
 ) -> ChartCounts:
     """``present``: every account number in the batch's file. ``None`` = unknown, so
-    nothing is deactivated."""
+    nothing is deactivated; an empty set is a file nobody could read, not a chart
+    from which every account was removed, so nothing is deactivated either."""
     batch = db.get(ImportBatch, import_batch_id)
     if batch is None:
         raise LookupError("import batch not found in this tenant")
@@ -148,7 +149,7 @@ def normalize_chart(
         else:
             row.raw_record_id = raw.id
             counts.unchanged += 1
-    if present is not None and _is_newest_chart_batch(db, batch):
+    if present and _is_newest_chart_batch(db, batch):
         for account_no, row in existing.items():
             if row.active and account_no not in present and account_no not in seen:
                 row.active = False

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, upload } from "../api.js";
 import { useNarrow } from "../narrow.js";
+import { chooseSource, rememberSource, rememberedSource, sessionStore } from "../sourceChoice.js";
 
 // Imports (F03): choose a source and a file, upload, see the batches of the active
 // company. Mount effects only read (GET); the upload is an event handler. The
@@ -10,6 +11,9 @@ import { useNarrow } from "../narrow.js";
 // status_label, message); the machine values (source_kind, status, error_detail)
 // are for OPERATIONS and never shown (D-22).
 //
+// The Source stays as chosen after an upload, after opening another screen and after
+// a page refresh (sourceChoice.js: per company, for the browser session).
+//
 // Layout: a table with .num columns on a laptop; below 640 px this admin screen
 // stacks to cards. Reports (F08+) must NOT do that: they use the container-scroll
 // pattern (.table-wrap, first column held in place) from styles.css.
@@ -17,7 +21,9 @@ export default function Imports({ me }) {
   const narrow = useNarrow();
   const [kinds, setKinds] = useState([]);
   const [batches, setBatches] = useState([]);
-  const [kind, setKind] = useState("unparsed_file");
+  const [kind, setKind] = useState(() =>
+    chooseSource([], rememberedSource(sessionStore(), me.active_tenant_id), null),
+  );
   const [file, setFile] = useState(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(null);
@@ -30,8 +36,20 @@ export default function Imports({ me }) {
     return api("GET", "/api/imports").then(setBatches).catch(() => setError(loadFailed));
   }
 
+  function chooseKind(name) {
+    setKind(name);
+    rememberSource(sessionStore(), me.active_tenant_id, name);
+  }
+
   useEffect(() => {
-    api("GET", "/api/imports/source-kinds").then(setKinds).catch(() => setError(loadFailed));
+    const remembered = rememberedSource(sessionStore(), me.active_tenant_id);
+    setKind(chooseSource([], remembered, null)); // another company: its own choice
+    api("GET", "/api/imports/source-kinds")
+      .then((list) => {
+        setKinds(list);
+        setKind((current) => chooseSource(list, current, remembered));
+      })
+      .catch(() => setError(loadFailed));
     api("GET", "/api/imports").then(setBatches).catch(() => setError(loadFailed));
   }, [me.active_tenant_id]);
 
@@ -73,7 +91,7 @@ export default function Imports({ me }) {
       <form onSubmit={submit} className="card card-wide">
         <label className="label">
           Source
-          <select className="input" value={kind} onChange={(e) => setKind(e.target.value)} disabled={busy}>
+          <select className="input" value={kind} onChange={(e) => chooseKind(e.target.value)} disabled={busy}>
             {kinds.map((k) => (
               <option key={k.name} value={k.name}>
                 {k.label}
