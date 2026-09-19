@@ -348,6 +348,19 @@ SELECT pg_notify('wip_tasks', '<tenant uuid>');
 COMMIT;
 ```
 
+- **An import batch that stays at Processing** (`import_batch.status = 'processing'`
+  while its task is `queued` or `failed`, not `running`): since 2026-09-19 no
+  exception in `import.process_batch` leaves a batch there; it returns to `received`
+  with `error` ending `(will retry)`. A batch can still be left at `processing` by a
+  worker that was killed mid-task (the lease expires and the next attempt picks it
+  up) or by a database that was unreachable when the status was written back. If the
+  task's `last_error` is `LookupError`, the worker process does not know the batch's
+  source kind: the module is missing from `SOURCE_KIND_MODULES`
+  (`app/integrations/base.py`) or the worker is running older code than the API.
+  Restart the worker (it does not reload code; `make api` does), then requeue the
+  task as below. The task's `dedupe_key` is the batch id. The next run sets the
+  batch's status itself; never edit `import_batch.status` by hand.
+
 Re-processing an import batch is safe: identical payloads write nothing (D-20).
 The partial unique index on `(tenant_id, kind, dedupe_key)` covers only `queued`
 and `running` rows, so requeueing a `failed` row never conflicts.

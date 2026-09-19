@@ -23,6 +23,7 @@ from sqlalchemy.engine import make_url
 
 from app.core.config import get_settings
 from app.core.db import tenant_session, untenanted_session
+from app.integrations.base import load_source_kinds
 from app.tenancy.models import Tenant
 from app.worker import queue
 from app.worker.registry import get_task
@@ -38,6 +39,14 @@ def load_task_modules() -> None:
 
     for name in TASK_MODULES:
         importlib.import_module(name)
+
+
+def load_worker_modules() -> None:
+    """Everything a worker process loads before it claims a task: the task kinds and
+    the source kinds. The worker never imports ``app.main``, so nothing may depend on
+    the API's import chain to be registered here."""
+    load_task_modules()
+    load_source_kinds()
 
 
 class Worker:
@@ -122,7 +131,7 @@ class Worker:
     # --- the loop --------------------------------------------------------------------
 
     def run_forever(self) -> None:
-        load_task_modules()
+        load_worker_modules()
         log.info(
             "worker %s started (poll %.1fs, lease %ds)",
             self.name,

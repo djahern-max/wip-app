@@ -332,9 +332,12 @@ def process_batch_now(
 
     Outcomes (owner rule, F03 close-out): a ``parse`` that raises marks the batch
     ``failed`` and the task ``failed`` with no retry; failing to open the object or
-    to talk to the database leaves the batch ``received`` with the error noted and
-    the task retries with backoff. A batch that is ``failed`` never goes back to
-    ``processing``: upload the corrected file as a new batch.
+    to talk to the database, or a source kind this process has not registered (an
+    environment fault, not a data fault), leaves the batch ``received`` with the
+    error noted and the task retries with backoff. A batch that is ``failed`` never
+    goes back to ``processing``: upload the corrected file as a new batch. Every
+    exception after the ``processing`` commit passes through the ``finally`` below,
+    so no batch is left at ``processing``.
     """
     with tenant_session(engine, tenant_id) as s:
         batch = s.get(ImportBatch, import_batch_id)
@@ -345,11 +348,14 @@ def process_batch_now(
         batch.status = "processing"
         batch.error = None
         source_kind, key = batch.source_kind, relative_key(batch)
-    kind = get_source_kind(source_kind)
     counts = _Counts()
     outcome: str | None = None  # None = loaded; "failed" = permanent; "retry" = transient
     error: str | None = None
     try:
+        # Inside the handled region: the batch is already committed as "processing",
+        # so nothing may raise between that commit and this ``try``. A kind this
+        # process does not know is an environment fault (transient rule).
+        kind = get_source_kind(source_kind)
         with store.open(tenant_id, key) as stream, tenant_session(engine, tenant_id) as s:
             origin = RawOrigin(import_batch_id=import_batch_id)
             for item in _parse_items(kind, stream):

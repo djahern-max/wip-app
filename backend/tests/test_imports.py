@@ -586,3 +586,67 @@ def test_the_test_csv_kind_never_exists_in_a_normally_started_app() -> None:
     )
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout.strip() == "['chart_of_accounts', 'unparsed_file']"
+
+
+def test_a_fresh_worker_process_sees_exactly_the_production_source_kinds() -> None:
+    """The worker never imports ``app.main``. A fresh process that does what
+    ``python -m app.worker`` does at start-up (``load_worker_modules``) sees the same
+    production kinds as the API, so a batch uploaded through the API can be processed."""
+    from tests.test_hygiene import _start_app
+
+    proc = _start_app(
+        {},
+        code=(
+            "import sys; from app.worker.runner import load_worker_modules; "
+            "load_worker_modules(); from app.integrations.base import SOURCE_KINDS; "
+            "assert 'app.main' not in sys.modules; print(sorted(SOURCE_KINDS))"
+        ),
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == "['chart_of_accounts', 'unparsed_file']"
+
+
+def test_every_module_that_registers_a_source_kind_is_in_the_shared_list() -> None:
+    """``SOURCE_KIND_MODULES`` is the one list the API and the worker load. A module
+    under ``app/integrations`` that registers a kind and is missing from it would be
+    known to neither, or to one of them only through an import chain."""
+    from app.integrations.base import SOURCE_KIND_MODULES
+
+    package = Path(__file__).resolve().parents[1] / "app" / "integrations"
+    registering = {
+        f"app.integrations.{path.stem}"
+        for path in package.glob("*.py")
+        if path.name != "base.py" and "register_source_kind(" in path.read_text()
+    }
+    assert registering == set(SOURCE_KIND_MODULES)
+
+
+def test_an_unregistered_source_kind_in_the_worker_returns_the_batch_to_received(
+    login_as: Callable[..., TestClient],
+    seed: Seed,
+    rw_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unknown source kind in the worker is an environment fault, not a data fault:
+    the transient rule applies and the batch is never left at ``processing``."""
+    from app.integrations.base import SOURCE_KINDS
+
+    bid = upload(
+        login_as("firm_admin"), "test_csv", "env.csv", _csv([(uuid.uuid4().hex, "a", "1.00")])
+    )
+    bid = bid.json()["batch"]["id"]
+    monkeypatch.delitem(SOURCE_KINDS, "test_csv")  # this process is now a worker without it
+    w = Worker(rw_engine, name="w-kind", listen=False, poll_seconds=0.01)
+    assert w.run_once() >= 1
+    (t,) = tasks_for(rw_engine, seed.tenant_a, bid)
+    assert (t.status, t.attempts, t.last_error) == ("queued", 1, "LookupError")
+    row = batch_row(rw_engine, seed.tenant_a, bid)
+    assert (row.status, row.error) == ("received", "LookupError (will retry)")
+    assert (row.rows_loaded, row.rows_rejected) == (0, 0)
+
+    monkeypatch.undo()  # the worker is restarted with the kind registered
+    with tenant_session(rw_engine, seed.tenant_a) as s:
+        s.execute(text("UPDATE task SET run_after = now() WHERE id = :id"), {"id": t.id})
+    assert w.run_once() >= 1
+    row = batch_row(rw_engine, seed.tenant_a, bid)
+    assert (row.status, row.rows_loaded, row.error) == ("loaded", 1, None)

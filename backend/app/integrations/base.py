@@ -82,6 +82,20 @@ def get_source_kind(name: str) -> SourceKind:
         raise LookupError(f"unknown source kind {name!r}") from None
 
 
+# Modules whose import registers a production source kind. The API (``app.main``)
+# and the worker (``app.worker.runner``) both call ``load_source_kinds()`` and nothing
+# else imports these modules for their side effect: a new source (F06, F11) adds its
+# module here and is known to both processes.
+SOURCE_KIND_MODULES: tuple[str, ...] = ("app.integrations.chart_of_accounts",)
+
+
+def load_source_kinds() -> None:
+    import importlib
+
+    for name in SOURCE_KIND_MODULES:
+        importlib.import_module(name)
+
+
 def _parse_nothing(_stream: BinaryIO) -> Iterable[RawItem | RejectedItem]:
     return ()
 

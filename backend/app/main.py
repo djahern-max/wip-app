@@ -7,8 +7,6 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import DBAPIError
 
-# Imported for their side effect: register the production source kinds (F04).
-import app.integrations.chart_of_accounts  # noqa: E402, F401
 from app.api.admin import router as admin_router
 from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
@@ -22,8 +20,12 @@ from app.core.config import get_settings, require_object_store_settings
 from app.core.crypto import CryptoError
 from app.core.db import create_app_engine, describe_db_error
 from app.core.storage import build_object_store
+from app.integrations.base import load_source_kinds
 
 log = logging.getLogger("app")
+
+# The production source kinds, from the same list the worker loads.
+load_source_kinds()
 
 
 @asynccontextmanager
