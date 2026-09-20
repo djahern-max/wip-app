@@ -15,7 +15,7 @@ See BLUEPRINT §13. Gate for Phase B: projects exist in QBO for the 16 sold jobs
 
 | ID | Item | Status |
 |---|---|---|
-| S-01 | QBO read-only spike: projects as customers, line-level refs, CDC deletes | ☐ |
+| S-01 | QBO read-only spike: projects as customers, line-level refs, CDC deletes (sandbox in F05; Ramp line check in F05.1) | ☐ |
 | P0-1 | QBO projects created + YTD transactions re-tagged for sold jobs | ☐ |
 | P0-2 | Ramp Customer/Job field enforced on job-cost categories | ☐ |
 | P0-3 | CoA additions (1350, 2410, 4190, 4290, optional 1210/2420) | ☐ |
@@ -53,7 +53,15 @@ Firm authority as a `firm_membership` row with entry rows in tenants (D-15), act
 
 ### F05 · QBO connection & sync  ☐
 OAuth2 connect/reconnect, token refresh, backfill, CDC polling, webhooks, deletes/voids, nightly drift check. Entities per §6.2. Normalize Accounts, Customers/projects, Invoices, Payments, Credit Memos, Sales Receipts, Deposits into `customer`, `billing`, `payment`, `payment_application`.
-**Accept**: against sandbox and then Rye Beach read-only: invoice and payment totals by month equal QBO reports; deleting an invoice in sandbox removes it after next sync; token expiry triggers a reconnect exception, not a crash.
+**Accept**: against sandbox: invoice and payment totals by month equal QBO reports; deleting an invoice in sandbox removes it after next sync; token expiry triggers a reconnect exception, not a crash.
+
+### First deployment · jobcost.dev  ☐
+The platform live at jobcost.dev, with the privacy policy and terms pages Intuit requires for production keys (D-25).
+**Accept**: to be written in the feature's brief.
+
+### F05.1 · QBO production connection  ☐
+Intuit's production questionnaire and keys, Rye Beach connected read-only, monthly totals tied to Rye Beach's own QuickBooks reports, webhooks turned on (D-25). S-01's fourth question, whether Ramp-synced expenses carry the job on the line, is answered here against the real company. The Phase B gate applies.
+**Accept**: Rye Beach read-only: invoice and payment totals by month equal QBO reports; webhooks turned on; Intuit production assessment submitted.
 
 ### F06 · Estimate import  ☐
 `EstimateSource` protocol; LMN export parser; closing-report PDF parser (prices only) as fallback; generic CSV template. Dirty rows load and raise exceptions.
@@ -139,7 +147,7 @@ Report 8. Final vs estimated margin by estimator, division, size band.
 Read-only dashboards for `client_admin`/`client_pm`, scheduled PDF delivery, EAC review reminders.
 
 ### F23 · Operations hardening  ☐
-Backups and restore drill, key rotation procedure, error monitoring, rate-limit handling, `OPERATIONS.md` complete, Intuit production assessment submitted.
+Backups and restore drill, key rotation procedure, error monitoring, rate-limit handling, `OPERATIONS.md` complete.
 
 > **Release E**: ready for client #2.
 
