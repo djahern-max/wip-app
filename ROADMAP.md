@@ -15,7 +15,7 @@ See BLUEPRINT §13. Gate for Phase B: projects exist in QBO for the 16 sold jobs
 
 | ID | Item | Status |
 |---|---|---|
-| S-01 | QBO read-only spike: projects as customers, line-level refs, CDC deletes (sandbox in F05; Ramp line check in F05.1) | ☐ |
+| S-01 | QBO read-only spike: projects as customers, line-level refs, CDC deletes (sandbox in F05; Ramp line check in F05.1) |◐ |
 | P0-1 | QBO projects created + YTD transactions re-tagged for sold jobs | ☐ |
 | P0-2 | Ramp Customer/Job field enforced on job-cost categories | ☐ |
 | P0-3 | CoA additions (1350, 2410, 4190, 4290, optional 1210/2420) | ☐ |

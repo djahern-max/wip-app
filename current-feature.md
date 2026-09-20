@@ -67,7 +67,7 @@ Production keys, the Rye Beach company, and anything that needs a public address
 ### Acceptance criteria
 No Rye Beach fixture applies: Rye Beach cannot be reached without production keys (D-25). Acceptance uses the recorded sandbox fixtures in tests and the live sandbox in the owner pass.
 - [ ] RLS enumeration passes for the five new tables (enabled, forced, policy, leading index); the extra-policy allow-list still has one entry; tenant A reads zero rows of tenant B in each, via ORM and raw SQL as `app_rw`. Migration round-trips on a scratch database; the guard still refuses `wip`.
-- [ ] `docs/spikes/S-01.md` exists, answers (a)–(d) from the live sandbox in structural terms, and was reported to the owner before the normalizers were written. ROADMAP S-01 is marked ◐ with the note "sandbox; Ramp line check in F05.1".
+- [x] `docs/spikes/S-01.md` exists, answers (a)–(d) from the live sandbox in structural terms, and was reported to the owner before the normalizers were written. ROADMAP S-01 is marked ◐ with the note "sandbox; Ramp line check in F05.1".
 - [ ] Connect flow: `state` is single-use, expires, and is bound to tenant and user; a replayed, expired or foreign `state` stores nothing. Tokens are stored only as ciphertext with a key id; a ciphertext copied to another connection or tenant fails to decrypt. No token, code, `state` or client secret appears in any log line, audit row, response body or task payload (log-leak and response scans extended).
 - [x] Refresh replaces both tokens from the response; two concurrent refreshes leave the newest pair stored; a 401 triggers exactly one refresh and one retry.
 - [ ] `invalid_grant` on refresh sets `needs_reconnect`, writes the audit row, stops that connection's tasks without retrying to `max_attempts`, and leaves the worker running. Reconnecting the same company resumes from the stored cursor.
@@ -213,7 +213,8 @@ Both extra changes accepted (partial unique index on `(system, realm_id)`; S-01 
 - Criteria 4 and 6 are ticked. Criterion 3 is demonstrated except "no task payload" (no task exists yet); criterion 5 except "stops that connection's tasks"; both wait for step 3.
 - Connections page (status in words, company, "sandbox company", Connect / Reconnect / Disconnect with a confirm step). Counts, attention items, month totals and "Sync now" arrive with step 3.
 - OPERATIONS.md "QuickBooks connection" covers settings, connect, reconnect, needs reconnect, secret rotation and the spike; `drift` and fresh backfill are added with step 3.
-- `backend/scripts/s01_spike.py` is ready. **Step 2 (S-01) needs the owner**: the four `QBO_*` settings in `.env`, the `qbo-sandbox` tenant, and the consent screen at Intuit, none of which Claude Code can do.
+- **Step 2, S-01: run 2026-09-20** against the live sandbox (three runs; (c) and (d) after the owner deleted one invoice and voided another). Findings in `docs/spikes/S-01.md`, reported to the owner before any normalizer; ROADMAP S-01 is ◐. Step 3 waits for the owner's answers to the five questions the findings raise, and the void rule.
+- `backend/scripts/s01_spike.py` was ready at the end of step 1. **Step 2 (S-01) needed the owner**: the four `QBO_*` settings in `.env`, the `qbo-sandbox` tenant, and the consent screen at Intuit, none of which Claude Code can do.
 
 ### Discovered (do not fix here)
 _Things noticed along the way that belong to another feature._
