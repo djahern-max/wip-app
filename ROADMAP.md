@@ -51,11 +51,11 @@ Firm authority as a `firm_membership` row with entry rows in tenants (D-15), act
 
 ## Phase B — Estimated vs. Billed (first usable release)
 
-### F05 · QBO connection & sync  ☐
-OAuth2 connect/reconnect, token refresh, backfill, CDC polling, webhooks, deletes/voids, nightly drift check. Entities per §6.2. Normalize Accounts, Customers/projects, Invoices, Payments, Credit Memos, Sales Receipts, Deposits into `customer`, `billing`, `payment`, `payment_application`.
+### F05 · QBO connection & sync  ◐
+Against the Intuit sandbox only (D-25). OAuth2 connect/reconnect, token refresh, backfill, CDC polling, deletes/voids, nightly drift check; no webhooks (F05.1). Entities per §6.2, all stored raw. Normalize Customers/projects, Invoices, Payments, Credit Memos, Sales Receipts into `customer`, `billing`, `payment`, `payment_application`; Account ids are attached to `gl_account` by account number; Deposits are stored raw pending D-02.
 **Accept**: against sandbox: invoice and payment totals by month equal QBO reports; deleting an invoice in sandbox removes it after next sync; token expiry triggers a reconnect exception, not a crash.
 
-### First deployment · jobcost.dev  ☐
+### F05.0 · First deployment (jobcost.dev)  ☐
 The platform live at jobcost.dev, with the privacy policy and terms pages Intuit requires for production keys (D-25).
 **Accept**: to be written in the feature's brief.
 
