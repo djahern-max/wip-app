@@ -134,7 +134,7 @@ export default function Imports({ me }) {
               <div>
                 <strong>{b.status_label}</strong> · {rowsText(b)}
               </div>
-              {b.message && <div className={b.status === "failed" ? "error" : "hint"}>{b.message}</div>}
+              {b.message && <div className={messageClass(b)}>{b.message}</div>}
               <div className="hint">{b.uploaded_by_email || "unknown user"}</div>
               <a href={`/api/imports/${b.id}/download`}>Download</a>
             </div>
@@ -169,7 +169,7 @@ export default function Imports({ me }) {
                   <td className="num">{formatBytes(b.byte_size)}</td>
                   <td>
                     {b.status_label}
-                    {b.message && <div className={b.status === "failed" ? "error" : "hint"}>{b.message}</div>}
+                    {b.message && <div className={messageClass(b)}>{b.message}</div>}
                   </td>
                   <td className="num">{b.rows_loaded}</td>
                   <td className="num">{b.rows_rejected}</td>
@@ -186,6 +186,12 @@ export default function Imports({ me }) {
       )}
     </div>
   );
+}
+
+// Colour second: the sentence already says what happened. A file that could not be
+// read, or from which nothing could be read, needs the person to act.
+function messageClass(b) {
+  return b.status === "failed" || b.status === "nothing_loaded" ? "error" : "hint";
 }
 
 function rowsText(b) {

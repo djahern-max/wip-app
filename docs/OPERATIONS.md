@@ -396,7 +396,9 @@ _First manual upload/download against Spaces: not yet done._
 - `GET /api/imports`, `GET /api/imports/{id}`, `GET /api/imports/{id}/download`
   (audit `import_downloaded`). A batch of another tenant is 404.
 - Statuses: `received` → `processing` → `loaded` | `loaded_with_issues`
-  (`rows_rejected` > 0; the rest loaded) | `failed` (`parse` raised; final, no retry;
+  (`rows_rejected` > 0; the rest loaded) | `nothing_loaded` ("Nothing loaded": rows
+  were found and none could be read; an end state, not a failure, no follow-on; fix
+  the file and upload it as a new batch) | `failed` (`parse` raised; final, no retry;
   upload the corrected file as a new batch). A transient failure puts the batch back
   to `received` with `error` ending `(will retry)` while the task backs off. F03 ships one production source kind,
   `unparsed_file`, which stores and checksums the file and yields no records; LMN
@@ -434,11 +436,19 @@ _First manual upload/download against Spaces: not yet done._
    "Loaded, but the accounts could not be updated." means it failed: the machine
    detail is in the batch's `error_detail` and the task's `last_error` (requeue as in
    the worker runbook).
-   **"No accounts could be read from this file."** (Loaded with issues, 0 rows
-   loaded): nothing was changed. A batch with no loaded row never starts the
-   follow-on, and the normalizer never marks accounts inactive from a file that holds
-   no account. Check the Source, the sheet order and the layout above, then upload a
-   corrected file (the same bytes are one batch and are not processed again).
+   **"Nothing loaded"** with "No accounts could be read from this file.": nothing
+   was changed. It is an end state, not a failure: the task succeeded and is not
+   retried, the batch never starts the follow-on, and the normalizer never marks
+   accounts inactive from a file that holds no account. What to do next: check the
+   Source, the sheet order and the layout above, fix the file, and upload it as a new
+   batch (the same bytes are one batch and are not processed again; there is nothing
+   to requeue). A batch that ended this way before 2026-09-20 shows "Loaded with
+   issues" with 0 rows loaded and the same sentence; it is left as it is.
+   **"Not applied"** with "Accounts not updated, because a newer chart of accounts was
+   uploaded after this file.": only the tenant's newest chart batch (by upload time) is
+   applied. An older batch processed late (a retry that waited, a requeued task) is
+   stored and counted but changes no account, mapping or suggestion
+   (`import_batch.followup_outcome = superseded`). Nothing to do.
 3. Configuration → Accounts: the unmapped count is at the top. Correct a suggestion
    with Edit (Save, or Save and confirm), confirm one row with Confirm, or "Confirm all
    suggestions" (a confirmation step follows; one audit row per account). Only

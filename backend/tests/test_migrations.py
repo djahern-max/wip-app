@@ -105,6 +105,13 @@ def _constraints(url: str, table: str) -> set[str]:
     )
 
 
+def _check_sql(url: str, name: str) -> str:
+    (sql,) = _query(
+        url, f"SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = '{name}'"
+    )
+    return sql
+
+
 def test_upgrade_head_then_downgrade_base(scratch_db_url: str) -> None:
     cfg = alembic_config(scratch_db_url)
     assert _public_tables(scratch_db_url) == set()
@@ -129,6 +136,16 @@ def test_upgrade_head_then_downgrade_base(scratch_db_url: str) -> None:
     command.upgrade(cfg, "0002")
     assert F02_ONLY_USER_COLUMNS <= _user_columns(scratch_db_url)
     assert "firm_membership" not in _public_tables(scratch_db_url)
+    # 0006 alone is reversible (F04 patch): the status CHECK gains and loses
+    # ``nothing_loaded`` and the follow-up outcome column comes and goes.
+    command.upgrade(cfg, "head")
+    assert "followup_outcome" in _columns(scratch_db_url, "import_batch")
+    assert "nothing_loaded" in _check_sql(scratch_db_url, "ck_import_batch_status")
+    assert "ck_import_batch_followup_outcome" in _constraints(scratch_db_url, "import_batch")
+    command.downgrade(cfg, "0005")
+    assert "followup_outcome" not in _columns(scratch_db_url, "import_batch")
+    assert "nothing_loaded" not in _check_sql(scratch_db_url, "ck_import_batch_status")
+    assert "loaded_with_issues" in _check_sql(scratch_db_url, "ck_import_batch_status")
     # 0005 alone is reversible (F04): the seven tables and the followup column go;
     # no tenant_policy or cost_category row is seeded by the migration.
     command.upgrade(cfg, "head")
@@ -413,3 +430,72 @@ def test_make_downgrade_refuses_without_the_flag() -> None:
         ["make", "downgrade"], cwd=BACKEND_DIR + "/..", capture_output=True, text=True, env=env
     )
     assert proc.returncode != 0 and "refusing" in proc.stdout
+
+
+def test_0006_downgrade_renames_nothing_loaded_per_tenant_and_upgrade_rewrites_no_row(
+    scratch_db_url: str,
+) -> None:
+    """``nothing_loaded`` rows become ``loaded_with_issues`` on the way down, in every
+    tenant, with RLS still enabled and forced; the way up rewrites no row (the owner's
+    2026-09-19 workbook batch stays ``loaded_with_issues`` with 0 rows loaded)."""
+    cfg = alembic_config(scratch_db_url)
+    command.upgrade(cfg, "head")
+    engine = create_engine(scratch_db_url)
+    firm, ta, tb = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    insert = text(
+        "INSERT INTO import_batch (id, tenant_id, source_kind, sha256, byte_size, "
+        "original_filename, object_key, status, rows_loaded, rows_rejected, followup_outcome) "
+        "VALUES (:id, :t, 'chart_of_accounts', :sha, 1, 'f.csv', :key, :status, :loaded, 3, :o)"
+    )
+
+    def statuses() -> dict[str, list[str]]:
+        out = {}
+        with engine.begin() as conn:
+            for t in (ta, tb):
+                conn.execute(text("SELECT set_config('app.tenant_id', :t, true)"), {"t": str(t)})
+                out[str(t)] = sorted(
+                    conn.execute(text("SELECT status FROM import_batch")).scalars()
+                )
+        return out
+
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("INSERT INTO firm (id, name) VALUES (:f, 'F')"), {"f": firm})
+            conn.execute(
+                text(
+                    "INSERT INTO tenant (id, firm_id, name, slug) VALUES "
+                    "(:a, :f, 'A', 'a'), (:b, :f, 'B', 'b')"
+                ),
+                {"a": ta, "b": tb, "f": firm},
+            )
+            for t in (ta, tb):
+                conn.execute(text("SELECT set_config('app.tenant_id', :t, true)"), {"t": str(t)})
+                for status, loaded, outcome in (
+                    ("nothing_loaded", 0, None),
+                    ("loaded", 5, "superseded"),
+                ):
+                    conn.execute(
+                        insert,
+                        {
+                            "id": uuid.uuid4(),
+                            "t": t,
+                            "sha": uuid.uuid4().hex * 2,
+                            "key": f"tenant/{t}/imports/x.csv",
+                            "status": status,
+                            "loaded": loaded,
+                            "o": outcome,
+                        },
+                    )
+        command.downgrade(cfg, "0005")
+        assert statuses() == {str(ta): ["loaded", "loaded_with_issues"]} | {
+            str(tb): ["loaded", "loaded_with_issues"]
+        }
+        assert _query(
+            scratch_db_url,
+            "SELECT relrowsecurity AND relforcerowsecurity FROM pg_class "
+            "WHERE relname = 'import_batch'",
+        ) == {True}
+        command.upgrade(cfg, "head")
+        assert statuses()[str(ta)] == ["loaded", "loaded_with_issues"]  # not rewritten
+    finally:
+        engine.dispose()

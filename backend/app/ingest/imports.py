@@ -14,7 +14,9 @@ calls ``store_raw`` per item, and sets counts and status. A ``parse`` that raise
 marks the batch ``failed`` with ``parse failed: <ExceptionType>`` (never file
 content) and fails the task with no retry; a failure opening the object or talking
 to the database leaves the batch ``received`` and the task retries with backoff; a
-rejected item is counted and the rest still loads (``loaded_with_issues``). A
+rejected item is counted and the rest still loads (``loaded_with_issues``); when
+no row at all could be read the batch ends ``nothing_loaded`` (an end state, not a
+failure: the task succeeds, nothing follows, and the corrected file is a new batch). A
 ``failed`` batch is final. Re-processing a loaded batch is safe: identical payloads
 write nothing (D-20).
 """
@@ -111,14 +113,31 @@ FOLLOWUP_LABELS: dict[str, str] = {
     "queued": "Updating",
     "running": "Updating",
     "succeeded": "Updated",
+    "superseded": "Not applied",
     "failed": "Not updated",
 }
 
 
-def followup_message(subject: str, followup_status: str | None) -> str | None:
+def followup_state(task_status: str | None, outcome: str | None) -> str | None:
+    """The follow-up status a person is told about: the task's status, except that a
+    task which finished without applying the batch (``followup_outcome`` =
+    ``superseded``: a newer file had already been uploaded) is not "Updated"."""
+    if task_status == "succeeded" and outcome == "superseded":
+        return "superseded"
+    return task_status
+
+
+def followup_message(
+    subject: str, followup_status: str | None, file_label: str = "file"
+) -> str | None:
     """Owner amendment C: what the after_load task's state means, in one sentence."""
     if not followup_status or not subject:
         return None
+    if followup_status == "superseded":
+        return (
+            f"{subject.capitalize()} not updated, because a newer {file_label} was "
+            "uploaded after this file."
+        )
     if followup_status in ("queued", "running"):
         return f"Updating {subject}…"
     if followup_status == "succeeded":
@@ -138,8 +157,12 @@ def batch_message(batch: ImportBatch, followup_status: str | None = None) -> str
         return "Processing did not finish; it will be tried again shortly. Refresh in a minute."
     base: str | None = None
     kind = SOURCE_KINDS.get(batch.source_kind)
-    if batch.status == "loaded_with_issues" and batch.rows_loaded == 0:
-        # Nothing was loaded, so nothing follows: never "the rest were loaded".
+    if batch.status == "nothing_loaded" or (
+        batch.status == "loaded_with_issues" and batch.rows_loaded == 0
+    ):
+        # Nothing was loaded, so nothing follows: never "the rest were loaded". The
+        # second case is a batch that ended before ``nothing_loaded`` existed (0006
+        # rewrites no row).
         what = kind.records_noun if kind else "rows"
         export = kind.file_noun if kind else "the right export"
         return (
@@ -152,7 +175,11 @@ def batch_message(batch: ImportBatch, followup_status: str | None = None) -> str
             "1 row could not be read and was" if n == 1 else f"{n} rows could not be read and were"
         )
         base = f"{rows} skipped; the rest were loaded."
-    tail = followup_message(kind.after_load_subject if kind else "", followup_status)
+    tail = followup_message(
+        kind.after_load_subject if kind else "",
+        followup_status,
+        kind.label.lower() if kind else "file",
+    )
     if tail is None:
         return base
     if followup_status == "failed":
@@ -407,7 +434,10 @@ def process_batch_now(
                     batch.status = "received"
                     batch.error = error
                 else:
-                    batch.status = "loaded_with_issues" if counts.rejected else "loaded"
+                    if counts.rejected and not counts.loaded:
+                        batch.status = "nothing_loaded"  # an end state, not a failure
+                    else:
+                        batch.status = "loaded_with_issues" if counts.rejected else "loaded"
                     if kind.after_load and counts.loaded > 0:
                         # Never for a batch with no loaded row: a follow-on that reads
                         # "the file holds nothing" as "everything was removed" would

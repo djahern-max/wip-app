@@ -23,7 +23,6 @@ from sqlalchemy.dialects import postgresql
 
 from app.ingest.models import (
     IMPORT_STATUS_CHECK,
-    IMPORT_STATUS_CHECK_SQL,
     RAW_ORIGIN_CHECK,
     RAW_ORIGIN_CHECK_SQL,
 )
@@ -33,6 +32,12 @@ from app.worker.models import (
     DEDUPE_INDEX_WHERE,
     TASK_STATUS_CHECK,
     TASK_STATUS_CHECK_SQL,
+)
+
+# The status list as it was on 2026-09-17. A literal since 0006 changed the model's
+# constant: this migration must keep creating the constraint it always created.
+IMPORT_STATUS_CHECK_SQL = (
+    "status IN ('received','processing','loaded','loaded_with_issues','failed')"
 )
 
 revision: str = "0004"

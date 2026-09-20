@@ -318,8 +318,13 @@ def test_a_chart_with_zero_readable_rows_changes_no_account_and_runs_no_follow_o
     run_until_quiet(rw_engine)
 
     b = batch_json(rye_beach["client"], batch["id"])
-    assert (b["rows_loaded"], b["rows_rejected"]) == (0, 3)
+    assert (b["status"], b["status_label"]) == ("nothing_loaded", "Nothing loaded")
+    assert (b["rows_loaded"], b["rows_rejected"], b["error_detail"]) == (0, 3, None)
     assert (b["followup_status"], b["followup_label"]) == (None, None)
+    with tenant_session(rw_engine, tenant) as s:
+        # An end state, not a failure: the task succeeded and is not retried.
+        t = s.execute(select(Task).where(Task.dedupe_key == batch["id"])).scalar_one()
+        assert (t.status, t.attempts) == ("succeeded", 1)
     assert b["message"] == (
         "No accounts could be read from this file. "
         "Check that it is a chart of accounts export and upload it again."
@@ -341,6 +346,76 @@ def test_a_chart_with_zero_readable_rows_changes_no_account_and_runs_no_follow_o
         assert (
             s.execute(select(func.count()).select_from(AuditLog)).scalar_one() == audit_before + 1
         )
+
+
+def test_a_batch_stored_before_the_status_existed_still_reads_as_nothing_read(
+    rye_beach: dict, seed: Seed, rw_engine: Engine
+) -> None:
+    """The owner's 2026-09-19 workbook batch is ``loaded_with_issues`` with 0 rows
+    loaded and is not rewritten; it keeps its label and gets the same sentence."""
+    from app.ingest.imports import batch_message
+
+    with tenant_session(rw_engine, rye_beach["tenant"]) as s:
+        old = s.get(ImportBatch, uuid.UUID(rye_beach["batch_id"]))
+        s.expunge(old)
+    old.status, old.rows_loaded, old.rows_rejected = "loaded_with_issues", 0, 170
+    assert batch_message(old, "succeeded").startswith("No accounts could be read from this file.")
+
+
+def test_an_older_chart_processed_after_a_newer_one_changes_nothing_and_says_so(
+    rye_beach: dict, seed: Seed, rw_engine: Engine
+) -> None:
+    """Owner browser pass 2026-09-19: an older batch run late put an older file's names
+    over a newer chart's. Only the newest chart batch (by ``uploaded_at``) is applied."""
+    tenant, client = rye_beach["tenant"], rye_beach["client"]
+    with tenant_session(rw_engine, tenant) as s:
+        for a in s.execute(
+            select(GlAccount).where(GlAccount.account_no.in_(["5130", "5140"]))
+        ).scalars():
+            confirm_account_map(s, tenant, a.id, Actor(user_id=seed.users["rotate_me"].id))
+    # An older file with other names, one account the chart does not have, and one
+    # account missing; uploaded now, then dated before the chart that is already loaded.
+    lines = [
+        line.replace("Subcontractors - LS", "OLD NAME")
+        for line in CHART_CSV.read_text().splitlines()
+        if not line.startswith("5160,")
+    ] + ["5195,Only in the older file,Cost of Goods Sold"]
+    older = upload_chart(client, ("\n".join(lines) + "\n").encode(), "older.csv")["batch"]
+    with tenant_session(rw_engine, tenant) as s:
+        s.execute(
+            text(
+                "UPDATE import_batch SET uploaded_at = "
+                "(SELECT min(uploaded_at) FROM import_batch) - interval '1 hour' WHERE id = :id"
+            ),
+            {"id": older["id"]},
+        )
+    before = account_state(rw_engine, tenant)
+    with tenant_session(rw_engine, tenant) as s:
+        audit_before = s.execute(select(func.count()).select_from(AuditLog)).scalar_one()
+
+    run_until_quiet(rw_engine)
+
+    after = account_state(rw_engine, tenant)
+    assert after == before  # names, active flags, mappings, statuses, rules
+    assert "5195" not in after and after["5160"]["active"] is True
+    assert after["5140"]["name"] == "Subcontractors - LS"
+    assert after["5140"]["status"] == "confirmed"
+    with tenant_session(rw_engine, tenant) as s:
+        assert s.execute(select(func.count()).select_from(AuditLog)).scalar_one() == audit_before
+    b = batch_json(client, older["id"])
+    # The file itself loaded (raw before normalized); its follow-on says it was not applied.
+    assert (b["status"], b["rows_loaded"]) == ("loaded", 159)
+    assert (b["followup_status"], b["followup_label"]) == ("superseded", "Not applied")
+    assert b["message"] == (
+        "Loaded. Accounts not updated, because a newer chart of accounts was uploaded "
+        "after this file."
+    )
+    # The newer batch still says what happened to it.
+    newer = batch_json(client, rye_beach["batch_id"])
+    assert (newer["followup_status"], newer["message"]) == (
+        "succeeded",
+        "Loaded. Accounts updated.",
+    )
 
 
 def test_the_normalizer_never_deactivates_from_a_file_with_no_accounts(

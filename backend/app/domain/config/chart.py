@@ -4,6 +4,9 @@
 per account in a batch into ``gl_account`` rows. New accounts are inserted, a
 renamed account is updated with the old name kept in the audit detail, and an
 active account missing from a **newer** chart is marked inactive, never deleted.
+Only the newest chart batch of the tenant (by ``uploaded_at``) is applied: an older
+batch processed late (a retry that waited out its backoff, a requeue) changes
+nothing, and its follow-up says so (``followup_outcome = superseded``).
 Which accounts the newer chart holds comes from the file itself (``present``: the
 task re-reads the stored object), not from ``raw_record``: an unchanged account
 writes no raw row in a later batch (D-20), so raw rows alone would read every
@@ -52,6 +55,7 @@ class ChartCounts:
     renamed: int = 0
     deactivated: int = 0
     unchanged: int = 0
+    superseded: bool = False  # a newer chart batch exists: nothing was applied
 
 
 def _latest_in_batch(db: Session, import_batch_id: UUID) -> list[RawRecord]:
@@ -68,6 +72,9 @@ def _latest_in_batch(db: Session, import_batch_id: UUID) -> list[RawRecord]:
 
 
 def _is_newest_chart_batch(db: Session, batch: ImportBatch) -> bool:
+    """Newest by ``uploaded_at`` among the batches of this kind that hold a chart or
+    are being read. A batch that is ``failed`` or ``nothing_loaded`` holds no chart
+    and supersedes nothing; one still ``received`` will be applied after this one."""
     newest = db.execute(
         select(func.max(ImportBatch.uploaded_at)).where(
             ImportBatch.source_kind == batch.source_kind,
@@ -91,6 +98,10 @@ def normalize_chart(
     batch = db.get(ImportBatch, import_batch_id)
     if batch is None:
         raise LookupError("import batch not found in this tenant")
+    if not _is_newest_chart_batch(db, batch):
+        batch.followup_outcome = "superseded"
+        return ChartCounts(superseded=True)
+    batch.followup_outcome = "applied"
     counts = ChartCounts()
     existing = {a.account_no: a for a in db.execute(select(GlAccount)).scalars()}
     seen: set[str] = set()
@@ -149,7 +160,7 @@ def normalize_chart(
         else:
             row.raw_record_id = raw.id
             counts.unchanged += 1
-    if present and _is_newest_chart_batch(db, batch):
+    if present:
         for account_no, row in existing.items():
             if row.active and account_no not in present and account_no not in seen:
                 row.active = False
@@ -306,6 +317,14 @@ def normalize_chart_task(tenant_id: UUID, *, engine: Engine, import_batch_id: st
     present = chart_account_numbers(build_object_store(get_settings()), batch)
     with tenant_session(engine, tenant_id) as s:
         counts = normalize_chart(s, tenant_id, batch_id, present=present)
+    if counts.superseded:
+        # Nothing at all changes, suggestions included.
+        log.info(
+            "tenant=%s batch=%s chart not applied: a newer chart batch exists",
+            tenant_id,
+            batch_id,
+        )
+        return
     log.info(
         "tenant=%s batch=%s chart normalized: added=%d renamed=%d deactivated=%d unchanged=%d",
         tenant_id,

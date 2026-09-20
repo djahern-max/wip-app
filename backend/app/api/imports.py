@@ -23,6 +23,7 @@ from app.ingest.imports import (
     UploadRefused,
     audit_download,
     batch_message,
+    followup_state,
     open_batch_object,
     receive_upload,
     relative_key,
@@ -60,7 +61,8 @@ def _out(
     b: ImportBatch, email: str | None = None, followup: tuple[str | None, str | None] = (None, None)
 ) -> ImportBatchOut:
     kind = SOURCE_KINDS.get(b.source_kind)
-    followup_status, followup_error = followup
+    task_status, followup_error = followup
+    followup_status = followup_state(task_status, b.followup_outcome)
     error_detail = b.error
     if error_detail is None and followup_status == "failed" and followup_error:
         error_detail = f"follow-up task failed: {followup_error}"

@@ -39,6 +39,7 @@ IMPORT_STATUSES: tuple[str, ...] = (
     "processing",
     "loaded",
     "loaded_with_issues",
+    "nothing_loaded",
     "failed",
 )
 # The one status → label mapping (D-22): what a person sees for each status.
@@ -47,11 +48,19 @@ IMPORT_STATUS_LABELS: dict[str, str] = {
     "processing": "Processing",
     "loaded": "Loaded",
     "loaded_with_issues": "Loaded with issues",
+    "nothing_loaded": "Nothing loaded",
     "failed": "Failed",
 }
 IMPORT_STATUS_CHECK = "ck_import_batch_status"
 IMPORT_STATUS_CHECK_SQL = (
-    "status IN ('received','processing','loaded','loaded_with_issues','failed')"
+    "status IN ('received','processing','loaded','loaded_with_issues','nothing_loaded','failed')"
+)
+# What the batch's follow-on task did with it (0006): applied, or superseded because a
+# newer file of the same kind had already been uploaded. NULL = no follow-on, or not run.
+FOLLOWUP_OUTCOMES: tuple[str, ...] = ("applied", "superseded")
+FOLLOWUP_OUTCOME_CHECK = "ck_import_batch_followup_outcome"
+FOLLOWUP_OUTCOME_CHECK_SQL = (
+    "followup_outcome IS NULL OR followup_outcome IN ('applied','superseded')"
 )
 
 RAW_ORIGIN_CHECK = "ck_raw_record_one_origin"
@@ -123,6 +132,7 @@ class ImportBatch(Base):
         ),
         Index("ix_import_batch_tenant_id_uploaded_at", "tenant_id", "uploaded_at"),
         CheckConstraint(IMPORT_STATUS_CHECK_SQL, name=IMPORT_STATUS_CHECK),
+        CheckConstraint(FOLLOWUP_OUTCOME_CHECK_SQL, name=FOLLOWUP_OUTCOME_CHECK),
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
@@ -146,6 +156,8 @@ class ImportBatch(Base):
     followup_task_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("task.id", ondelete="RESTRICT")
     )
+    # What that task did with the batch (FOLLOWUP_OUTCOMES); written by the task.
+    followup_outcome: Mapped[str | None] = mapped_column(String(20))
 
 
 class RawRecord(Base):
