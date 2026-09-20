@@ -202,6 +202,8 @@ Go-ahead for migration 0007, `httpx` as a runtime dependency, and the first call
 9. A different `realm_id` on reconnect is refused; changing company is disconnect then connect.
 10. No `AcctNum`: raw, counted, no `gl_account` row. Duplicate `AcctNum`: raw, neither attached, attention item "duplicate account numbers". `ledger_type` untouched; F05 attaches `external_id` only. The AccountType-to-file-text mapping goes under Discovered.
 
+11. (2026-09-20, after step 1) The five billing tables wait for migration 0008, after S-01: accepted. **Company switch**: connecting a different `realm_id` is refused while the tenant holds any QuickBooks raw record, also after a disconnect, with the sentence "This company's books are already held for a different QuickBooks company; a new QuickBooks company needs a new tenant." `company_changed` is removed from the audit detail. The same `realm_id` again is a reconnect. Both tested (`test_qbo_api.py`). This narrows answer 9: disconnect then connect to another company works only while nothing has synced.
+
 Both extra changes accepted (partial unique index on `(system, realm_id)`; S-01 records how a payment line applying a credit memo appears). ROADMAP: the deployment feature is F05.0; the F05 description is aligned with D-25.
 
 #### Progress

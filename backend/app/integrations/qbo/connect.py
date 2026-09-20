@@ -11,6 +11,8 @@ the user who started the flow; an absent cookie is not refused. Steps:
 3. Exchange the code, then read ``CompanyInfo`` for the ``realmId`` on the redirect
    with the new token: Intuit refuses a token that belongs to another company, so
    the query parameter is never trusted on its own.
+   A different company is refused on a reconnect, and after a disconnect too once the
+   tenant holds any QuickBooks raw record; the same company again is a reconnect.
 4. Store tokens (ciphertext), company and audit rows in one transaction. The partial
    unique index refuses a company another tenant holds; tokens obtained for a
    refused company are revoked.
@@ -39,7 +41,7 @@ from app.ingest.connections import (
     mark_disconnected,
     set_connection_tokens,
 )
-from app.ingest.models import CONNECTION_REALM_INDEX, Connection
+from app.ingest.models import CONNECTION_REALM_INDEX, Connection, RawRecord
 from app.integrations.qbo import SYSTEM, client
 from app.integrations.qbo.constants import STATE_TTL_MINUTES
 from app.integrations.qbo.oauth import (
@@ -65,6 +67,8 @@ RESULT_MESSAGES: dict[str, str] = {
     "Ask a firm admin to connect it.",
     "different_company": "This client is linked to a different QuickBooks company. "
     "To change company, disconnect first and then connect.",
+    "books_held": "This company's books are already held for a different QuickBooks company; "
+    "a new QuickBooks company needs a new tenant.",
     "company_in_use": "This QuickBooks company is already connected to another client. "
     "Choose the right company at QuickBooks and connect again.",
     "code_refused": "QuickBooks did not accept the sign-in. "
@@ -154,6 +158,14 @@ def _role_in_tenant(engine: Engine, tenant_id: UUID, user_id: UUID) -> Role | No
         return effective_role(membership, firm_id, load_firm_memberships(db, user_id))
 
 
+def _holds_quickbooks_records(engine: Engine, tenant_id: UUID) -> bool:
+    with tenant_session(engine, tenant_id) as db:
+        return (
+            db.execute(select(RawRecord.id).where(RawRecord.source == SYSTEM).limit(1)).first()
+            is not None
+        )
+
+
 def complete_connect(
     engine: Engine,
     *,
@@ -185,9 +197,13 @@ def complete_connect(
     role = _role_in_tenant(engine, tenant_id, claim.user_id)
     if role is not Role.firm_admin:
         return "not_allowed"
-    company_changed = claim.realm_id is not None and claim.realm_id != realm_id
-    if company_changed and claim.status != "disconnected":
-        return "different_company"
+    if claim.realm_id is not None and claim.realm_id != realm_id:
+        if claim.status != "disconnected":
+            return "different_company"
+        # QuickBooks ids are small integers per company: a second company's records
+        # would become new versions of the first company's (owner, 2026-09-20).
+        if _holds_quickbooks_records(engine, tenant_id):
+            return "books_held"
 
     try:
         tokens = client.exchange_code(settings, code)
@@ -243,7 +259,6 @@ def complete_connect(
                     "system": SYSTEM,
                     "environment": environment,
                     "reconnect": reconnect,
-                    "company_changed": company_changed,
                 },
                 meta=meta,
             )

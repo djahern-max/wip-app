@@ -540,7 +540,11 @@ What can be refused, and what to do:
 - *link already used or expired*: the link is good for 10 minutes and one use. Start again.
 - *already connected to another client*: one QuickBooks company belongs to one tenant.
 - *linked to a different QuickBooks company*: a reconnect must choose the same company.
-  Changing company is a deliberate two-step: Disconnect, then Connect.
+- *books are already held for a different QuickBooks company*: once anything has synced, the
+  tenant belongs to that company for good, even after Disconnect. QuickBooks numbers records
+  per company, so a second company's records would overwrite the history of the first. A new
+  QuickBooks company needs a new tenant. (Disconnect then Connect to a different company
+  works only while nothing has synced.)
 - *started by a different user*: finish in the browser of the admin who started it.
 
 **Reconnect** runs the same flow for the same company and keeps everything synced so far.

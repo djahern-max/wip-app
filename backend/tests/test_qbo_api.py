@@ -280,7 +280,7 @@ def test_a_company_connected_to_one_tenant_is_refused_for_another(
     assert _connection(rw_engine, first).status == "connected"
 
 
-def test_a_different_company_is_refused_on_reconnect_and_allowed_after_disconnect(
+def test_a_different_company_is_refused_on_reconnect_and_allowed_after_disconnect_with_no_books(
     login_as, fresh_tenant: uuid.UUID, rw_engine: Engine
 ) -> None:
     admin = login_as(ADMIN, tenant=fresh_tenant)
@@ -303,8 +303,52 @@ def test_a_different_company_is_refused_on_reconnect_and_allowed_after_disconnec
         )
     c = _connection(rw_engine, fresh_tenant)
     assert c.realm_id == two.realm_id
+    assert "company_changed" not in "".join(d for _, _, d in _audit(rw_engine, fresh_tenant))
+
+
+def test_once_books_are_held_a_different_company_is_refused_even_after_disconnect(
+    login_as, fresh_tenant: uuid.UUID, rw_engine: Engine
+) -> None:
+    from app.ingest.raw import RawOrigin, store_raw
+    from app.ingest.sync_runs import start_sync_run
+
+    admin = login_as(ADMIN, tenant=fresh_tenant)
+    with installed(FakeIntuit()) as one:
+        assert _callback(admin, state=_start(admin), code=one.new_code(), realmId=one.realm_id) == (
+            "connected"
+        )
+        with tenant_session(rw_engine, fresh_tenant) as db:
+            run = start_sync_run(db, fresh_tenant, _connection(rw_engine, fresh_tenant).id, "cdc")
+            store_raw(
+                db,
+                fresh_tenant,
+                "qbo",
+                "Invoice",
+                "12",
+                {"Id": "12"},
+                RawOrigin(sync_run_id=run.id),
+            )
+        assert admin.post("/api/qbo/disconnect", headers=CSRF).status_code == 200
+    with installed(FakeIntuit()) as two:
+        assert _callback(admin, state=_start(admin), code=two.new_code(), realmId=two.realm_id) == (
+            "books_held"
+        )
+        assert two.requests == []  # refused before anything is asked of Intuit
+        message = admin.get("/api/qbo/status", params={"result": "books_held"}).json()
+    assert message["result_message"] == (
+        "This company's books are already held for a different QuickBooks company; "
+        "a new QuickBooks company needs a new tenant."
+    )
+    c = _connection(rw_engine, fresh_tenant)
+    assert (c.status, c.realm_id, c.access_token_enc) == ("disconnected", one.realm_id, None)
+    # The same company again is a reconnect.
+    with installed(one):
+        assert _callback(admin, state=_start(admin), code=one.new_code(), realmId=one.realm_id) == (
+            "connected"
+        )
     completed = [d for a, _, d in _audit(rw_engine, fresh_tenant) if a == "connection_completed"]
-    assert sorted('"company_changed": true' in d for d in completed) == [False, True]
+    assert sorted('"reconnect": true' in d for d in completed) == [False, True]
+    assert _connection(rw_engine, fresh_tenant).realm_id == one.realm_id
 
 
 def test_disconnect_revokes_clears_tokens_audits_and_keeps_the_company_link(
