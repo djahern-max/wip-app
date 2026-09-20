@@ -1,23 +1,24 @@
 # current-feature.md
 
-_No feature in flight (2026-09-18)._ **F04 · Tenant configuration is built**; its brief is
-`docs/briefs/F04.md`. The owner's browser pass (last F04 acceptance criterion) is still
-open: load Rye Beach's rules (`scripts/load_suggest_rules.py --tenant rye-beach --file
-tests/fixtures/rye_beach/account_suggest_rules.json`), then with `make api`, `make web`,
-`make worker` running: upload the Rye Beach chart → 159 suggestions, 29 in job cost, the
-unconfirmed count at the top → Cost codes grid shows 410 against 5410 → correct one
-suggestion by hand → confirm all and see the count reach zero → set one policy key and
-see it recorded with your name → add a burden rate → Accounts page at phone width. When
-done, tick it in `docs/briefs/F04.md` and flip F04 to ☑ in `ROADMAP.md`.
+_No feature in flight (2026-09-20)._ **F04 · Tenant configuration is closed**: the owner's
+browser pass was done on 2026-09-19 and the follow-up fixes were checked on 2026-09-20.
+Its brief is `docs/briefs/F04.md`.
 
 Next per ROADMAP: **F05 · QBO connection & sync**. Not started; the owner supplies the
-brief. Copy it here, expand it, and restate the acceptance criteria before coding.
+brief. Copy it here, expand it, and restate the acceptance criteria before coding. Spike
+S-01 (QBO read-only: projects as customers, line-level refs, CDC deletes) has not run and
+is the first task of F05; the BLUEPRINT §13.7 developer setup (Intuit developer account,
+app, Development keys, a QuickBooks Online Plus sandbox with Projects on and one test
+project carrying one invoice and one expense) is done.
 
 ## Discovered
 Carried from F04 (`docs/briefs/F04.md`, Discovered): no screen for suggestion rules
 (script / `PUT /api/config/suggest-rules`); `gl_account.ledger_type` is source text, QBO
 types arrive with F05; a general "no money as a JSON number" response assertion is still
-per test. (Lazy category seeding: done 2026-09-18, seeded at tenant creation.)
+per test; Imports defaults to "Unparsed file" on a first visit (an empty "Choose a
+source" option would make the choice explicit); **for the owner**: the real Rye Beach
+chart has one account the fixture does not (2630), and the owner supplies an updated
+fixture and oracle if it should be added.
 
 Carried from F03 (`docs/briefs/F03.md`, Discovered): money in API responses must be
 strings (F08; `formatMoney` is ready); `sync_run` and `connection` have no API yet (F05);
