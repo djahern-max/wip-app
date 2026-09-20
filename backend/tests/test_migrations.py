@@ -105,6 +105,18 @@ def _constraints(url: str, table: str) -> set[str]:
     )
 
 
+F05_CONNECTION_COLUMNS = {
+    "realm_id",
+    "environment",
+    "company_name",
+    "refresh_token_expires_at",
+    "tokens_refreshed_at",
+    "oauth_state_sha256",
+    "oauth_state_user_id",
+    "oauth_state_expires_at",
+}
+
+
 def _check_sql(url: str, name: str) -> str:
     (sql,) = _query(
         url, f"SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = '{name}'"
@@ -136,6 +148,22 @@ def test_upgrade_head_then_downgrade_base(scratch_db_url: str) -> None:
     command.upgrade(cfg, "0002")
     assert F02_ONLY_USER_COLUMNS <= _user_columns(scratch_db_url)
     assert "firm_membership" not in _public_tables(scratch_db_url)
+    # 0007 alone is reversible (F05): the connection's company, token bookkeeping and
+    # pending-state columns, the one-company-one-tenant index and sync_run.detail.
+    command.upgrade(cfg, "head")
+    assert F05_CONNECTION_COLUMNS <= _columns(scratch_db_url, "connection")
+    assert "detail" in _columns(scratch_db_url, "sync_run")
+    assert _query(
+        scratch_db_url,
+        "SELECT indexdef FROM pg_indexes WHERE indexname = 'uq_connection_system_realm_id'",
+    ) == {
+        "CREATE UNIQUE INDEX uq_connection_system_realm_id ON public.connection "
+        "USING btree (system, realm_id) WHERE (realm_id IS NOT NULL)"
+    }
+    command.downgrade(cfg, "0006")
+    assert F05_CONNECTION_COLUMNS.isdisjoint(_columns(scratch_db_url, "connection"))
+    assert "detail" not in _columns(scratch_db_url, "sync_run")
+    assert "token_expires_at" in _columns(scratch_db_url, "connection")  # F03's stay
     # 0006 alone is reversible (F04 patch): the status CHECK gains and loses
     # ``nothing_loaded`` and the follow-up outcome column comes and goes.
     command.upgrade(cfg, "head")

@@ -43,6 +43,8 @@ FORBIDDEN_DETAIL_KEYS = frozenset(
         "email",  # F02.1: an attempted address is stored only as email_sha256
         "access_token",  # F03: connection tokens are never written anywhere in clear
         "refresh_token",
+        "state",  # F05: the OAuth state is a bearer value until it is used
+        "client_secret",
         "payload",  # F03: source data belongs in raw_record, not in an audit row
     }
 )
@@ -76,6 +78,12 @@ class TenantEvent(enum.StrEnum):
     import_duplicate = "import_duplicate"
     import_downloaded = "import_downloaded"
     connection_tokens_set = "connection_tokens_set"
+    # F05 (QuickBooks connection). Never a token, code or ``state`` value in detail.
+    connection_started = "connection_started"
+    connection_completed = "connection_completed"
+    connection_needs_reconnect = "connection_needs_reconnect"
+    connection_disconnected = "connection_disconnected"
+    sync_requested = "sync_requested"
     # F04 (tenant configuration; every create, change, confirm, deactivate)
     division_created = "division_created"
     division_changed = "division_changed"

@@ -453,6 +453,20 @@ def test_no_float_conversion_on_ingestion_paths() -> None:
     assert hits == []
 
 
+def test_qbo_bodies_are_never_parsed_with_response_json() -> None:
+    """F05: QuickBooks sends amounts as JSON numbers. Every body goes through
+    ``app.core.jsoncodec.json_loads``; ``.json()`` on a response would make floats."""
+    sources = [(rel, src) for rel, src in _app_sources() if rel.startswith("app/integrations/qbo/")]
+    assert {"app/integrations/qbo/client.py"} <= {rel for rel, _ in sources}
+    offenders = [rel for rel, src in sources if re.search(r"\.json\(\s*\)", src)]
+    assert offenders == []
+    client_src = dict(sources)["app/integrations/qbo/client.py"]
+    assert "json_loads(response.content)" in client_src
+    # Only the client module imports httpx: one place talks to Intuit.
+    importers = [rel for rel, src in _app_sources() if re.search(r"^\s*import httpx", src, re.M)]
+    assert importers == ["app/integrations/qbo/client.py"]
+
+
 _PRINCIPAL_WORDS = re.compile(r"\b(Principal|active_tenant_id|firm_ids)\b")
 
 

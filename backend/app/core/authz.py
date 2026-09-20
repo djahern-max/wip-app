@@ -72,6 +72,10 @@ can_manage_imports = require_roles(*FIRM_AND_CLIENT_ADMIN)  # F03: upload, list,
 can_view_tenant_config = require_roles(*FIRM_AND_CLIENT_ADMIN)
 can_manage_tenant_config = require_roles(*FIRM)
 can_set_policy = require_roles(Role.firm_admin)
+# F05: connect, reconnect, disconnect, sync now are firm_admin only; the status of a
+# connection is readable by firm roles and client_admin.
+can_manage_connections = require_roles(Role.firm_admin)
+can_view_connections = require_roles(*FIRM_AND_CLIENT_ADMIN)
 # Firm-level (no active tenant needed)
 can_manage_users = require_firm_role(Role.firm_admin)
 can_manage_memberships = require_firm_role(Role.firm_admin)
@@ -97,6 +101,8 @@ CAPABILITIES: dict[str, tuple[Guard, frozenset[Role], str]] = {
     "view_tenant_config": (can_view_tenant_config, frozenset(FIRM_AND_CLIENT_ADMIN), "tenant"),
     "manage_tenant_config": (can_manage_tenant_config, frozenset(FIRM), "tenant"),
     "set_policy": (can_set_policy, frozenset({Role.firm_admin}), "tenant"),
+    "manage_connections": (can_manage_connections, frozenset({Role.firm_admin}), "tenant"),
+    "view_connections": (can_view_connections, frozenset(FIRM_AND_CLIENT_ADMIN), "tenant"),
     "manage_users": (can_manage_users, frozenset({Role.firm_admin}), "firm"),
     "manage_memberships": (can_manage_memberships, frozenset({Role.firm_admin}), "firm"),
     "manage_firm_memberships": (

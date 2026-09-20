@@ -69,6 +69,9 @@ def _stored_credential_values(engine: Engine) -> dict[str, set[str]]:
         values.setdefault("session_token_hash", set()).add(sha256_hex(token))
     # F03: connection tokens in clear (the ciphertext never leaves a service function).
     values["connection_token"] = set(LEAKS["connection_token"])
+    # F05: an authorization code and the client secret never appear in a body at all.
+    values["oauth_code"] = set(LEAKS["oauth_code"])
+    values["client_secret"] = set(LEAKS["client_secret"])
     return values
 
 
@@ -106,3 +109,35 @@ def test_activation_tokens_never_reach_the_audit_tables(seed, owner_engine: Engi
                 assert '"activation_url"' in body, f"token outside activation_url in {where}"
                 parsed = json.loads(body)
                 assert isinstance(parsed, dict) and parsed["activation_url"].endswith(token)
+
+
+def test_oauth_states_appear_only_in_the_authorization_url_and_never_in_audit(
+    seed, owner_engine: Engine
+) -> None:
+    """F05: the ``state`` leaves the server once, inside the URL the browser is sent
+    to. Its hash is stored on the connection; neither reaches an audit row."""
+    states = LEAKS["oauth_state"]
+    assert states, "no OAuth state was recorded by the suite"
+    for where, body in _json_bodies():
+        for state in states:
+            if state in body:
+                parsed = json.loads(body)
+                assert set(parsed) == {"authorization_url"}, f"state outside the URL in {where}"
+    with owner_engine.connect() as conn:
+        tenants = conn.execute(text("SELECT id FROM tenant")).scalars().all()
+        details: list[str] = []
+        for tenant_id in tenants:
+            conn.execute(
+                text("SELECT set_config('app.tenant_id', :t, false)"), {"t": str(tenant_id)}
+            )
+            details += (
+                conn.execute(text("SELECT detail::text FROM audit_log WHERE detail IS NOT NULL"))
+                .scalars()
+                .all()
+            )
+    blob = "\n".join(details)
+    assert "connection_started" not in blob and len(details) > 10
+    for secret in (*states, *LEAKS["oauth_code"], *LEAKS["connection_token"]):
+        assert secret not in blob
+    for state in states:
+        assert sha256_hex(state) not in blob

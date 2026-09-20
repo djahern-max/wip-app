@@ -23,6 +23,9 @@ def test_suite_produced_logs_and_secrets() -> None:
         "activation_token",
         "attempted_email",
         "connection_token",  # F03
+        "oauth_state",  # F05
+        "oauth_code",
+        "client_secret",
     )
     for kind in kinds:
         assert LEAKS[kind], f"no {kind} was recorded by the suite"
@@ -37,6 +40,9 @@ def test_no_secret_appears_in_any_log_line() -> None:
         "session_token",
         "activation_token",
         "connection_token",
+        "oauth_state",
+        "oauth_code",
+        "client_secret",
     ]
     for kind in verbatim:
         for secret in LEAKS[kind]:

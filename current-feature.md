@@ -69,9 +69,9 @@ No Rye Beach fixture applies: Rye Beach cannot be reached without production key
 - [ ] RLS enumeration passes for the five new tables (enabled, forced, policy, leading index); the extra-policy allow-list still has one entry; tenant A reads zero rows of tenant B in each, via ORM and raw SQL as `app_rw`. Migration round-trips on a scratch database; the guard still refuses `wip`.
 - [ ] `docs/spikes/S-01.md` exists, answers (a)–(d) from the live sandbox in structural terms, and was reported to the owner before the normalizers were written. ROADMAP S-01 is marked ◐ with the note "sandbox; Ramp line check in F05.1".
 - [ ] Connect flow: `state` is single-use, expires, and is bound to tenant and user; a replayed, expired or foreign `state` stores nothing. Tokens are stored only as ciphertext with a key id; a ciphertext copied to another connection or tenant fails to decrypt. No token, code, `state` or client secret appears in any log line, audit row, response body or task payload (log-leak and response scans extended).
-- [ ] Refresh replaces both tokens from the response; two concurrent refreshes leave the newest pair stored; a 401 triggers exactly one refresh and one retry.
+- [x] Refresh replaces both tokens from the response; two concurrent refreshes leave the newest pair stored; a 401 triggers exactly one refresh and one retry.
 - [ ] `invalid_grant` on refresh sets `needs_reconnect`, writes the audit row, stops that connection's tasks without retrying to `max_attempts`, and leaves the worker running. Reconnecting the same company resumes from the stored cursor.
-- [ ] A second tenant cannot connect a `realm_id` already connected elsewhere.
+- [x] A second tenant cannot connect a `realm_id` already connected elsewhere.
 - [ ] Every response body is parsed through `json_loads`; a fixture amount such as `100.1` is stored in `raw_record` and in `billing.total` as exactly `100.10` (no binary float artefact); hygiene test covers `app/integrations/qbo/`.
 - [ ] Backfill from the fixtures stores one raw version per record, runs one task per page, and running it twice writes nothing new (D-20). Each normalizer run twice produces identical rows.
 - [ ] A CDC fixture containing one changed invoice and one deleted invoice produces a new raw version for each; the deleted invoice has `deleted_at` set and leaves the month totals; its history is still readable.
@@ -203,6 +203,15 @@ Go-ahead for migration 0007, `httpx` as a runtime dependency, and the first call
 10. No `AcctNum`: raw, counted, no `gl_account` row. Duplicate `AcctNum`: raw, neither attached, attention item "duplicate account numbers". `ledger_type` untouched; F05 attaches `external_id` only. The AccountType-to-file-text mapping goes under Discovered.
 
 Both extra changes accepted (partial unique index on `(system, realm_id)`; S-01 records how a payment line applying a credit memo appears). ROADMAP: the deployment feature is F05.0; the F05 description is aligned with D-25.
+
+#### Progress
+**Step 1 of the gated order, connect and tokens: built 2026-09-20** (483 backend + 11 frontend tests, lint clean; CI never reaches Intuit: `conftest` installs a transport that refuses every call and tests use `tests/qbo_helpers.FakeIntuit`).
+- Migration **0007** holds the `connection` columns, the partial unique index on `(system, realm_id)` and `sync_run.detail`. **The five tables are not in it**: the brief says S-01 may change `customer`, and the dev database is never downgraded, so they follow in 0008 once S-01 is reported. Dev `wip` is at 0007.
+- `app/integrations/qbo/`: `constants.py` (each Intuit number with its URL), `oauth.py`, `client.py` (the only module that imports `httpx`; bodies through `json_loads`), `tokens.py` (refresh under a row lock, its own transaction), `reader.py` (one request in flight per connection through an advisory lock; one refresh and one retry on a 401), `connect.py` (connect, callback, disconnect). `app/api/qbo.py`: `POST /connect`, `GET /callback`, `GET /status`, `POST /disconnect`, and the access-log filter, tested against a real uvicorn server (mutation-checked: without the filter the test fails).
+- Criteria 4 and 6 are ticked. Criterion 3 is demonstrated except "no task payload" (no task exists yet); criterion 5 except "stops that connection's tasks"; both wait for step 3.
+- Connections page (status in words, company, "sandbox company", Connect / Reconnect / Disconnect with a confirm step). Counts, attention items, month totals and "Sync now" arrive with step 3.
+- OPERATIONS.md "QuickBooks connection" covers settings, connect, reconnect, needs reconnect, secret rotation and the spike; `drift` and fresh backfill are added with step 3.
+- `backend/scripts/s01_spike.py` is ready. **Step 2 (S-01) needs the owner**: the four `QBO_*` settings in `.env`, the `qbo-sandbox` tenant, and the consent screen at Intuit, none of which Claude Code can do.
 
 ### Discovered (do not fix here)
 _Things noticed along the way that belong to another feature._

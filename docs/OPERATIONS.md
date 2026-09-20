@@ -504,3 +504,72 @@ assuming a value. Every change is audited `policy_set` with before and after.
   end date, per division or whole company; overlapping periods for the same division
   are refused; the rate in force on a date is the division's own, else the whole-company
   rate.
+
+## QuickBooks connection (F05)
+
+Built against the Intuit **sandbox** only (D-25). The sandbox company is connected to its own
+tenant (slug `qbo-sandbox`) and never to `rye-beach`. The platform reads QuickBooks; it never
+writes to it.
+
+### The four settings
+No defaults. They are needed only when a QuickBooks route or task runs, so a deployment
+without QuickBooks still starts; a missing one is named (never its value) when "Connect to
+QuickBooks" is pressed.
+
+| Variable | Value |
+|---|---|
+| `QBO_CLIENT_ID` | From the Intuit developer app, "Keys & credentials", **Development** |
+| `QBO_CLIENT_SECRET` | Same place. Never logged, returned, or stored in the database |
+| `QBO_ENVIRONMENT` | `sandbox` (Development keys reach sandbox companies only) or `production` |
+| `QBO_REDIRECT_URI` | Development: `http://localhost:5173/api/qbo/callback` |
+
+The redirect URI must be listed, character for character, under "Redirect URIs" on the same
+page of the Intuit app. In development it points at the Vite server (port 5173), which passes
+`/api` on to the API. Sign in at `http://localhost:5173`, not `127.0.0.1`: the connection still
+completes either way (the callback does not depend on the session cookie), but the browser
+would come back to a sign-in screen. Restart the API and the worker after changing a setting.
+
+### Connect and reconnect
+1. Create the tenant once (`POST /api/admin/tenants`, slug `qbo-sandbox`), switch to it.
+2. Connections → **Connect to QuickBooks** (firm admin only). The browser goes to Intuit;
+   choose the sandbox company and press Connect.
+3. The browser returns to Connections with one sentence saying what happened. "Connected",
+   the company name and "sandbox company" are shown on success.
+
+What can be refused, and what to do:
+- *link already used or expired*: the link is good for 10 minutes and one use. Start again.
+- *already connected to another client*: one QuickBooks company belongs to one tenant.
+- *linked to a different QuickBooks company*: a reconnect must choose the same company.
+  Changing company is a deliberate two-step: Disconnect, then Connect.
+- *started by a different user*: finish in the browser of the admin who started it.
+
+**Reconnect** runs the same flow for the same company and keeps everything synced so far.
+**Disconnect** revokes the connection at Intuit, clears the stored tokens and keeps the
+synced data and the company link. Each of these writes to the tenant's audit log
+(`connection_started`, `connection_completed`, `connection_tokens_set`,
+`connection_needs_reconnect`, `connection_disconnected`); no token, authorization code or
+`state` value is ever in an audit row or a log line, and the API's access log records the
+callback without its query string.
+
+### Tokens and "Needs reconnect"
+Tokens are stored encrypted (key id beside the ciphertext, bound to the tenant, the
+connection and the field; `scripts/reencrypt.py` covers them). The access token is refreshed
+when it has under five minutes left, and on a 401 once; every refresh replaces both tokens,
+and the moment is kept in `connection.tokens_refreshed_at` (one log line, no audit row).
+
+**Needs reconnect** means Intuit refused the refresh token (`invalid_grant`): it was revoked
+in QuickBooks, it expired unused, or the connection was removed there. The status is set
+once, audited, and the stored tokens are cleared. Nothing retries and nothing syncs until a
+firm admin presses **Reconnect**. `connection.last_error` holds the reason as a short code.
+
+### Rotating the client secret
+1. Create a new secret on the Intuit app's "Keys & credentials" page.
+2. Put it in `QBO_CLIENT_SECRET`, restart the API and the worker.
+3. Press "Reconnect" on one tenant's Connections page and confirm it says "Connected".
+   Stored tokens stay valid across a secret rotation; only new token requests use the secret.
+4. Delete the old secret at Intuit.
+
+### Spike S-01
+`cd backend && .venv/bin/python scripts/s01_spike.py --tenant qbo-sandbox` prints field names
+and shapes from the connected sandbox company, never values. Findings are written up in
+`docs/spikes/S-01.md`. It is a throwaway and makes a few dozen metered reads per run.

@@ -13,6 +13,8 @@ from app.api.auth import router as auth_router
 from app.api.config import router as config_router
 from app.api.health import router as health_router
 from app.api.imports import router as imports_router
+from app.api.qbo import install_access_log_filter
+from app.api.qbo import router as qbo_router
 from app.api.session import router as session_router
 from app.auth.service import AuthError
 from app.core.auth import CSRF_HEADER, CSRF_METHODS
@@ -68,6 +70,7 @@ def create_app() -> FastAPI:
     require_object_store_settings(settings)  # F03: OBJECT_STORE=s3 needs its credentials
     app_origin = settings.app_base_url.rstrip("/")
 
+    install_access_log_filter()  # F05: the callback's query string never reaches a log
     app = FastAPI(title="WIP API", lifespan=lifespan)
     app.add_exception_handler(AuthError, _auth_error)
     app.add_exception_handler(CryptoError, _crypto_error)
@@ -109,6 +112,7 @@ def create_app() -> FastAPI:
         audit_router,
         imports_router,
         config_router,
+        qbo_router,
     ):
         app.include_router(router, prefix="/api")
     return app

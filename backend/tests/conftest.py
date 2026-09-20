@@ -46,6 +46,7 @@ from app.core.security import (
     new_totp_secret,
     totp_code_at,
 )
+from app.integrations.qbo import client as qbo_client
 from app.main import create_app
 from app.tenancy.models import (
     FIRM_ROLES,
@@ -95,6 +96,19 @@ def alembic_config(owner_url: str) -> Config:
 @pytest.fixture(autouse=True)
 def _capture_logs() -> None:
     ensure_capture()
+
+
+@pytest.fixture(autouse=True)
+def _no_network_to_intuit() -> Iterator[None]:
+    """F05: the QBO client never reaches the network in a test. A test that talks to
+    "Intuit" installs ``tests.qbo_helpers.FakeIntuit`` over this; waits are skipped."""
+    from tests.qbo_helpers import refuse_all_transport
+
+    saved = (qbo_client.TRANSPORT, qbo_client.SLEEP)
+    qbo_client.TRANSPORT = refuse_all_transport()
+    qbo_client.SLEEP = lambda _seconds: None
+    yield
+    qbo_client.TRANSPORT, qbo_client.SLEEP = saved
 
 
 @pytest.fixture(scope="session")

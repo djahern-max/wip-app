@@ -35,6 +35,8 @@ ACTIVE_KEY_ID = "test1"
 # F03: a throwaway local object store per run, outside the repo.
 OBJECT_STORE_DIR = tempfile.mkdtemp(prefix="wip-object-store-")
 
+QBO_CLIENT_SECRET = base64.b64encode(os.urandom(24)).decode()
+
 # Never read the developer's .env: a path that does not exist disables file loading.
 ENVIRONMENT: dict[str, str] = {
     "ENV_FILE": "/nonexistent/.env.for-tests",
@@ -48,5 +50,10 @@ ENVIRONMENT: dict[str, str] = {
     "WORKER_POLL_SECONDS": "0.2",
     # The suite downgrades wip_test and wip_mig_* scratch databases only (env.py guard).
     "ALLOW_DESTRUCTIVE_DOWNGRADE": "1",
+    # F05: a throwaway client secret per run; Intuit is never reached (tests/qbo_helpers.py).
+    "QBO_CLIENT_ID": "test-qbo-client-id",
+    "QBO_CLIENT_SECRET": QBO_CLIENT_SECRET,
+    "QBO_ENVIRONMENT": "sandbox",
+    "QBO_REDIRECT_URI": "https://app.example.test/api/qbo/callback",
 }
 os.environ.update(ENVIRONMENT)

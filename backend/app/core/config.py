@@ -94,6 +94,18 @@ class Settings(BaseSettings):
     task_backoff_base_seconds: int = 30
     task_backoff_cap_seconds: int = 900
 
+    # --- F05 · QuickBooks Online (D-25) ---------------------------------------------
+    # No defaults, and required only when a QBO route or task runs
+    # (``require_qbo_settings``). The secret is never logged, returned or stored.
+    # QBO_ENVIRONMENT is "sandbox" or "production" and selects the API base URL.
+    # QBO_REDIRECT_URI must equal a redirect URI registered on the Intuit app
+    # (development: http://localhost:5173/api/qbo/callback, through the Vite proxy).
+    qbo_client_id: str | None = None
+    qbo_client_secret: str | None = None
+    qbo_environment: str | None = None
+    qbo_redirect_uri: str | None = None
+    qbo_cdc_poll_minutes: int = 15
+
 
 SPACES_SETTINGS: tuple[str, ...] = (
     "spaces_endpoint_url",
@@ -113,6 +125,27 @@ def require_object_store_settings(settings: "Settings") -> None:
         missing = [name.upper() for name in SPACES_SETTINGS if not getattr(settings, name)]
         if missing:
             raise MissingSettings("missing required environment variable(s): " + ", ".join(missing))
+
+
+QBO_SETTINGS: tuple[str, ...] = (
+    "qbo_client_id",
+    "qbo_client_secret",
+    "qbo_environment",
+    "qbo_redirect_uri",
+)
+QBO_ENVIRONMENTS: tuple[str, ...] = ("sandbox", "production")
+
+
+def require_qbo_settings(settings: "Settings") -> None:
+    """Raise naming the missing variable(s); never a value. Called by QBO routes and
+    tasks only, so a deployment without QuickBooks still starts."""
+    missing = [name.upper() for name in QBO_SETTINGS if not getattr(settings, name)]
+    if missing:
+        raise MissingSettings("missing required environment variable(s): " + ", ".join(missing))
+    if settings.qbo_environment not in QBO_ENVIRONMENTS:
+        raise MissingSettings(
+            "invalid configuration: QBO_ENVIRONMENT must be 'sandbox' or 'production'"
+        )
 
 
 class MigrationSettings(BaseSettings):

@@ -28,6 +28,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -66,7 +67,17 @@ FOLLOWUP_OUTCOME_CHECK_SQL = (
 RAW_ORIGIN_CHECK = "ck_raw_record_one_origin"
 RAW_ORIGIN_CHECK_SQL = "(import_batch_id IS NULL) <> (sync_run_id IS NULL)"
 
-CONNECTION_STATUSES: tuple[str, ...] = ("disconnected", "connected", "error")
+CONNECTION_STATUSES: tuple[str, ...] = ("disconnected", "connected", "needs_reconnect", "error")
+# The one status → label mapping for connections (D-22).
+CONNECTION_STATUS_LABELS: dict[str, str] = {
+    "disconnected": "Not connected",
+    "connected": "Connected",
+    "needs_reconnect": "Needs reconnect",
+    "error": "Error",
+}
+# One external company belongs to one tenant (F05). Unique indexes are enforced
+# whatever RLS shows the session, so a second tenant's claim fails at the database.
+CONNECTION_REALM_INDEX = "uq_connection_system_realm_id"
 
 
 def _uuid_pk() -> Mapped[uuid.UUID]:
@@ -85,7 +96,16 @@ def _created_at() -> Mapped[datetime]:
 
 class Connection(Base):
     __tablename__ = "connection"
-    __table_args__ = (UniqueConstraint("tenant_id", "system", name="uq_connection_tenant_system"),)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "system", name="uq_connection_tenant_system"),
+        Index(
+            CONNECTION_REALM_INDEX,
+            "system",
+            "realm_id",
+            unique=True,
+            postgresql_where=text("realm_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     tenant_id: Mapped[uuid.UUID] = _tenant_id()
@@ -99,6 +119,20 @@ class Connection(Base):
     refresh_token_enc: Mapped[bytes | None] = mapped_column(LargeBinary)
     refresh_token_key_id: Mapped[str | None] = mapped_column(String(40))
     token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # F05 (0007). The external company, which API it lives on, and its name as the
+    # source gives it (data: never logged). Expiries come from each token response.
+    realm_id: Mapped[str | None] = mapped_column(String(40))
+    environment: Mapped[str | None] = mapped_column(String(20))
+    company_name: Mapped[str | None] = mapped_column(String(200))
+    refresh_token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    tokens_refreshed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # The pending OAuth ``state``: SHA-256 only, who started it, until when. Cleared
+    # by the first callback that presents it (single use).
+    oauth_state_sha256: Mapped[str | None] = mapped_column(String(64))
+    oauth_state_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("user.id", ondelete="RESTRICT")
+    )
+    oauth_state_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
@@ -117,11 +151,13 @@ class SyncRun(Base):
     kind: Mapped[str] = mapped_column(String(40), nullable=False)  # backfill, cdc, webhook…
     started_at: Mapped[datetime] = _created_at()
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    outcome: Mapped[str | None] = mapped_column(String(20))  # succeeded, failed
+    outcome: Mapped[str | None] = mapped_column(String(20))  # succeeded, failed, drift
     records_fetched: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     records_stored: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     cursor: Mapped[dict | None] = mapped_column(JSONB)
     error: Mapped[str | None] = mapped_column(String(500))
+    # F05 (0007): entity names, counts and amounts only; never a payload.
+    detail: Mapped[dict | None] = mapped_column(JSONB)
 
 
 class ImportBatch(Base):

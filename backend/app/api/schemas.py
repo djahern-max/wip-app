@@ -264,3 +264,28 @@ class SuggestRuleOut(_Out):
     cost_category_from_slot: bool
     in_job_cost: bool
     active: bool
+
+
+class QboConnectOut(_Out):
+    """Where to send the browser. The URL carries the single-use ``state``."""
+
+    authorization_url: str
+
+
+class QboStatusOut(_Out):
+    """The QuickBooks connection of the active tenant (F05). Words first (D-22):
+    ``status_label`` and ``message`` are what a person sees; ``status`` and
+    ``error_detail`` are the machine values. No token, key id or ``state`` field
+    exists here. ``can_manage`` says whether this user may connect or disconnect."""
+
+    status: str
+    status_label: str
+    message: str | None
+    error_detail: str | None
+    company_name: str | None
+    environment: str | None
+    connected_company: bool
+    last_success_at: str | None
+    can_manage: bool
+    result: str | None
+    result_message: str | None

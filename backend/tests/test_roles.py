@@ -21,6 +21,7 @@ from app.ingest.models import ImportBatch
 from app.tenancy.models import FirmMembership, Membership, Role
 from tests._env import OBJECT_STORE_DIR
 from tests.conftest import CSRF, Seed, full_login, make_client
+from tests.qbo_helpers import FakeIntuit, installed
 
 ROLES = ["firm_admin", "firm_staff", "client_admin", "client_pm", "client_viewer"]
 FA, FS, CA, PM, CV = ROLES
@@ -113,6 +114,11 @@ def _routes() -> list[Route]:
             frozenset({FA}),
             body=lambda: {"value": "America/New_York", "decision_ref": "matrix"},
         ),
+        # F05: the QuickBooks connection. Tenant A has none, so connect only stores a
+        # pending state and disconnect has nothing to revoke: neither reaches Intuit.
+        Route("GET", "/api/qbo/status", frozenset({FA, FS, CA})),
+        Route("POST", "/api/qbo/connect", frozenset({FA})),
+        Route("POST", "/api/qbo/disconnect", frozenset({FA})),
         Route("GET", "/api/admin/users", frozenset({FA})),
         Route(
             "POST",
@@ -278,11 +284,16 @@ def test_role_matrix_cell_by_cell(
     for role in ROLES:
         _prepare(seed, owner_engine, route.prepare)
         path, body = _fill(route, seed, owner_engine)
-        if route.multipart is not None:
-            data, files = route.multipart()
-            r = role_clients[role].request(route.method, path, data=data, files=files, headers=CSRF)
-        else:
-            r = role_clients[role].request(route.method, path, json=body, headers=CSRF)
+        # F05: tenant A may hold connection tokens from other tests, which a
+        # disconnect revokes at "Intuit"; the stand-in answers instead of the network.
+        with installed(FakeIntuit()):
+            if route.multipart is not None:
+                data, files = route.multipart()
+                r = role_clients[role].request(
+                    route.method, path, data=data, files=files, headers=CSRF
+                )
+            else:
+                r = role_clients[role].request(route.method, path, json=body, headers=CSRF)
         expected = "2xx" if role in route.allowed else "403"
         got = "2xx" if r.status_code in OK else str(r.status_code)
         if got != expected:
