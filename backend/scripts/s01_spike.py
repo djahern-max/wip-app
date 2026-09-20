@@ -369,6 +369,122 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\n(extra 4) {entity} rows: {len(rows)}")
         if rows:
             show(f"    shape of a {entity}:", rows[0], 6)
+    # --- second pass: questions the first run raised ---------------------------------------
+    customer_ids = {c["Id"] for c in customers}
+    print("\n(second pass 1) what ProjectRef holds")
+    for inv in on_project:
+        pr, cr = inv.get("ProjectRef", {}).get("value"), inv.get("CustomerRef", {}).get("value")
+        print(
+            f"    invoice header: ProjectRef.value == CustomerRef.value: {pr == cr}; "
+            f"ProjectRef.value is a Customer.Id: {pr in customer_ids}; "
+            f"digits: ProjectRef={len(str(pr))} CustomerRef={len(str(cr))}"
+        )
+    for label, txns in (("Purchase", purchases), ("Bill", bills)):
+        for t in txns:
+            for ln in t.get("Line", []):
+                if "ProjectRef" in ln:
+                    d = (
+                        ln.get("AccountBasedExpenseLineDetail")
+                        or ln.get("ItemBasedExpenseLineDetail")
+                        or {}
+                    )
+                    pr, cr = ln["ProjectRef"].get("value"), d.get("CustomerRef", {}).get("value")
+                    print(
+                        f"    {label} line: ProjectRef sits on the line (beside the detail): True; "
+                        f"ProjectRef.value == detail.CustomerRef.value: {pr == cr}; "
+                        f"detail.CustomerRef is a project: {cr in project_ids}; "
+                        f"same ProjectRef as the invoice: "
+                        f"{pr in {i.get('ProjectRef', {}).get('value') for i in on_project}}"
+                    )
+    sub_ids = {c["Id"] for c in jobs if c.get("IsProject") is not True}
+    print(
+        f"    invoices whose CustomerRef is a sub-customer (Job, not project): "
+        f"{sum(1 for i in invoices if i.get('CustomerRef', {}).get('value') in sub_ids)}; "
+        f"of those with ProjectRef: "
+        f"{sum(1 for i in invoices if i.get('CustomerRef', {}).get('value') in sub_ids and 'ProjectRef' in i)}"
+    )
+
+    print("\n(second pass 2) sales-form lines and totals")
+    sales = {
+        "Invoice": invoices,
+        "CreditMemo": all_rows(reader, "CreditMemo"),
+        "SalesReceipt": all_rows(reader, "SalesReceipt"),
+    }
+    for entity, docs in sales.items():
+        types: dict[str, int] = {}
+        ok_sub = ok_total = deep = with_deposit = no_subtotal = 0
+        for d in docs:
+            item_sum, sub = Decimal(0), None
+            for ln in d.get("Line", []):
+                types[ln.get("DetailType", "?")] = types.get(ln.get("DetailType", "?"), 0) + 1
+                if ln.get("DetailType") == "SubTotalLineDetail":
+                    sub = ln.get("Amount", Decimal(0))
+                elif ln.get("DetailType") == "SalesItemLineDetail":
+                    item_sum += ln.get("Amount", 0)
+                amt = ln.get("Amount")
+                if isinstance(amt, Decimal) and amt.as_tuple().exponent < -2:
+                    deep += 1
+            tax = (d.get("TxnTaxDetail") or {}).get("TotalTax", 0)
+            if sub is None:
+                no_subtotal += 1
+            else:
+                ok_sub += item_sum == sub
+                ok_total += sub + tax == d.get("TotalAmt")
+            with_deposit += "Deposit" in d
+            for key in ("TotalAmt", "Balance"):
+                v = d.get(key)
+                if isinstance(v, Decimal) and v.as_tuple().exponent < -2:
+                    deep += 1
+        print(f"    {entity}: docs={len(docs)} line DetailType counts={types}")
+        print(
+            f"      no SubTotal line: {no_subtotal}; sum(SalesItem lines) == SubTotal line: {ok_sub}; "
+            f"SubTotal + TotalTax == TotalAmt: {ok_total}; amounts with more than 2 decimals: {deep}; "
+            f"docs with a header 'Deposit' field: {with_deposit}"
+        )
+        print(
+            f"      docs without TxnTaxDetail.TotalTax: "
+            f"{sum(1 for d in docs if 'TotalTax' not in (d.get('TxnTaxDetail') or {}))}; "
+            f"docs with GlobalTaxCalculation: {sum(1 for d in docs if 'GlobalTaxCalculation' in d)}"
+        )
+
+    print("\n(second pass 3) is Id compared as a number in a query?")
+    r = reader.query(
+        "SELECT COUNT(*) FROM Invoice WHERE Id > '9'", operation="Invoice keyset count"
+    )
+    numeric = sum(1 for i in invoices if int(i["Id"]) > 9)
+    textual = sum(1 for i in invoices if i["Id"] > "9")
+    print(
+        f"    COUNT(Id > '9') == count by number: {r.get('totalCount') == numeric}; "
+        f"== count by text: {r.get('totalCount') == textual}; (the two differ here: {numeric != textual})"
+    )
+
+    print("\n(second pass 4) payments")
+    print(
+        f"    without DepositToAccountRef: {sum(1 for p in payments if 'DepositToAccountRef' not in p)} of {len(payments)}; "
+        f"lines with more than one LinkedTxn: "
+        f"{sum(1 for p in payments for ln in p.get('Line', []) if len(ln.get('LinkedTxn', [])) > 1)}; "
+        f"payments with UnappliedAmt > 0: {sum(1 for p in payments if p.get('UnappliedAmt', 0) > 0)}"
+    )
+    credit_lines = [
+        ln
+        for p in payments
+        for ln in p.get("Line", [])
+        if any(lt.get("TxnType") == "CreditMemo" for lt in ln.get("LinkedTxn", []))
+    ]
+    for ln in credit_lines:
+        show("    a payment line that applies a credit memo:", ln, 6)
+    deposits = all_rows(reader, "Deposit")
+    dl = [ln for d in deposits for ln in d.get("Line", [])]
+    print(
+        f"\n(second pass 5) Deposit lines: {len(dl)}; linked to a Payment: "
+        f"{sum(1 for ln in dl if any(lt.get('TxnType') == 'Payment' for lt in ln.get('LinkedTxn', [])))}; "
+        f"linked to something else: "
+        f"{sorted({lt.get('TxnType') for ln in dl for lt in ln.get('LinkedTxn', [])} - {'Payment'})}; "
+        f"with no LinkedTxn: {sum(1 for ln in dl if not ln.get('LinkedTxn'))}"
+    )
+    unlinked = next((ln for ln in dl if not ln.get("LinkedTxn")), None)
+    if unlinked:
+        show("    shape of a deposit line with no LinkedTxn:", unlinked, 6)
     return 0
 
 
