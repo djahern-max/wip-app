@@ -29,6 +29,7 @@ from tests.qbo_fixtures import fixture, records
 from tests.qbo_helpers import FakeIntuit, FixtureCompany, connect_directly, installed
 
 load_worker_modules()
+ADMIN_KEY = "rotate_me"  # firm_admin with an entry row in every fresh tenant
 
 
 @pytest.fixture
@@ -429,3 +430,51 @@ def test_a_missing_record_and_a_wrong_total_are_named_by_the_drift_check(
     assert set(both) == {"normalized", "raw"} and both["normalized"] != both["raw"]
     assert "." in both["raw"] and both["raw"].split(".")[1].__len__() == 2  # strings with cents
     assert _raw_count(rw_engine, tenant) == sum(len(records(e)) for e in ENTITIES)  # no re-pull
+
+
+# --- a chart loaded after the connection (the normal order for a new tenant) ------------
+
+
+def test_a_chart_loaded_after_the_backfill_attaches_without_any_account_change(
+    company, rw_engine: Engine, login_as, owner_engine: Engine
+) -> None:
+    """Owner, 2026-09-21: connect, backfill, then load the chart; expect 24 attached
+    with no changed Account from QuickBooks, and the attachment visible on the page."""
+    from app.domain.billing.sync import chart_match
+    from app.domain.config.models import GlAccount
+    from tests.config_helpers import upload_chart
+
+    tenant, cid, fake, served = _backfilled(company, rw_engine)
+    numbered = {r["AcctNum"]: r for r in records("Account") if r.get("AcctNum")}
+    assert len(numbered) == 25
+    lines = ["account_no,account_name,ledger_type"]
+    for number, r in numbered.items():
+        if number == "6150":
+            continue
+        name = "Operating checking (chart name)" if number == "1010" else r["Name"]
+        lines.append(f"{number},{name},{r['AccountType']}")
+    lines.append("1400,Inventory (chart only),Other Current Asset")
+    client = login_as(ADMIN_KEY, tenant=tenant)
+    polls_before = len(served.cdc_calls)
+    with installed(fake):
+        upload_chart(client, ("\n".join(lines) + "\n").encode(), "sandbox-chart.csv")
+        _drain(rw_engine)  # the import, its follow-on, and nothing from QuickBooks
+    assert len(served.cdc_calls) == polls_before
+    with tenant_session(rw_engine, tenant) as db:
+        match = chart_match(db, tenant)
+        assert len(match.attached) == 24 and match.chart_total == 25
+        assert match.unmatched == ["6150"] and match.chart_only == ["1400"]
+        rows = {a.account_no: a for a in db.execute(select(GlAccount)).scalars()}
+        assert rows["1010"].name == "Operating checking (chart name)"
+        assert rows["1010"].external_id == numbered["1010"]["Id"]
+        assert rows["1400"].external_id is None
+        audits = db.execute(
+            text("SELECT count(*) FROM audit_log WHERE action = 'gl_account_linked'")
+        ).scalar_one()
+        assert audits == 24
+    with installed(fake):
+        held = client.get("/api/qbo/status").json()["held"]
+    items = {a["code"]: a["detail"] for a in held["attention"]}
+    assert items["chart_attached"] == "24 of 25 chart accounts"
+    assert items["numbered_not_in_chart"] == "6150" and items["chart_not_in_quickbooks"] == "1400"
+    assert items["accounts_without_number"] == "64 of 89 active accounts"

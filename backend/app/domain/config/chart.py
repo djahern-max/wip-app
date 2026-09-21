@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session
 from app.core.audit import TenantEvent
 from app.core.db import tenant_session
 from app.core.storage import ObjectStore
+from app.domain.billing.sync import attach_account_ids
 from app.domain.config.audit import SYSTEM, Actor, audit
 from app.domain.config.categories import ensure_cost_categories
 from app.domain.config.models import (
@@ -336,6 +337,19 @@ def normalize_chart_task(tenant_id: UUID, *, engine: Engine, import_batch_id: st
     )
     with tenant_session(engine, tenant_id) as s:
         sc = suggest(s, tenant_id)
+    # F05: a chart loaded after QuickBooks was connected (the normal order for a new
+    # tenant) attaches the QuickBooks ids now; nothing changes at QuickBooks, so no
+    # poll would ever do it.
+    with tenant_session(engine, tenant_id) as s:
+        attached = attach_account_ids(s, tenant_id)
+    log.info(
+        "tenant=%s batch=%s quickbooks ids: attached=%d changed=%d unmatched=%d",
+        tenant_id,
+        batch_id,
+        attached.attached,
+        attached.changed,
+        attached.unmatched,
+    )
     log.info(
         "tenant=%s batch=%s suggestions: new=%d unchanged=%d removed=%d unmatched=%d",
         tenant_id,

@@ -140,6 +140,14 @@ def copy_status(db: Session, tenant_id: UUID, connection: Connection) -> QboCopy
         )
     match = chart_match(db, tenant_id)
     numbers = match.numbers
+    if match.chart_total:
+        attention.append(
+            QboAttentionOut(
+                code="chart_attached",
+                label="Attached to QuickBooks",
+                detail=f"{len(match.attached)} of {match.chart_total} chart accounts",
+            )
+        )
     if numbers.without_number:
         attention.append(
             QboAttentionOut(

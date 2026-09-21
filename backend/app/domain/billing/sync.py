@@ -395,6 +395,7 @@ class ChartMatch:
     attached: list[str]  # numbers held by a gl_account row with the QuickBooks id
     unmatched: list[str]  # numbered in QuickBooks, no gl_account of that number
     chart_only: list[str]  # gl_account rows (active) whose number QuickBooks does not use
+    chart_total: int  # active gl_account rows
 
 
 def chart_match(db: Session, tenant_id: UUID) -> ChartMatch:
@@ -410,7 +411,8 @@ def chart_match(db: Session, tenant_id: UUID) -> ChartMatch:
     ]
     unmatched = [n for n, ids in numbers.by_number.items() if len(ids) == 1 and n not in accounts]
     chart_only = [n for n, a in accounts.items() if a.active and n not in numbers.by_number]
-    return ChartMatch(numbers, sorted(attached), sorted(unmatched), sorted(chart_only))
+    chart_total = sum(1 for a in accounts.values() if a.active)
+    return ChartMatch(numbers, sorted(attached), sorted(unmatched), sorted(chart_only), chart_total)
 
 
 def attach_account_ids(db: Session, tenant_id: UUID) -> AccountAttach:
