@@ -573,6 +573,51 @@ firm admin presses **Reconnect**. `connection.last_error` holds the reason as a 
    Stored tokens stay valid across a secret rotation; only new token requests use the secret.
 4. Delete the old secret at Intuit.
 
+### Backfill, change polling, nightly check
+The platform keeps a copy of the company: every §6.2 entity stored raw (`raw_record`,
+insert-only, versioned), and customers, invoices, credit memos, sales receipts and payments
+normalized into `customer`, `billing`, `billing_line`, `payment`, `payment_application`.
+Accounts are matched to the chart by account number only (`gl_account.external_id`); Deposits
+and the cost-side entities are stored raw and read by later features.
+
+- **Backfill** (`sync_run.kind = backfill`): starts on the first connection, or from
+  "Start fresh backfill". One worker task per page and entity (1,000 records, paged by Id);
+  every page stores raw first, then queues the normalizer for those records. The run ends
+  `succeeded` when every entity is done and seeds the change poll and the nightly check.
+  The Connections page shows "Backfill, running" until then; refresh to follow it.
+- **Change poll** (`kind = cdc`): every `QBO_CDC_POLL_MINUTES` (default 15) once a backfill
+  has completed. One Change Data Capture request for all entities since the last successful
+  run (minus two minutes of overlap; identical payloads store nothing). A delete arrives as a
+  stub and becomes a new raw version flagged deleted; the row gets `deleted_at` and leaves
+  every total. Each poll queues its successor first, so a failed poll cannot end the chain.
+  "Sync now" queues one extra poll; pressing it twice queues one.
+- **Nightly check** (`kind = drift`, about 02:00–03:00 Eastern): QuickBooks' own `COUNT(*)`
+  per entity against the platform's current records, and the month totals of the normalized
+  rows against a re-sum of the raw payloads. A difference ends the run `drift`; the
+  Connections page names the entity and both counts, or the month and both amounts. Nothing
+  is re-pulled. What to do: "Sync now" first (a change may simply not have been polled
+  yet); if the difference stays, "Start fresh backfill"; if it stays after that, read the
+  run's `detail` in `sync_run` and the affected raw record.
+- **Fresh backfill needed**: the page says so when no backfill has completed or the last
+  successful run is more than 29 days old (Intuit's CDC reaches back 30 days). Polling stops
+  by itself in that state; it never re-pulls on a schedule. Press "Start fresh backfill".
+- **Payloads that could not be read**: a record whose amounts have more than two decimals,
+  whose totals do not add up, or that is in another currency is stored raw, counted per
+  entity on the page, and skipped; the rest of the page loads. A later version that reads
+  clears the count.
+- The worker re-seeds the poll and check chains of every connected company when it starts
+  (`STARTUP_HOOKS`), one tenant per transaction, so a restart never leaves a company unpolled.
+
+Reading a run by hand (as `app_rw`, with `SET LOCAL app.tenant_id`):
+`SELECT kind, outcome, started_at, finished_at, records_fetched, records_stored, error, detail
+FROM sync_run ORDER BY started_at DESC LIMIT 20;`
+
+### Recording the test fixtures
+`cd backend && .venv/bin/python scripts/qbo_record_fixtures.py --tenant qbo-sandbox` writes
+`tests/fixtures/qbo_sandbox/*.json` from the connected sandbox company (realm id replaced;
+about twenty metered reads). It skips files that already exist; delete one to record it
+again. The hand-made fixtures and the oracle are described in that folder's README.
+
 ### Spike S-01
 `cd backend && .venv/bin/python scripts/s01_spike.py --tenant qbo-sandbox` prints field names
 and shapes from the connected sandbox company, never values. Findings are written up in

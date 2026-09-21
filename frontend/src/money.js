@@ -30,3 +30,22 @@ export function formatMoney(value) {
   const text = `${whole}.${digits.slice(-2)}`;
   return negative ? `(${text})` : text;
 }
+
+// Exact addition of two decimal strings (F05: a totals row on the Connections
+// page). Digits only, through BigInt at cent scale; the result is a decimal string
+// with two decimals, ready for formatMoney. Inputs with more than two decimals are
+// refused: the API already sends cents.
+export function addMoney(a, b) {
+  const toCents = (value) => {
+    if (typeof value !== "string") throw new TypeError(`addMoney expects decimal strings, got ${typeof value}`);
+    const m = DECIMAL.exec(value.trim());
+    if (!m || (m[3] || "").length > 2) throw new TypeError('addMoney expects decimal strings with at most two decimals');
+    const [, sign, intPart, fracPart = ""] = m;
+    const cents = BigInt(intPart) * 100n + BigInt((fracPart + "00").slice(0, 2));
+    return sign === "-" ? -cents : cents;
+  };
+  const total = toCents(a) + toCents(b);
+  const negative = total < 0n;
+  const digits = (negative ? -total : total).toString().padStart(3, "0");
+  return `${negative ? "-" : ""}${digits.slice(0, -2)}.${digits.slice(-2)}`;
+}

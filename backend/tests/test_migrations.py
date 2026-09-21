@@ -37,8 +37,15 @@ EXPECTED_TABLES = {
     "account_suggest_rule",
     "tenant_policy",
     "burden_rate",
+    # F05 (0008)
+    "customer",
+    "billing",
+    "billing_line",
+    "payment",
+    "payment_application",
 }
 F03_TABLES = {"connection", "sync_run", "import_batch", "raw_record", "task"}
+F05_TABLES = {"customer", "billing", "billing_line", "payment", "payment_application"}
 F04_TABLES = {
     "division",
     "cost_category",
@@ -148,6 +155,15 @@ def test_upgrade_head_then_downgrade_base(scratch_db_url: str) -> None:
     command.upgrade(cfg, "0002")
     assert F02_ONLY_USER_COLUMNS <= _user_columns(scratch_db_url)
     assert "firm_membership" not in _public_tables(scratch_db_url)
+    # 0008 alone is reversible (F05): the five billing tables come and go, with their
+    # RLS and the total identity CHECK.
+    command.upgrade(cfg, "head")
+    assert F05_TABLES <= _public_tables(scratch_db_url)
+    assert "ck_billing_total_identity" in _constraints(scratch_db_url, "billing")
+    assert _query(scratch_db_url, "SELECT count(*) FROM billing") == {0}
+    command.downgrade(cfg, "0007")
+    assert F05_TABLES.isdisjoint(_public_tables(scratch_db_url))
+    assert "realm_id" in _columns(scratch_db_url, "connection")
     # 0007 alone is reversible (F05): the connection's company, token bookkeeping and
     # pending-state columns, the one-company-one-tenant index and sync_run.detail.
     command.upgrade(cfg, "head")

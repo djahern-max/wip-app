@@ -1,6 +1,8 @@
 """``sync_run`` bookkeeping (F03). Created and closed here; nothing calls an API
 until F05. ``cursor`` is JSONB (plan call 3) and holds whatever position the
-source needs to resume from; ``error`` is short text, never a payload.
+source needs to resume from; ``error`` is short text, never a payload; ``detail``
+(F05) holds entity names, counts and amounts as strings, never a payload. The
+outcome ``drift`` (F05) is a nightly check that found a difference.
 
 Cursor rules (F03 close-out): timestamps inside a cursor are ISO-8601 **UTC
 strings** made by ``iso_utc`` (``2026-09-17T14:03:09Z``), never ``datetime``
@@ -54,9 +56,10 @@ def finish_sync_run(
     records_stored: int = 0,
     cursor: dict | None = None,
     error: str | None = None,
+    detail: dict | None = None,
 ) -> SyncRun:
-    if outcome not in ("succeeded", "failed"):
-        raise ValueError("outcome must be succeeded or failed")
+    if outcome not in ("succeeded", "failed", "drift"):
+        raise ValueError("outcome must be succeeded, failed or drift")
     _check_cursor(cursor)
     run.finished_at = datetime.now(UTC)
     run.outcome = outcome
@@ -64,6 +67,8 @@ def finish_sync_run(
     run.records_stored = records_stored
     run.cursor = cursor
     run.error = None if error is None else error[:500]
+    if detail is not None:
+        run.detail = detail
     db.flush()
     return run
 

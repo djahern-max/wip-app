@@ -31,7 +31,15 @@ from app.worker.registry import get_task
 log = logging.getLogger("app.worker")
 
 # Modules whose import registers the production task kinds.
-TASK_MODULES: tuple[str, ...] = ("app.ingest.imports", "app.domain.config.chart")
+TASK_MODULES: tuple[str, ...] = (
+    "app.ingest.imports",
+    "app.domain.config.chart",
+    "app.integrations.qbo.tasks",
+)
+# Called once per tenant at start-up, each inside its own ``tenant_session``
+# (F05: re-seed the poll and drift chains of a connected company). A hook takes
+# ``(db, tenant_id)``; modules append to this list when imported.
+STARTUP_HOOKS: list = []
 
 
 def load_task_modules() -> None:
@@ -130,8 +138,23 @@ class Worker:
 
     # --- the loop --------------------------------------------------------------------
 
+    def run_startup_hooks(self) -> None:
+        for tenant_id in self.tenant_ids():
+            for hook in STARTUP_HOOKS:
+                try:
+                    with tenant_session(self.engine, tenant_id) as s:
+                        hook(s, tenant_id)
+                except Exception as exc:  # noqa: BLE001 - a hook never stops the worker
+                    log.error(
+                        "startup hook %s failed tenant=%s: %s",
+                        getattr(hook, "__name__", "?"),
+                        tenant_id,
+                        queue.describe_error(exc),
+                    )
+
     def run_forever(self) -> None:
         load_worker_modules()
+        self.run_startup_hooks()
         log.info(
             "worker %s started (poll %.1fs, lease %ds)",
             self.name,

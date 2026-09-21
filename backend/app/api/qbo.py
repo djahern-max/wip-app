@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 
-from app.api.schemas import QboConnectOut, QboStatusOut
+from app.api.schemas import QboConnectOut, QboStatusOut, QboSyncRequestOut
 from app.core.audit import request_meta
 from app.core.auth import Principal, TenantSession, find_session_by_token, is_expired, utcnow
 from app.core.authz import can_manage_connections, can_view_connections
@@ -31,6 +31,8 @@ from app.integrations.qbo.connect import (
     disconnect,
     start_connect,
 )
+from app.integrations.qbo.schedule import request_sync
+from app.integrations.qbo.status import copy_status
 from app.tenancy.models import Role
 
 router = APIRouter(prefix="/qbo", tags=["qbo"])
@@ -70,11 +72,18 @@ def install_access_log_filter() -> None:
 
 
 def _status_out(
-    connection: Connection | None, principal: Principal, result: str | None = None
+    connection: Connection | None,
+    principal: Principal,
+    result: str | None = None,
+    db: TenantSession | None = None,
 ) -> QboStatusOut:
     status = connection.status if connection is not None else "disconnected"
     known_result = result if result in RESULT_MESSAGES else None
+    held = None
+    if db is not None and connection is not None and connection.realm_id is not None:
+        held = copy_status(db, principal.active_tenant_id, connection)
     return QboStatusOut(
+        held=held,
         status=status,
         status_label=CONNECTION_STATUS_LABELS.get(status, status.replace("_", " ").capitalize()),
         message=STATUS_MESSAGES.get(status),
@@ -101,7 +110,7 @@ def _connection(db: TenantSession) -> Connection | None:
 def status(principal: Viewer, db: TenantSession, result: str | None = None) -> QboStatusOut:
     """``result`` is the code the callback put on the Connections page address; the
     sentence for it comes back as ``result_message``."""
-    return _status_out(_connection(db), principal, result)
+    return _status_out(_connection(db), principal, result, db)
 
 
 @router.post("/connect", response_model=QboConnectOut)
@@ -128,7 +137,43 @@ def disconnect_route(request: Request, principal: Manager, db: TenantSession) ->
         actor_role=principal.role,
         meta=request_meta(request),
     )
-    return _status_out(connection, principal)
+    return _status_out(connection, principal, None, db)
+
+
+SYNC_MESSAGES = {
+    ("cdc", True): "A change poll was queued; refresh in a minute to see it.",
+    ("cdc", False): "A change poll is already queued or running.",
+    ("backfill", True): "A fresh backfill was started; refresh to follow its progress.",
+    ("backfill", False): "A backfill is already running.",
+}
+
+
+def _sync(request: Request, principal: Manager, db: TenantSession, kind: str) -> QboSyncRequestOut:
+    connection = _connection(db)
+    if connection is None or connection.status != "connected":
+        raise HTTPException(status_code=409, detail="QuickBooks is not connected for this company.")
+    created = request_sync(
+        db,
+        principal.active_tenant_id,
+        connection,
+        kind=kind,
+        actor_user_id=principal.user.id,
+        actor_role=principal.role,
+        meta=request_meta(request),
+    )
+    return QboSyncRequestOut(created=created, message=SYNC_MESSAGES[(kind, created)])
+
+
+@router.post("/sync", response_model=QboSyncRequestOut)
+def sync_now(request: Request, principal: Manager, db: TenantSession) -> QboSyncRequestOut:
+    """ "Sync now": one change poll."""
+    return _sync(request, principal, db, "cdc")
+
+
+@router.post("/backfill", response_model=QboSyncRequestOut)
+def backfill(request: Request, principal: Manager, db: TenantSession) -> QboSyncRequestOut:
+    """A fresh backfill, only ever on request (never on a schedule)."""
+    return _sync(request, principal, db, "backfill")
 
 
 def _session_user_id(request: Request, engine) -> UUID | None:

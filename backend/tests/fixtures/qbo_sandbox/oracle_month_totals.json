@@ -1,0 +1,37 @@
+[
+ {
+  "month": "2026-05",
+  "invoices": "401.75",
+  "credit_memos": "0.00",
+  "sales_receipts": "0.00",
+  "payments": "401.75"
+ },
+ {
+  "month": "2026-06",
+  "invoices": "387.00",
+  "credit_memos": "0.00",
+  "sales_receipts": "0.00",
+  "payments": "0.00"
+ },
+ {
+  "month": "2026-07",
+  "invoices": "1742.80",
+  "credit_memos": "0.00",
+  "sales_receipts": "225.00",
+  "payments": "651.80"
+ },
+ {
+  "month": "2026-08",
+  "invoices": "6969.09",
+  "credit_memos": "-100.00",
+  "sales_receipts": "556.25",
+  "payments": "3699.07"
+ },
+ {
+  "month": "2026-09",
+  "invoices": "27000.00",
+  "credit_memos": "0.00",
+  "sales_receipts": "0.00",
+  "payments": "0.00"
+ }
+]

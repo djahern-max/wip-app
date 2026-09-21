@@ -50,6 +50,7 @@ from app.integrations.qbo.oauth import (
     state_sha256,
     tenant_id_from_state,
 )
+from app.integrations.qbo.schedule import after_connect
 from app.tenancy.models import Membership, Role, Tenant
 
 log = logging.getLogger("app.qbo")
@@ -247,6 +248,7 @@ def complete_connect(
                 actor_role=role,
                 meta=meta,
             )
+            started = after_connect(db, tenant_id, connection)
             write_tenant_audit(
                 db,
                 tenant_id=tenant_id,
@@ -259,6 +261,7 @@ def complete_connect(
                     "system": SYSTEM,
                     "environment": environment,
                     "reconnect": reconnect,
+                    "sync": started,
                 },
                 meta=meta,
             )

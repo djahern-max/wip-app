@@ -1,7 +1,7 @@
 // node --test (no dependency). Run with `npm test` from frontend/.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatMoney } from "./money.js";
+import { addMoney, formatMoney } from "./money.js";
 
 test("cents always, thousands grouped", () => {
   assert.equal(formatMoney("0"), "0.00");
@@ -42,4 +42,14 @@ test("numbers and garbled strings throw instead of rendering NaN or 0", () => {
   assert.throws(() => formatMoney("$12"), TypeError);
   assert.throws(() => formatMoney("1e5"), TypeError);
   assert.throws(() => formatMoney("NaN"), TypeError);
+});
+
+test("addMoney adds decimal strings exactly, at cent scale", () => {
+  assert.equal(addMoney("0.10", "0.20"), "0.30");
+  assert.equal(addMoney("1234.56", "-1234.56"), "0.00");
+  assert.equal(addMoney("-5.00", "2.25"), "-2.75");
+  assert.equal(addMoney("99999999999.99", "0.01"), "100000000000.00");
+  assert.equal(formatMoney(addMoney("-100.00", "-0.50")), "(100.50)");
+  assert.throws(() => addMoney("1.005", "0"), TypeError);
+  assert.throws(() => addMoney(1, "0"), TypeError);
 });

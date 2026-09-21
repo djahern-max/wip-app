@@ -66,23 +66,24 @@ Production keys, the Rye Beach company, and anything that needs a public address
 
 ### Acceptance criteria
 No Rye Beach fixture applies: Rye Beach cannot be reached without production keys (D-25). Acceptance uses the recorded sandbox fixtures in tests and the live sandbox in the owner pass.
-- [ ] RLS enumeration passes for the five new tables (enabled, forced, policy, leading index); the extra-policy allow-list still has one entry; tenant A reads zero rows of tenant B in each, via ORM and raw SQL as `app_rw`. Migration round-trips on a scratch database; the guard still refuses `wip`.
+- [x] RLS enumeration passes for the five new tables (enabled, forced, policy, leading index); the extra-policy allow-list still has one entry; tenant A reads zero rows of tenant B in each, via ORM and raw SQL as `app_rw`. Migration round-trips on a scratch database; the guard still refuses `wip`.
 - [x] `docs/spikes/S-01.md` exists, answers (a)–(d) from the live sandbox in structural terms, and was reported to the owner before the normalizers were written. ROADMAP S-01 is marked ◐ with the note "sandbox; Ramp line check in F05.1".
-- [ ] Connect flow: `state` is single-use, expires, and is bound to tenant and user; a replayed, expired or foreign `state` stores nothing. Tokens are stored only as ciphertext with a key id; a ciphertext copied to another connection or tenant fails to decrypt. No token, code, `state` or client secret appears in any log line, audit row, response body or task payload (log-leak and response scans extended).
+- [x] Connect flow: `state` is single-use, expires, and is bound to tenant and user; a replayed, expired or foreign `state` stores nothing. Tokens are stored only as ciphertext with a key id; a ciphertext copied to another connection or tenant fails to decrypt. No token, code, `state` or client secret appears in any log line, audit row, response body or task payload (log-leak and response scans extended).
 - [x] Refresh replaces both tokens from the response; two concurrent refreshes leave the newest pair stored; a 401 triggers exactly one refresh and one retry.
-- [ ] `invalid_grant` on refresh sets `needs_reconnect`, writes the audit row, stops that connection's tasks without retrying to `max_attempts`, and leaves the worker running. Reconnecting the same company resumes from the stored cursor.
+- [x] `invalid_grant` on refresh sets `needs_reconnect`, writes the audit row, stops that connection's tasks without retrying to `max_attempts`, and leaves the worker running. Reconnecting the same company resumes from the stored cursor.
 - [x] A second tenant cannot connect a `realm_id` already connected elsewhere.
-- [ ] Every response body is parsed through `json_loads`; a fixture amount such as `100.1` is stored in `raw_record` and in `billing.total` as exactly `100.10` (no binary float artefact); hygiene test covers `app/integrations/qbo/`.
-- [ ] Backfill from the fixtures stores one raw version per record, runs one task per page, and running it twice writes nothing new (D-20). Each normalizer run twice produces identical rows.
-- [ ] A CDC fixture containing one changed invoice and one deleted invoice produces a new raw version for each; the deleted invoice has `deleted_at` set and leaves the month totals; its history is still readable.
-- [ ] Month totals: for the sandbox fixtures, invoices, credit memos, sales receipts and payments by calendar month equal totals computed independently from the raw payloads by a throwaway script (the oracle is not derived from the normalizer). Every `payment`'s applications plus `unapplied_amount` equal its `total`, to the cent.
-- [ ] A sales receipt yields one `billing` row and one fully applied `payment`; a credit memo's signed amount is negative; a voided invoice contributes 0.00.
-- [ ] A payload the normalizer cannot read is counted and skipped; the other records on the page load.
-- [ ] Drift check: with one raw record removed from the comparison set in a test, the run ends `drift` naming the entity and both counts; with nothing wrong it ends clean and makes no entity re-pull.
-- [ ] Role matrix extended: connect, disconnect, sync now are `firm_admin` only; status is readable by `firm_admin`, `firm_staff`, `client_admin`; others 403.
-- [ ] Frontend static checks pass; money on the Connections page is rendered from strings with cents; the month totals table uses `.table-wrap`; usable at 375 px.
-- [ ] CI green with no network access to Intuit.
+- [x] Every response body is parsed through `json_loads`; a fixture amount such as `100.1` is stored in `raw_record` and in `billing.total` as exactly `100.10` (no binary float artefact); hygiene test covers `app/integrations/qbo/`.
+- [x] Backfill from the fixtures stores one raw version per record, runs one task per page, and running it twice writes nothing new (D-20). Each normalizer run twice produces identical rows.
+- [x] A CDC fixture containing one changed invoice and one deleted invoice produces a new raw version for each; the deleted invoice has `deleted_at` set and leaves the month totals; its history is still readable.
+- [x] Month totals: for the sandbox fixtures, invoices, credit memos, sales receipts and payments by calendar month equal totals computed independently from the raw payloads by a throwaway script (the oracle is not derived from the normalizer). Every `payment`'s applications plus `unapplied_amount` equal its `total`, to the cent.
+- [x] A sales receipt yields one `billing` row and one fully applied `payment`; a credit memo's signed amount is negative; a voided invoice contributes 0.00.
+- [x] A payload the normalizer cannot read is counted and skipped; the other records on the page load.
+- [x] Drift check: with one raw record removed from the comparison set in a test, the run ends `drift` naming the entity and both counts; with nothing wrong it ends clean and makes no entity re-pull.
+- [x] Role matrix extended: connect, disconnect, sync now are `firm_admin` only; status is readable by `firm_admin`, `firm_staff`, `client_admin`; others 403.
+- [x] Frontend static checks pass; money on the Connections page is rendered from strings with cents; the month totals table uses `.table-wrap`; usable at 375 px.
+- [x] CI green with no network access to Intuit.
 - [ ] **Owner pass (not ticked by Claude Code)**, live sandbox, tenant `qbo-sandbox`: connect → company name shown → backfill completes → month totals on the Connections page equal the sandbox's own Transaction List by Date report (filtered to Invoice, then to Payment) for two months the owner picks → "Test Project" appears as a project under John Melton → delete one invoice in the sandbox, "Sync now", it leaves the totals → disconnect, then reconnect, and the sync resumes.
+- [ ] **Owner pass, added 2026-09-21 (the unobserved case)**: apply a payment to an invoice in the sandbox, void the invoice, "Sync now", and confirm the payment shows as unapplied and the month totals still tie.
 
 ### Plan (Claude Code fills in before coding)
 _Restate the acceptance criteria, list files to create and modify, and answer these before writing code. Wait for the owner's go-ahead: this feature adds tables, a dependency and an external call._
@@ -215,6 +216,9 @@ Both extra changes accepted (partial unique index on `(system, realm_id)`; S-01 
 - OPERATIONS.md "QuickBooks connection" covers settings, connect, reconnect, needs reconnect, secret rotation and the spike; `drift` and fresh backfill are added with step 3.
 - **Step 2, S-01: run 2026-09-20** against the live sandbox (three runs; (c) and (d) after the owner deleted one invoice and voided another). Findings in `docs/spikes/S-01.md`, reported to the owner before any normalizer; ROADMAP S-01 is ◐. Step 3 waits for the owner's answers to the five questions the findings raise, and the void rule.
 - `backend/scripts/s01_spike.py` was ready at the end of step 1. **Step 2 (S-01) needed the owner**: the four `QBO_*` settings in `.env`, the `qbo-sandbox` tenant, and the consent screen at Intuit, none of which Claude Code can do.
+
+#### Progress, step 3 (2026-09-21)
+Built after the owner's S-01 answers: migration **0008** (five tables; `ck_billing_total_identity` holds `subtotal − discount_total + tax_total = total` on every row), the pure normalizers (`app/integrations/qbo/normalize/`: cents exactly or unreadable; SubTotal line first; discount as its own total and line; the three-part void rule), the writer (`app/domain/billing/sync.py`: idempotent, order-independent, applications replaced wholesale, deletes from stubs, accounts attached by number only), signed amounts and month totals (`app/domain/billing/`), the tasks (`app/integrations/qbo/tasks.py`: backfill page by Id, CDC poll with successor first and the 29-day refusal, normalize with staleness check, nightly drift), the scheduling module, the worker start-up hook, `GET /status` with what is held, `POST /sync`, `POST /backfill`, and the Connections page (attention items, Sync now, fresh backfill, records held, month totals in `.table-wrap` with a totals row added by exact string arithmetic). Fixtures recorded from the sandbox (`tests/fixtures/qbo_sandbox/`, README there) with an oracle that shares no code with the normalizers. 531 backend + 12 frontend tests. Deviation noted: a changed Payment that arrives with no applications left (the "unobserved case") is the `payment_reapplied` fixture, tested through `apply_raw` and through a poll.
 
 ### Discovered (do not fix here)
 _Things noticed along the way that belong to another feature._

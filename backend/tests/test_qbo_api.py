@@ -406,3 +406,73 @@ def test_connect_says_so_when_quickbooks_is_not_configured(
     r = admin.post("/api/qbo/connect", headers=CSRF)
     assert r.status_code == 503 and "not set up" in r.json()["detail"]
     assert _callback(admin, state="x", code="y", realmId="z") == "not_configured"
+
+
+# --- the copy: status with what the platform holds, sync now, backfill ----------------------
+
+
+def test_status_shows_counts_attention_items_and_month_totals_as_strings(
+    login_as, fresh_tenant: uuid.UUID, rw_engine: Engine
+) -> None:
+    from tests.qbo_fixtures import fixture
+    from tests.qbo_helpers import FixtureCompany, connect_directly
+    from tests.test_qbo_tasks import _drain
+
+    admin = login_as(ADMIN, tenant=fresh_tenant)
+    fake = FakeIntuit()
+    served = FixtureCompany().serve(fake)
+    with installed(fake):
+        connect_directly(rw_engine, fresh_tenant, fake)
+        body = admin.get("/api/qbo/status").json()
+        assert body["held"]["backfill_needed"] is True
+        assert [a["code"] for a in body["held"]["attention"]] == ["backfill_needed"]
+        assert body["held"]["month_totals"] == []
+        r = admin.post("/api/qbo/backfill", headers=CSRF)
+        assert r.status_code == 200 and r.json()["created"] is True
+        assert admin.post("/api/qbo/backfill", headers=CSRF).json()["created"] is False
+        body = admin.get("/api/qbo/status").json()
+        assert body["held"]["backfill"]["outcome_label"] == "Running"
+        _drain(rw_engine)
+        body = admin.get("/api/qbo/status").json()
+    held = body["held"]
+    assert held["backfill"]["outcome_label"] == "Succeeded" and held["backfill_needed"] is False
+    counts = {e["entity"]: e for e in held["entities"]}
+    assert (
+        counts["Invoice"]["current"] == len(fixture("Invoice"))
+        and counts["Invoice"]["skipped"] == 0
+    )
+    assert counts["Bill"]["skipped"] is None  # not normalized in F05
+    assert [a["code"] for a in held["attention"]] == [
+        "accounts_without_number",
+        "unlinked_deposit_lines",
+    ]
+    assert held["attention"][0]["detail"] == "90 of 90"
+    assert held["attention"][1]["detail"].startswith("2 lines, ")
+    oracle = fixture("oracle_month_totals")
+    assert held["month_totals"] == oracle  # strings with cents, straight from the API
+    for m in held["month_totals"]:
+        for column in ("invoices", "credit_memos", "sales_receipts", "payments"):
+            assert isinstance(m[column], str) and "." in m[column]
+    assert any(m["credit_memos"].startswith("-") for m in held["month_totals"])
+    assert held["last_sync"]["kind_label"] == "Backfill"
+    assert body["last_success_at"] is not None
+    # Sync now: queued once, audited.
+    with installed(fake):
+        r = admin.post("/api/qbo/sync", headers=CSRF)
+        assert r.status_code == 200 and r.json()["created"] is True
+        assert admin.post("/api/qbo/sync", headers=CSRF).json()["created"] is False
+    rows = [a for a, _, _ in _audit(rw_engine, fresh_tenant)]
+    assert rows.count("sync_requested") == 0  # the audit helper lists connection% only
+    with tenant_session(rw_engine, fresh_tenant) as db:
+        n = db.execute(
+            text("SELECT count(*) FROM audit_log WHERE action = 'sync_requested'")
+        ).scalar_one()
+    assert n == 4  # two backfill requests, two sync-now requests (created or not)
+    assert served.queries  # the backfill did ask the stand-in
+
+
+def test_sync_and_backfill_need_a_connected_company(login_as, fresh_tenant: uuid.UUID) -> None:
+    admin = login_as(ADMIN, tenant=fresh_tenant)
+    for path in ("/api/qbo/sync", "/api/qbo/backfill"):
+        r = admin.post(path, headers=CSRF)
+        assert r.status_code == 409 and "not connected" in r.json()["detail"]

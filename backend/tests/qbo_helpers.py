@@ -178,3 +178,88 @@ def connect_directly(engine, tenant_id, fake: FakeIntuit, *, access_valid_for: i
             actor_role=None,
         )
         return connection.id
+
+
+# --- a company served from the recorded fixtures --------------------------------------------
+
+
+class FixtureCompany:
+    """Answers the query, count, companyinfo and cdc calls the tasks make, from the
+    files under ``tests/fixtures/qbo_sandbox`` (or the rows a test hands it). Attach to
+    a ``FakeIntuit`` with ``serve(fake)``. Only the query shapes the platform sends are
+    understood; anything else is a 400, so a change in query text is noticed."""
+
+    def __init__(self, rows: dict[str, list[dict]] | None = None, *, cdc: dict | None = None):
+        from app.integrations.qbo.entities import ENTITIES
+        from tests.qbo_fixtures import fixture, records
+
+        self.rows: dict[str, list[dict]] = (
+            rows if rows is not None else {e: records(e) for e in ENTITIES}
+        )
+        self.cdc_body: dict = cdc if cdc is not None else fixture("cdc_29_days")
+        self.queries: list[str] = []
+        self.cdc_calls: list[dict[str, str]] = []
+        self.page_size = 1000
+
+    def serve(self, fake: FakeIntuit) -> "FixtureCompany":
+        fake.on_api("query", self._query)
+        fake.on_api("cdc", self._cdc)
+        fake.on_api(f"companyinfo/{fake.realm_id}", self._company_info)
+        return self
+
+    def _company_info(self, request: httpx.Request) -> httpx.Response:
+        info = (self.rows.get("CompanyInfo") or [{"Id": "1", "CompanyName": "Sandbox Co"}])[0]
+        return httpx.Response(200, content=_json({"CompanyInfo": info}))
+
+    def _query(self, request: httpx.Request) -> httpx.Response:
+        import re
+
+        q = request.url.params.get("query", "")
+        self.queries.append(q)
+        m = re.fullmatch(
+            r"SELECT (\*|COUNT\(\*\)) FROM (\w+)"
+            r"(?: WHERE (.+?))?(?: ORDERBY Id)?(?: MAXRESULTS (\d+))?",
+            q,
+        )
+        if m is None:
+            return httpx.Response(400, content=b'{"Fault":{"type":"ValidationFault"}}')
+        what, entity, where, maxresults = m.groups()
+        rows = list(self.rows.get(entity, []))
+        active_asked = False
+        if where:
+            for clause in where.split(" AND "):
+                if clause == "Active IN (true, false)":
+                    active_asked = True
+                elif (k := re.fullmatch(r"Id > '(\d+)'", clause)) is not None:
+                    rows = [r for r in rows if int(r["Id"]) > int(k.group(1))]
+                elif (k := re.fullmatch(r"MetaData.LastUpdatedTime >= '(.+)'", clause)) is not None:
+                    rows = [
+                        r
+                        for r in rows
+                        if r.get("MetaData", {}).get("LastUpdatedTime", "") >= k.group(1)
+                    ]
+                elif (k := re.fullmatch(r"Id = '(\d+)'", clause)) is not None:
+                    rows = [r for r in rows if r["Id"] == k.group(1)]
+                else:
+                    return httpx.Response(400, content=b'{"Fault":{"type":"ValidationFault"}}')
+        if entity in ("Account", "Customer", "Vendor", "Item") and not active_asked:
+            rows = [r for r in rows if r.get("Active") is not False]
+        if what == "COUNT(*)":
+            return httpx.Response(200, content=_json({"QueryResponse": {"totalCount": len(rows)}}))
+        rows.sort(key=lambda r: int(r["Id"]))
+        limit = min(int(maxresults or 100), self.page_size)
+        page = rows[:limit]
+        body = {"QueryResponse": {entity: page, "startPosition": 1, "maxResults": len(page)}}
+        if not page:
+            body = {"QueryResponse": {}}
+        return httpx.Response(200, content=_json(body), headers={"intuit_tid": "tid-q"})
+
+    def _cdc(self, request: httpx.Request) -> httpx.Response:
+        self.cdc_calls.append(dict(request.url.params))
+        return httpx.Response(200, content=_json(self.cdc_body), headers={"intuit_tid": "tid-c"})
+
+
+def _json(obj) -> bytes:
+    from app.core.jsoncodec import canonical_json
+
+    return canonical_json(obj).encode()

@@ -41,6 +41,9 @@ class Route:
     tags: tuple[str, ...] = field(default_factory=tuple)
     # F03: a multipart upload; (form fields, files) built fresh per cell.
     multipart: Callable[[], tuple[dict, dict]] | None = None
+    # F05: statuses that also prove the guard let the role through (the handler then
+    # refused for a reason of its own, e.g. 409 "not connected").
+    also_ok: frozenset[int] = frozenset()
 
 
 _BURDEN_YEARS = itertools.count(2100)
@@ -119,6 +122,8 @@ def _routes() -> list[Route]:
         Route("GET", "/api/qbo/status", frozenset({FA, FS, CA})),
         Route("POST", "/api/qbo/connect", frozenset({FA})),
         Route("POST", "/api/qbo/disconnect", frozenset({FA})),
+        Route("POST", "/api/qbo/sync", frozenset({FA}), also_ok=frozenset({409})),
+        Route("POST", "/api/qbo/backfill", frozenset({FA}), also_ok=frozenset({409})),
         Route("GET", "/api/admin/users", frozenset({FA})),
         Route(
             "POST",
@@ -295,7 +300,7 @@ def test_role_matrix_cell_by_cell(
             else:
                 r = role_clients[role].request(route.method, path, json=body, headers=CSRF)
         expected = "2xx" if role in route.allowed else "403"
-        got = "2xx" if r.status_code in OK else str(r.status_code)
+        got = "2xx" if r.status_code in OK | route.also_ok else str(r.status_code)
         if got != expected:
             failures.append(f"{role}: expected {expected}, got {r.status_code} {r.text[:80]}")
     _prepare(seed, owner_engine, None)

@@ -272,6 +272,52 @@ class QboConnectOut(_Out):
     authorization_url: str
 
 
+class QboEntityCountOut(_Out):
+    entity: str
+    current: int  # current, non-deleted raw records
+    skipped: int | None  # payloads the normalizer could not read (normalized entities only)
+
+
+class QboMonthTotalsOut(_Out):
+    """Money as strings with cents (D-22); the page never parses a number."""
+
+    month: str
+    invoices: str
+    credit_memos: str
+    sales_receipts: str
+    payments: str
+
+
+class QboSyncRunOut(_Out):
+    kind: str
+    kind_label: str
+    outcome: str | None
+    outcome_label: str
+    started_at: str
+    finished_at: str | None
+    error_detail: str | None
+    message: str | None
+
+
+class QboAttentionOut(_Out):
+    """One item needing attention, words first: ``label`` says what, ``detail`` how much."""
+
+    code: str
+    label: str
+    detail: str | None
+
+
+class QboCopyOut(_Out):
+    """What the platform holds for the connected company."""
+
+    entities: list[QboEntityCountOut]
+    month_totals: list[QboMonthTotalsOut]
+    attention: list[QboAttentionOut]
+    last_sync: QboSyncRunOut | None
+    backfill: QboSyncRunOut | None
+    backfill_needed: bool
+
+
 class QboStatusOut(_Out):
     """The QuickBooks connection of the active tenant (F05). Words first (D-22):
     ``status_label`` and ``message`` are what a person sees; ``status`` and
@@ -289,3 +335,11 @@ class QboStatusOut(_Out):
     can_manage: bool
     result: str | None
     result_message: str | None
+    held: QboCopyOut | None
+
+
+class QboSyncRequestOut(_Out):
+    """``created`` is false when the same request was already queued or running."""
+
+    created: bool
+    message: str

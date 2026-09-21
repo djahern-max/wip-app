@@ -84,6 +84,7 @@ class TenantEvent(enum.StrEnum):
     connection_needs_reconnect = "connection_needs_reconnect"
     connection_disconnected = "connection_disconnected"
     sync_requested = "sync_requested"
+    gl_account_linked = "gl_account_linked"  # QuickBooks id attached by account number
     # F04 (tenant configuration; every create, change, confirm, deactivate)
     division_created = "division_created"
     division_changed = "division_changed"

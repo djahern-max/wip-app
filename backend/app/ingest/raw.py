@@ -105,3 +105,39 @@ def store_raw(
     db.add(row)
     db.flush()
     return StoreResult(record=row, version=row.version)
+
+
+def latest_raw_versions(
+    db: Session, tenant_id: UUID, source: str, entity_type: str
+) -> list[RawRecord]:
+    """The current (highest) version of every record of one entity."""
+    return list(
+        db.execute(
+            select(RawRecord)
+            .where(
+                RawRecord.tenant_id == tenant_id,
+                RawRecord.source == source,
+                RawRecord.entity_type == entity_type,
+            )
+            .distinct(RawRecord.external_id)
+            .order_by(RawRecord.external_id, RawRecord.version.desc())
+        ).scalars()
+    )
+
+
+def store_delete(
+    db: Session,
+    tenant_id: UUID,
+    source: str,
+    entity_type: str,
+    external_id: str,
+    stub,
+    origin: RawOrigin,
+) -> StoreResult:
+    """A delete reported by the source. A record we hold gets a new version flagged
+    deleted that carries its last known payload (D-20); a record we never held keeps
+    the source's stub as its only payload (owner, 2026-09-21), and no canonical row
+    is ever built from it."""
+    current = latest_raw(db, tenant_id, source, entity_type, external_id)
+    payload = None if current is not None else stub
+    return store_raw(db, tenant_id, source, entity_type, external_id, payload, origin, deleted=True)

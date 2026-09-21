@@ -9,6 +9,7 @@ from sqlalchemy import Engine, select, text
 from sqlalchemy.exc import ProgrammingError
 
 from app.core.db import set_user_context, tenant_session, untenanted_session
+from app.domain.billing.models import Billing, BillingLine, Customer, Payment, PaymentApplication
 from app.domain.config.models import (
     AccountMap,
     AccountSuggestRule,
@@ -47,6 +48,7 @@ def _tenant_tables(engine: Engine) -> list[str]:
 
 
 F03_TABLES = ("connection", "sync_run", "import_batch", "raw_record", "task")
+F05_TABLES = ("customer", "billing", "billing_line", "payment", "payment_application")
 F04_TABLES = (
     "division",
     "cost_category",
@@ -66,6 +68,7 @@ def test_every_tenant_table_is_enumerated(migrated_db: None, owner_engine: Engin
         "audit_log",
         *F03_TABLES,
         *F04_TABLES,
+        *F05_TABLES,
     }
 
 
@@ -256,6 +259,117 @@ def test_f04_tables_read_zero_rows_of_another_tenant(
         "account_suggest_rule": AccountSuggestRule,
         "tenant_policy": TenantPolicy,
         "burden_rate": BurdenRate,
+    }[table]
+    with tenant_session(rw_engine, seed.tenant_a) as s:
+        orm_tenants = {r.tenant_id for r in s.execute(select(model)).scalars()}
+        raw = s.execute(
+            text(f'SELECT count(*) FROM "{table}" WHERE tenant_id = :b'), {"b": seed.tenant_b}
+        ).scalar_one()
+    assert seed.tenant_b not in orm_tenants and raw == 0
+    with tenant_session(rw_engine, seed.tenant_b) as s:
+        assert s.execute(text(f'SELECT count(*) FROM "{table}"')).scalar_one() >= 1
+
+
+def _seed_f05_rows(owner_engine: Engine, tenant_id: uuid.UUID, marker: str) -> None:
+    """One row per F05 table in ``tenant_id`` (as the owner, with context)."""
+    with tenant_session(owner_engine, tenant_id) as s:
+        conn = Connection(tenant_id=tenant_id, system=f"f05-{marker}"[:40], status="disconnected")
+        s.add(conn)
+        s.flush()
+        run = SyncRun(tenant_id=tenant_id, connection_id=conn.id, kind="backfill")
+        s.add(run)
+        s.flush()
+        raw = RawRecord(
+            tenant_id=tenant_id,
+            source="qbo",
+            entity_type="Probe",
+            external_id=marker,
+            version=1,
+            payload={"m": marker},
+            payload_sha256="1" * 64,
+            sync_run_id=run.id,
+        )
+        s.add(raw)
+        s.flush()
+        customer = Customer(
+            tenant_id=tenant_id,
+            source="qbo",
+            external_id=marker,
+            display_name=marker,
+            is_project=False,
+            active=True,
+            raw_record_id=raw.id,
+        )
+        s.add(customer)
+        s.flush()
+        billing = Billing(
+            tenant_id=tenant_id,
+            kind="invoice",
+            source="qbo",
+            external_id=marker,
+            txn_date=date(2026, 1, 31),
+            customer_external_id=marker,
+            customer_id=customer.id,
+            subtotal=Decimal("10.00"),
+            discount_total=Decimal("0.00"),
+            tax_total=Decimal("0.00"),
+            total=Decimal("10.00"),
+            balance=Decimal("10.00"),
+            voided=False,
+            raw_record_id=raw.id,
+        )
+        s.add(billing)
+        s.flush()
+        s.add(
+            BillingLine(
+                tenant_id=tenant_id,
+                billing_id=billing.id,
+                line_no=1,
+                line_kind="SalesItemLineDetail",
+                amount=Decimal("10.00"),
+            )
+        )
+        payment = Payment(
+            tenant_id=tenant_id,
+            kind="payment",
+            source="qbo",
+            external_id=marker,
+            txn_date=date(2026, 1, 31),
+            customer_external_id=marker,
+            customer_id=customer.id,
+            total=Decimal("10.00"),
+            unapplied_amount=Decimal("0.00"),
+            raw_record_id=raw.id,
+        )
+        s.add(payment)
+        s.flush()
+        s.add(
+            PaymentApplication(
+                tenant_id=tenant_id,
+                payment_id=payment.id,
+                line_no=1,
+                linked_txn_type="Invoice",
+                linked_txn_external_id=marker,
+                billing_id=billing.id,
+                amount=Decimal("10.00"),
+            )
+        )
+
+
+@pytest.mark.parametrize("table", F05_TABLES)
+def test_f05_tables_read_zero_rows_of_another_tenant(
+    seed: Seed, owner_engine: Engine, rw_engine: Engine, table: str
+) -> None:
+    """Tenant A sees none of tenant B's rows in each F05 table, via ORM and raw SQL
+    as app_rw; B sees its own."""
+    marker = uuid.uuid4().hex[:12]
+    _seed_f05_rows(owner_engine, seed.tenant_b, marker)
+    model = {
+        "customer": Customer,
+        "billing": Billing,
+        "billing_line": BillingLine,
+        "payment": Payment,
+        "payment_application": PaymentApplication,
     }[table]
     with tenant_session(rw_engine, seed.tenant_a) as s:
         orm_tenants = {r.tenant_id for r in s.execute(select(model)).scalars()}
