@@ -16,7 +16,7 @@ from app.api.schemas import (
     QboSyncRunOut,
 )
 from app.domain.billing.report import current_counts, skipped_counts
-from app.domain.billing.sync import account_number_summary, unlinked_deposit_lines
+from app.domain.billing.sync import chart_match, unlinked_deposit_lines
 from app.domain.billing.totals import month_totals
 from app.ingest.models import Connection, SyncRun
 from app.integrations.qbo.entities import ENTITIES
@@ -138,13 +138,14 @@ def copy_status(db: Session, tenant_id: UUID, connection: Connection) -> QboCopy
                 detail=", ".join(f"{e}: {n}" for e, n in skipped.items() if n),
             )
         )
-    numbers = account_number_summary(db, tenant_id)
+    match = chart_match(db, tenant_id)
+    numbers = match.numbers
     if numbers.without_number:
         attention.append(
             QboAttentionOut(
                 code="accounts_without_number",
                 label="Accounts without a number",
-                detail=f"{numbers.without_number} of {numbers.total}",
+                detail=f"{numbers.without_number} of {numbers.total} active accounts",
             )
         )
     if numbers.duplicate_numbers:
@@ -153,6 +154,22 @@ def copy_status(db: Session, tenant_id: UUID, connection: Connection) -> QboCopy
                 code="duplicate_account_numbers",
                 label="Duplicate account numbers",
                 detail=f"{numbers.duplicate_numbers}",
+            )
+        )
+    if match.unmatched:
+        attention.append(
+            QboAttentionOut(
+                code="numbered_not_in_chart",
+                label="Numbered in QuickBooks but not in the chart",
+                detail=", ".join(match.unmatched),
+            )
+        )
+    if match.chart_only:
+        attention.append(
+            QboAttentionOut(
+                code="chart_not_in_quickbooks",
+                label="In the chart but not numbered in QuickBooks",
+                detail=", ".join(match.chart_only),
             )
         )
     deposit_count, deposit_total = unlinked_deposit_lines(db, tenant_id)

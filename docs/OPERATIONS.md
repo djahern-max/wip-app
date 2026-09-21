@@ -577,7 +577,11 @@ firm admin presses **Reconnect**. `connection.last_error` holds the reason as a 
 The platform keeps a copy of the company: every §6.2 entity stored raw (`raw_record`,
 insert-only, versioned), and customers, invoices, credit memos, sales receipts and payments
 normalized into `customer`, `billing`, `billing_line`, `payment`, `payment_application`.
-Accounts are matched to the chart by account number only (`gl_account.external_id`); Deposits
+Accounts are matched to the chart by account number only (`gl_account.external_id`): a number
+held by exactly one active QuickBooks account and one chart row attaches the QuickBooks id to that
+row and changes nothing else (not the name, not the type). The page lists what did not line up:
+accounts without a number, numbers used twice in QuickBooks, numbers in QuickBooks with no
+chart row, and chart rows whose number QuickBooks does not use. Deposits
 and the cost-side entities are stored raw and read by later features.
 
 - **Backfill** (`sync_run.kind = backfill`): starts on the first connection, or from

@@ -345,7 +345,10 @@ def test_an_unreadable_payload_is_skipped_and_counted_and_the_rest_load(
 def test_account_ids_attach_by_number_only(
     tenant: uuid.UUID, rw_engine: Engine, owner_engine: Engine
 ) -> None:
-    accounts = records("Account")
+    # The recorded company as it was before the owner turned account numbers on:
+    # every AcctNum stripped, and the one inactive account left out of the counts.
+    accounts = [{k: v for k, v in r.items() if k != "AcctNum"} for r in records("Account")]
+    active = sum(1 for r in accounts if r.get("Active") is not False)
     with tenant_session(owner_engine, tenant) as db:
         db.add_all(
             [
@@ -355,12 +358,12 @@ def test_account_ids_attach_by_number_only(
             ]
         )
     with tenant_session(rw_engine, tenant) as db:
-        for a in accounts:  # the sample company has no account numbers at all
+        for a in accounts:
             _store(db, tenant, "Account", a)
         result = attach_account_ids(db, tenant)
         assert (result.attached, result.without_number, result.duplicate_numbers) == (
             0,
-            len(accounts),
+            active,
             0,
         )
         # Give three of them numbers: one match, one unmatched, two sharing a number.
@@ -378,7 +381,7 @@ def test_account_ids_attach_by_number_only(
             1,
             1,
         )
-        assert result.without_number == len(accounts) - 4
+        assert result.without_number == active - 4
         linked = db.execute(select(GlAccount).where(GlAccount.account_no == "1000")).scalar_one()
         assert (
             linked.external_id == accounts[0]["Id"]
@@ -413,3 +416,46 @@ def test_unlinked_deposit_lines_are_counted_with_their_total(
         if not line.get("LinkedTxn")
     ]
     assert count == len(expected) == 2 and total == sum(expected)
+
+
+def test_the_owners_chart_scenario_attaches_24_and_reports_the_three_differences(
+    tenant: uuid.UUID, rw_engine: Engine, owner_engine: Engine
+) -> None:
+    """The sandbox as the owner set it up on 2026-09-21: 25 numbered accounts; a
+    25-row chart where 1010 carries a different name, 6150 is missing and 1400 is
+    extra. Expected: 24 attached, 1010's chart name untouched, 6150 reported as
+    numbered but not in the chart, 1400 reported as in the chart but not in
+    QuickBooks, 64 active accounts without a number."""
+    from app.domain.billing.sync import chart_match
+
+    accounts = records("Account")
+    numbered = {r["AcctNum"]: r for r in accounts if r.get("AcctNum")}
+    assert len(numbered) == 25 and {"1010", "6150"} <= set(numbered) and "1400" not in numbered
+    with tenant_session(owner_engine, tenant) as db:
+        for number, r in numbered.items():
+            if number == "6150":
+                continue
+            name = "Operating checking (chart name)" if number == "1010" else r["Name"]
+            db.add(GlAccount(tenant_id=tenant, account_no=number, name=name))
+        db.add(GlAccount(tenant_id=tenant, account_no="1400", name="Inventory (chart only)"))
+    with tenant_session(rw_engine, tenant) as db:
+        for a in accounts:
+            _store(db, tenant, "Account", a)
+        result = attach_account_ids(db, tenant)
+        assert (result.attached, result.changed, result.unmatched) == (24, 24, 1)
+        assert (result.without_number, result.duplicate_numbers) == (64, 0)
+        match = chart_match(db, tenant)
+        assert len(match.attached) == 24 and "1010" in match.attached
+        assert match.unmatched == ["6150"] and match.chart_only == ["1400"]
+        rows = {a.account_no: a for a in db.execute(select(GlAccount)).scalars()}
+        assert rows["1010"].name == "Operating checking (chart name)"
+        assert rows["1010"].external_id == numbered["1010"]["Id"]
+        assert rows["1400"].external_id is None and rows["1400"].name == "Inventory (chart only)"
+        assert "6150" not in rows
+        # A second run attaches nothing new and audits nothing new.
+        again = attach_account_ids(db, tenant)
+        assert (again.attached, again.changed, again.unmatched) == (24, 0, 1)
+        audits = db.execute(
+            text("SELECT count(*) FROM audit_log WHERE action = 'gl_account_linked'")
+        ).scalar_one()
+        assert audits == 24

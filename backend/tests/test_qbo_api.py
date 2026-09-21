@@ -444,10 +444,15 @@ def test_status_shows_counts_attention_items_and_month_totals_as_strings(
     assert counts["Bill"]["skipped"] is None  # not normalized in F05
     assert [a["code"] for a in held["attention"]] == [
         "accounts_without_number",
+        "numbered_not_in_chart",
         "unlinked_deposit_lines",
     ]
-    assert held["attention"][0]["detail"] == "90 of 90"
-    assert held["attention"][1]["detail"].startswith("2 lines, ")
+    # 90 accounts recorded, one inactive: 89 active, 64 of them without a number.
+    assert held["attention"][0]["detail"] == "64 of 89 active accounts"
+    assert held["attention"][1]["detail"].split(", ") == sorted(
+        r["AcctNum"] for r in fixture("Account") if r.get("AcctNum")
+    )  # no chart on this tenant: every numbered account is unmatched
+    assert held["attention"][2]["detail"].startswith("2 lines, ")
     oracle = fixture("oracle_month_totals")
     assert held["month_totals"] == oracle  # strings with cents, straight from the API
     for m in held["month_totals"]:

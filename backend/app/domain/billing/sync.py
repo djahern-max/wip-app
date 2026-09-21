@@ -359,6 +359,8 @@ class AccountAttach:
 
 @dataclass(frozen=True)
 class AccountNumbers:
+    """Active QuickBooks accounts only: an inactive account is not on the chart."""
+
     total: int
     without_number: int
     duplicate_numbers: int
@@ -372,6 +374,8 @@ def account_number_summary(db: Session, tenant_id: UUID) -> AccountNumbers:
     for raw in latest_raw_versions(db, tenant_id, SOURCE, "Account"):
         if raw.is_deleted or not isinstance(raw.payload, dict):
             continue
+        if raw.payload.get("Active") is False:
+            continue
         total += 1
         number = raw.payload.get("AcctNum")
         if not isinstance(number, str) or not number.strip():
@@ -380,6 +384,33 @@ def account_number_summary(db: Session, tenant_id: UUID) -> AccountNumbers:
         by_number.setdefault(number.strip(), []).append(str(raw.payload.get("Id")))
     duplicates = sum(1 for ids in by_number.values() if len(ids) > 1)
     return AccountNumbers(total, without, duplicates, by_number)
+
+
+@dataclass(frozen=True)
+class ChartMatch:
+    """How the numbered QuickBooks accounts and the tenant's chart line up (read only;
+    what the Connections page reports). Numbers are identifiers, so they may be named."""
+
+    numbers: AccountNumbers
+    attached: list[str]  # numbers held by a gl_account row with the QuickBooks id
+    unmatched: list[str]  # numbered in QuickBooks, no gl_account of that number
+    chart_only: list[str]  # gl_account rows (active) whose number QuickBooks does not use
+
+
+def chart_match(db: Session, tenant_id: UUID) -> ChartMatch:
+    numbers = account_number_summary(db, tenant_id)
+    accounts = {
+        a.account_no: a
+        for a in db.execute(select(GlAccount).where(GlAccount.tenant_id == tenant_id)).scalars()
+    }
+    attached = [
+        n
+        for n, ids in numbers.by_number.items()
+        if len(ids) == 1 and n in accounts and accounts[n].external_id == ids[0]
+    ]
+    unmatched = [n for n, ids in numbers.by_number.items() if len(ids) == 1 and n not in accounts]
+    chart_only = [n for n, a in accounts.items() if a.active and n not in numbers.by_number]
+    return ChartMatch(numbers, sorted(attached), sorted(unmatched), sorted(chart_only))
 
 
 def attach_account_ids(db: Session, tenant_id: UUID) -> AccountAttach:
