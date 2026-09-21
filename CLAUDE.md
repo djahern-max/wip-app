@@ -86,6 +86,8 @@ The owner is a CPA and the domain expert. When accounting treatment is unclear, 
 - **Cost code**: division digit plus cost category slot, e.g. 410 = SNOW Labor. Computed, never stored.
 - **WIP basis**: the set of cost categories included in both cost to date and EAC for percent complete.
 - **Unassigned**: ledger amounts in job-cost accounts with no job. Always displayed, never dropped.
+- **Billing request**: operations' statement of cumulative percent complete per work area; the platform computes the amount to bill.
+- **Work area number**: the work area's order in the estimate; invoice lines begin with #n.
 
 ## When to stop and ask
 - Any change to BLUEPRINT §8 behavior or to golden files.

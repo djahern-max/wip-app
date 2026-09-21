@@ -75,6 +75,9 @@ Intuit's production questionnaire and keys, Rye Beach connected read-only, month
 Reports 1 and 2 from §9, billing half only. Deposit identification per tenant policy. XLSX/PDF export.
 **Accept**: **reproduces the hand-built deposit spreadsheet from §13.6 exactly.** Billed and collected totals across jobs + unassigned tie to QBO income and A/R for the period.
 
+### F08.1 · Billing requests  ☐
+Capture the operations billing instruction per job (cumulative percent complete per work area, or a job-level percent), compute invoice lines = price × percent − billed to date, raise exceptions for over 100%, unpriced change orders, omitted work areas and negative amounts, produce an invoice worksheet to key into QuickBooks. No write to QuickBooks. **Accept**: the 2026-09-17 instruction for Turley EST6120638 produces the expected lines for work areas 3, 5, 9, 25, 31, 32 and an exception for 26 (priced 0.00); re-submitting the same request produces zero lines.
+
 ### F09 · Exceptions queue v1  ☐
 Exception model, generators for the estimate/job/link/billing types in §10, assignment, resolution notes, counts on the firm console.
 **Accept**: resolving an exception's underlying cause clears it on next run; dismissing requires a note.
