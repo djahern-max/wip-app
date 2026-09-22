@@ -6,6 +6,11 @@ __pycache__/
 backend/.venv/
 frontend/node_modules/
 frontend/dist/
+# F05.0: deploy.sh builds into dist.new, keeps the previous build as dist.prev, and
+# records the serving commit in .deployed; none of them is tracked
+frontend/dist.new/
+frontend/dist.prev/
+.deployed
 .DS_Store
 *.egg-info/
 # F03: local object store (development); never tracked

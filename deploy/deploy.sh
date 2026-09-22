@@ -11,6 +11,9 @@
 # the frontend; restart wip-api and wip-worker; health check through nginx. Every step
 # before the restart is safe to re-run. No automatic roll-back: migrations are
 # forward-only in production; the failure message says the roll-back command.
+# The commit that is serving is read from /opt/wip/.deployed, written at the restart
+# step, not from the checkout: after a failed deploy the checkout is at the ref that
+# failed while the previous release is still running (seen on the deploy-check, 2026-09-22).
 # Never prints a secret; the migrate.env variables are exported around alembic only.
 set -euo pipefail
 
@@ -23,6 +26,7 @@ APP_DIR=/opt/wip
 MIGRATE_ENV="${MIGRATE_ENV_FILE:-/etc/wip/migrate.env}"   # override only for the deploy-check
 HEALTH_URL=https://jobcost.dev/api/health
 VENV="$APP_DIR/backend/.venv"
+DEPLOYED_FILE="$APP_DIR/.deployed"   # the sha the services were last restarted on
 
 [ "$(id -u)" = 0 ] || { echo "deploy.sh: run as root" >&2; exit 1; }
 [ -r "$MIGRATE_ENV" ] || { echo "deploy.sh: $MIGRATE_ENV is missing" >&2; exit 1; }
@@ -34,7 +38,8 @@ as_wip() { sudo -u "$APP_USER" -H "$@"; }
 git_wip() { as_wip git -C "$APP_DIR" "$@"; }
 
 STEP=start
-PREVIOUS="$(git_wip rev-parse HEAD)"
+# Before the first deploy there is no .deployed file; the checkout is the only answer then.
+PREVIOUS="$(cat "$DEPLOYED_FILE" 2>/dev/null || git_wip rev-parse HEAD)"
 on_error() {
     echo >&2
     echo "deploy failed at step: $STEP" >&2
@@ -88,6 +93,7 @@ as_wip env --chdir="$APP_DIR/frontend" sh -c 'rm -rf dist.prev; [ -d dist ] && m
 
 STEP=restart
 systemctl restart wip-api wip-worker
+printf '%s\n' "$SHA" | as_wip tee "$DEPLOYED_FILE" >/dev/null   # owned by wip, like the checkout
 
 STEP=health
 # Up to ten tries, two seconds apart. "No answer" (nginx or the API not up) is told apart

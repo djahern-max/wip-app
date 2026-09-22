@@ -55,9 +55,9 @@ Firm authority as a `firm_membership` row with entry rows in tenants (D-15), act
 Against the Intuit sandbox only (D-25). OAuth2 connect/reconnect, token refresh, backfill, CDC polling, deletes/voids, nightly drift check; no webhooks (F05.1). Entities per §6.2, all stored raw. Normalize Customers/projects, Invoices, Payments, Credit Memos, Sales Receipts into `customer`, `billing`, `payment`, `payment_application`; Account ids are attached to `gl_account` by account number; Deposits are stored raw pending D-02.
 **Accept**: against sandbox: invoice and payment totals by month equal QBO reports; deleting an invoice in sandbox removes it after next sync; token expiry triggers a reconnect exception, not a crash.
 
-### F05.0 · First deployment (jobcost.dev)  ☐
-The platform live at jobcost.dev, with the privacy policy and terms pages Intuit requires for production keys (D-25).
-**Accept**: to be written in the feature's brief.
+### F05.0 · First deployment (jobcost.dev)  ☑ (2026-09-22; owner pass from a phone 2026-09-22)
+The platform live at jobcost.dev, with the privacy policy and terms pages Intuit requires for production keys (D-25). One droplet, Managed Postgres, a private Space, manual deploys over ssh (D-27).
+**Accept**: as in `docs/briefs/F05.0.md`: valid certificate and headers, the three static pages without sign-in, `deploy.sh` migrates before it restarts and stops on a failed migration (proven on a scratch database), services as `wip` with the owner URL held by root only, `prod_check.py` passes, the database port closed to the internet, the real client IP in the audit log, the env-template test, CI without the droplet, the owner's phone pass.
 
 ### F05.1 · QBO production connection  ☐
 Intuit's production questionnaire and keys, Rye Beach connected read-only, monthly totals tied to Rye Beach's own QuickBooks reports, webhooks turned on (D-25). S-01's fourth question, whether Ramp-synced expenses carry the job on the line, is answered here against the real company. The Phase B gate applies.

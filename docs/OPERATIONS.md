@@ -650,7 +650,7 @@ below is reproducible from the repo by two scripts.
 
 | Path | Owner, mode | What |
 |---|---|---|
-| `/opt/wip` | `wip:wip` 755 | The checkout (`git`, detached at the deployed commit). `backend/.venv` is the venv; `frontend/dist` is the served build (`dist.prev` the one before). |
+| `/opt/wip` | `wip:wip` 755 | The checkout (`git`, detached at the last ref `deploy.sh` checked out). `.deployed` holds the sha the services were last restarted on, which is what is serving even after a failed deploy. `backend/.venv` is the venv; `frontend/dist` is the served build (`dist.prev` the one before, `dist.new` a build in progress); all three and `.deployed` are gitignored. |
 | `/etc/wip/app.env` | `wip:wip` 600 (directory `root:wip` 750) | The API and worker environment: `DATABASE_URL` (`app_rw`), the key ring, the Space key, the Intuit keys. Read by systemd and by hand-run scripts as `wip`. **Never** `DATABASE_OWNER_URL`. |
 | `/etc/wip/migrate.env` | `root:root` 600 | `DATABASE_OWNER_URL` (`app_owner`) and `PROTECTED_DATABASE_NAMES`. Read only by `deploy.sh`, as root, around `alembic upgrade head`. |
 | `/etc/systemd/system/wip-api.service`, `wip-worker.service` | root | From `deploy/systemd/`. `User=wip`, `EnvironmentFile=/etc/wip/app.env`, `Restart=always`, `ProtectSystem=strict` (the processes write nowhere but `/tmp`). |
@@ -760,14 +760,18 @@ ssh root@174.138.33.185 bash /opt/wip/deploy/deploy.sh <sha|ref>  # a specific c
 ```
 
 Under a lock (`flock`; a second run says "another deploy is running" and exits 1):
-records the serving commit; `git fetch` and a detached checkout of the ref as `wip`; `pip
+reads the serving commit from `/opt/wip/.deployed`; `git fetch` and a detached checkout of the ref as `wip`; `pip
 install -e` into the venv; `npm ci` and a Vite build into `frontend/dist.new` (the served
 `dist` is untouched); **`alembic upgrade head` as root from `/etc/wip/migrate.env`, before
 any restart**, inside `timeout 600`; then the frontend swap (`dist` → `dist.prev`,
 `dist.new` → `dist`); `systemctl restart wip-api wip-worker`; up to ten `curl`s of
 `https://jobcost.dev/api/health` two seconds apart, requiring `"status":"ok"` and
 `"db":"ok"`. It prints `deployed <sha>` and `free -m` before and after the build (move to
-`s-2vcpu-2gb` if the build swaps). A failure prints the step, the commit that was serving
+`s-2vcpu-2gb` if the build swaps). The restart step writes the sha to `/opt/wip/.deployed`
+(owned by `wip`); the "serving" and "was serving" lines read that file, not the checkout,
+because after a failed deploy the checkout sits at the ref that failed while the previous
+release keeps running (the deploy-check of 2026-09-22 showed the checkout's sha as
+"serving" before this change). A failure prints the step, the commit that was serving
 and the roll-back command. **A failed migration stops the script before the restart**: the
 old release keeps serving, new code is on disk, the database is unchanged (Alembic runs the
 migrations in one transaction). Fix the migration and run `deploy.sh` again, or go back.
@@ -801,6 +805,10 @@ whenever `deploy.sh` changes. The check points `deploy.sh` at a **scratch databa
 managed cluster** with a deliberately broken migration; the production database is never
 touched, and the scratch database is dropped afterwards.
 
+The branch and its commit are made in the checkout, `/opt/wip`, as user `wip` (the
+checkout's owner; root's git refuses it as "dubious ownership"). The branch never leaves
+the droplet and is deleted in step 6.
+
 ```sh
 # 1. a scratch database on the cluster (roles exist already; the script skips them)
 PGSSLMODE=require PGHOST=<private hostname> PGPORT=25060 PG_MAINTENANCE_DB=defaultdb \
@@ -831,7 +839,8 @@ def upgrade() -> None:
 def downgrade() -> None:
     pass
 EOF2
-sudo -u wip git -C /opt/wip -c user.name=deploy-check -c user.email=deploy-check@jobcost.dev commit -qam "deploy-check"
+sudo -u wip git -C /opt/wip add backend/alembic/versions/9999_deploy_check.py   # -a stages no new file
+sudo -u wip git -C /opt/wip -c user.name=deploy-check -c user.email=deploy-check@jobcost.dev commit -qm "deploy-check"
 
 # 4. before: what is running and what is served
 systemctl show -p ActiveEnterTimestamp wip-api wip-worker; ls -ld /opt/wip/frontend/dist
@@ -850,7 +859,17 @@ psql "sslmode=require host=<private hostname> port=25060 user=doadmin dbname=def
 Expected: step 5 exits non-zero at `deploy failed at step: migrate`, both
 `ActiveEnterTimestamp` values are the same before and after, `dist`'s timestamp is
 unchanged, and `psql … -d wip_scratch -c '\dt'` shows nothing (the migrations rolled back).
-Record the date the check was run here: _not yet run_.
+While the checkout is at `deploy-check` the running release is still the previous one;
+"serving" in step 6's output is read from `/opt/wip/.deployed`, not from the checkout.
+
+**Run 2026-09-22** (owner, after the first deploy; criterion 3 of F05.0): step 5 stopped
+with `deploy failed at step: migrate`, exit 1; `wip-api` and `wip-worker`
+`ActiveEnterTimestamp` (08:45:33 / 08:45:34 UTC) and `frontend/dist` (08:40) were the same
+before and after; Alembic reported transactional DDL, so `wip_scratch` rolled back. Step 6
+redeployed `origin/main` (0b703bb) with exit 0; the branch was deleted, the scratch env file
+removed and `wip_scratch` dropped. Two things found and fixed in the run's wake: the commit
+in step 3 needs the `git add` above (`-a` had left the new file unstaged), and "serving"
+had shown the deploy-check commit (now read from `.deployed`).
 
 ### Restarting, and hand-run scripts
 
@@ -896,8 +915,9 @@ the D-11 allow-list; append-only triggers present and enabled on each of
 `APPEND_ONLY_TABLES` and the register matches; a HEAD on the Space's bucket succeeds. Exit 1
 on any `FAIL:` line. It never prints a URL, key, hostname or row. The same catalog queries
 (`app/tenancy/catalog.py`) are what `tests/test_rls.py` and `tests/test_append_only.py`
-enforce in CI. Recorded output of the run after the first deploy (2026-09-22, commit
-81158c2 plus the two fixes above, database `wip` at 0008; exit 0):
+enforce in CI. Run after the first deploy (2026-09-22, commit 81158c2 plus the two fixes
+above) and again after the last deploy of F05.0 (2026-09-22, commit 0b703bb, database
+`wip` at 0008); both passed. Output of the latter, verbatim (exit 0):
 
 ```
 ok: role is app_rw, NOSUPERUSER, NOBYPASSRLS

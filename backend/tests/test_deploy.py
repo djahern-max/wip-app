@@ -357,6 +357,14 @@ def test_deploy_script_locks_then_migrates_before_it_restarts() -> None:
     text_after_restart = "\n".join(lines[restart:])
     assert '"db":"unavailable"' in text_after_restart and "no answer from" in text_after_restart
     assert lines.count("systemctl restart wip-api wip-worker") == 1
+    # The serving commit comes from .deployed, written right after the restart, so a
+    # failed deploy (checkout at the failed ref, old release running) reports the truth.
+    written = first(r'tee "\$DEPLOYED_FILE"')
+    assert restart < written < first(r"\bcurl -sS")
+    assert 'PREVIOUS="$(cat "$DEPLOYED_FILE" 2>/dev/null || git_wip rev-parse HEAD)"' in "\n".join(
+        lines
+    )
+    assert 'DEPLOYED_FILE="$APP_DIR/.deployed"' in "\n".join(lines)
     text = "\n".join(lines)
     assert 'MIGRATE_ENV="${MIGRATE_ENV_FILE:-/etc/wip/migrate.env}"' in text
     assert 'ENV_FILE="$MIGRATE_ENV"' in text and "timeout 600" in text
