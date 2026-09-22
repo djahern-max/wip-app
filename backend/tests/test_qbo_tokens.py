@@ -130,6 +130,7 @@ def test_invalid_grant_sets_needs_reconnect_audits_and_clears_tokens(
             text("SELECT detail::text FROM audit_log WHERE action = 'connection_needs_reconnect'")
         ).scalar_one()
     assert "invalid_grant" in detail and "refresh-" not in detail and "access-" not in detail
+    assert '"intuit_tid": "tid-refused"' in detail  # F05.1: the refusal's trace id
 
 
 def test_a_401_causes_exactly_one_refresh_and_one_retry(

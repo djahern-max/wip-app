@@ -151,11 +151,13 @@ _Things noticed along the way that belong to another feature._
 
 - F05.1 (2026-09-22, full-suite run): `tests/test_rls.py::test_f04_tables_read_zero_rows_of_another_tenant` seeds a `cost_category` in tenant B with `slot = uuid.hex[:2]`; once another test has seeded the D-23 categories in tenant B, a random marker collides about once in a few hundred params (seen once as `uq_cost_category_tenant_slot` on slot 31; passed on rerun). Fix: a slot outside the D-23 range, or a marker that is not hex. Same run showed one setup ERROR in `test_migrations.py::test_0003_data_step…` that did not reproduce in two later full runs; cause not seen.
 - F05.1 (2026-09-22): a webhook that arrives while a poll is *running* enqueues nothing (the dedupe index covers running rows); the change lands on the next scheduled poll. A "one more after this" follow-up would shorten that to seconds. Not needed for the acceptance criteria.
+- F05.1 (2026-09-22, live disconnect check): the API service logs only uvicorn's access lines; the `app.*` loggers' INFO lines (the revoke status, "qbo webhook stored") never reach journald because only the worker's `__main__` calls `basicConfig`. The revoke outcome is on the `connection_disconnected` audit row (`revoked_at_source`), so nothing is lost; the API needs the same logging set-up (F23 or a patch).
 - F05.1 (2026-09-22, from Intuit "Configure webhooks"): `Merge` is a webhook operation on Customer, Account, Item, Vendor, Class, Department, Employee and PaymentMethod. What CDC returns after a customer merge (the merged-away customer id) needs checking in F07 before `job_alias` links are trusted across a merge.
 
 ### Close-out
 - [ ] CHANGELOG entry written
 - [ ] ROADMAP: F05.1 status flipped; S-01 ☑
+- [x] Questionnaire, Error Handling (2026-09-22): `QboError`/`NeedsReconnect` carry Intuit's `intuit_tid`; it is stored on the failed `sync_run.detail` and on the `connection_needs_reconnect` audit row. Support line (`mailto:admin@jobcost.dev`, the /privacy contact) in the signed-in footer. Tests: client, tokens, tasks.
 - [~] OPERATIONS.md: the four new subsections written 2026-09-22 (keys and questionnaire, webhooks, Intuit-side disconnect, deleting a tenant, environments); the Rye Beach connection record and the first `delete_tenant.py` use are placeholders until the live steps
 - [ ] BLUEPRINT §13.7: S-01 question 4 answered
 - [x] D-28 present in `docs/DECISIONS.md` (owner, 2026-09-22); D-29 appended 2026-09-22

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
-import { PRODUCT_NAME } from "../product.js";
+import { PRODUCT_NAME, SUPPORT_EMAIL } from "../product.js";
 import Config from "./Config.jsx";
 import Connections from "./Connections.jsx";
 import Imports from "./Imports.jsx";
@@ -128,6 +128,9 @@ export default function Shell({ me, onChanged, onLogout }) {
           </p>
         )}
       </main>
+      <footer className="footer">
+        Support: <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>
+      </footer>
     </div>
   );
 }

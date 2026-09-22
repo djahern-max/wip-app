@@ -117,7 +117,7 @@ def backfill_page(
         else:
             rows = fetch.page_after(reader, entity, after_id)
     except NeedsReconnect as exc:
-        _fail_run(engine, tenant_id, rid, "needs_reconnect")
+        _fail_run(engine, tenant_id, rid, "needs_reconnect", tid=exc.tid)
         raise PermanentTaskError("needs_reconnect") from exc
     with tenant_session(engine, tenant_id) as db:
         run = db.get(SyncRun, rid)
@@ -181,10 +181,17 @@ def backfill_page(
             log.info("qbo backfill finished run=%s tenant=%s", rid, tenant_id)
 
 
-def _fail_run(engine: Engine, tenant_id: UUID, run_id: UUID, error: str) -> None:
+def _fail_run(
+    engine: Engine, tenant_id: UUID, run_id: UUID, error: str, *, tid: str | None = None
+) -> None:
+    """Close the run as failed. ``tid`` (Intuit's ``intuit_tid`` of the failing
+    response) goes on ``detail`` so a support case can name the call (F05.1)."""
     with tenant_session(engine, tenant_id) as db:
         run = db.get(SyncRun, run_id)
         if run is not None and run.outcome is None:
+            detail = dict(run.detail or {})
+            if tid:
+                detail["intuit_tid"] = tid
             finish_sync_run(
                 db,
                 run,
@@ -192,7 +199,7 @@ def _fail_run(engine: Engine, tenant_id: UUID, run_id: UUID, error: str) -> None
                 records_fetched=run.records_fetched,
                 records_stored=run.records_stored,
                 error=error,
-                detail=run.detail,
+                detail=detail,
             )
 
 
@@ -228,10 +235,10 @@ def cdc_poll(tenant_id: UUID, *, engine: Engine, connection_id: str, slot: str |
         result = fetch.cdc(reader, CDC_ENTITIES, since)
         overflow_rows = {e: fetch.changed_after(reader, e, since) for e in result.overflowed}
     except NeedsReconnect as exc:
-        _fail_run(engine, tenant_id, run_id, "needs_reconnect")
+        _fail_run(engine, tenant_id, run_id, "needs_reconnect", tid=exc.tid)
         raise PermanentTaskError("needs_reconnect") from exc
     except client.QboError as exc:
-        _fail_run(engine, tenant_id, run_id, exc.code)
+        _fail_run(engine, tenant_id, run_id, exc.code, tid=exc.tid)
         raise
     with tenant_session(engine, tenant_id) as db:
         run = db.get(SyncRun, run_id)
@@ -343,10 +350,10 @@ def drift_check(tenant_id: UUID, *, engine: Engine, connection_id: str, slot: st
             if entity not in SINGLETONS:
                 quickbooks[entity] = fetch.count(reader, entity)
     except NeedsReconnect as exc:
-        _fail_run(engine, tenant_id, run_id, "needs_reconnect")
+        _fail_run(engine, tenant_id, run_id, "needs_reconnect", tid=exc.tid)
         raise PermanentTaskError("needs_reconnect") from exc
     except client.QboError as exc:
-        _fail_run(engine, tenant_id, run_id, exc.code)
+        _fail_run(engine, tenant_id, run_id, exc.code, tid=exc.tid)
         raise
     with tenant_session(engine, tenant_id) as db:
         run = db.get(SyncRun, run_id)

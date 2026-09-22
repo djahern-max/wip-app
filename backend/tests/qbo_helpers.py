@@ -113,7 +113,9 @@ class FakeIntuit:
         with self._lock:
             self.refresh_calls += 1
             if self.refuse_refresh or form["refresh_token"] not in self.refresh_tokens:
-                return httpx.Response(400, json={"error": "invalid_grant"})
+                return httpx.Response(
+                    400, json={"error": "invalid_grant"}, headers={"intuit_tid": "tid-refused"}
+                )
             # Rotation: the presented refresh token stops working.
             self.refresh_tokens.discard(form["refresh_token"])
             return httpx.Response(200, json=self._issue())

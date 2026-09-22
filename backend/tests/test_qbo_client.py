@@ -63,14 +63,30 @@ def test_gives_up_after_max_tries_and_names_no_body() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append(1)
-        return httpx.Response(500, json={"secret-ish": "body"})
+        return httpx.Response(500, json={"secret-ish": "body"}, headers={"intuit_tid": "tid-500"})
 
     sleeps = _install(handler)
     with pytest.raises(qbo_client.QboError) as err:
         _get()
     assert len(calls) == MAX_TRIES and len(sleeps) == MAX_TRIES - 1
     assert err.value.code == "unavailable" and err.value.status == 500
+    assert err.value.tid == "tid-500"  # F05.1: Intuit support traces a call by it
     assert "body" not in str(err.value)
+
+
+def test_api_errors_carry_the_tid_and_none_without_a_response() -> None:
+    _install(lambda request: httpx.Response(400, json={}, headers={"intuit_tid": "tid-400"}))
+    with pytest.raises(qbo_client.QboError) as err:
+        _get()
+    assert err.value.code == "api_error" and err.value.tid == "tid-400"
+
+    def transport_error(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("no route")
+
+    _install(transport_error)
+    with pytest.raises(qbo_client.QboError) as err:
+        _get()
+    assert err.value.code == "unavailable" and err.value.tid is None
 
 
 def test_transport_errors_are_retried() -> None:

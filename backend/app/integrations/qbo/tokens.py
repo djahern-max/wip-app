@@ -36,7 +36,13 @@ log = logging.getLogger("app.qbo")
 
 
 class NeedsReconnect(Exception):
-    """The connection cannot be used until a firm admin reconnects it."""
+    """The connection cannot be used until a firm admin reconnects it. ``tid`` is
+    Intuit's trace id of the refusal when Intuit was asked (F05.1)."""
+
+    def __init__(self, reason: str, *, tid: str | None = None) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.tid = tid
 
 
 @dataclass(frozen=True)
@@ -82,6 +88,7 @@ def access_for(
             access_token, refresh_token = None, None
         now = datetime.now(UTC)
         environment = connection.environment or settings.qbo_environment or ""
+        tid: str | None = None
         if connection.environment and connection.environment != settings.qbo_environment:
             # F05.1 (plan question 5): the server's keys belong to the other Intuit
             # environment (the sandbox tenant after the production key swap). A
@@ -97,8 +104,9 @@ def access_for(
         else:
             try:
                 tokens = client.refresh_tokens(settings, refresh_token)
-            except client.TokenRefused:
-                mark_needs_reconnect(db, connection, reason="invalid_grant")
+            except client.TokenRefused as exc:
+                tid = exc.tid
+                mark_needs_reconnect(db, connection, reason="invalid_grant", tid=tid)
                 reason = "invalid_grant"
             else:
                 store_refreshed_tokens(
@@ -114,6 +122,10 @@ def access_for(
                 return Access(tokens.access_token, connection.realm_id, environment)
     # The transaction above committed the needs_reconnect status and its audit row.
     log.warning(
-        "qbo needs reconnect connection=%s tenant=%s reason=%s", connection_id, tenant_id, reason
+        "qbo needs reconnect connection=%s tenant=%s reason=%s tid=%s",
+        connection_id,
+        tenant_id,
+        reason,
+        tid or "-",
     )
-    raise NeedsReconnect(reason)
+    raise NeedsReconnect(reason, tid=tid)

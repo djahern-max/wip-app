@@ -5,6 +5,7 @@ the real one; nothing reaches the network."""
 import uuid
 from datetime import UTC, datetime, timedelta
 
+import httpx
 import pytest
 from sqlalchemy import Engine, select, text
 
@@ -172,6 +173,7 @@ def test_backfill_stops_without_retries_when_the_connection_needs_reconnecting(
         assert db.get(Connection, cid).status == "needs_reconnect"
     (run,) = _runs(rw_engine, tenant, "backfill")
     assert run.outcome == "failed" and run.error == "needs_reconnect"
+    assert run.detail["intuit_tid"] == "tid-refused"  # F05.1: the refusal's trace id
 
 
 # --- change polling --------------------------------------------------------------------
@@ -243,6 +245,23 @@ def test_a_poll_stores_the_changed_and_deleted_invoice_and_the_deleted_one_leave
     # The poll asked from the cursor, with an offset instant Intuit accepts.
     assert served.cdc_calls[-1]["entities"].split(",") == list(ENTITIES)
     assert served.cdc_calls[-1]["changedSince"].endswith("+00:00")
+
+
+def test_a_poll_that_intuit_cannot_answer_fails_the_run_with_the_trace_id(
+    company, rw_engine: Engine
+) -> None:
+    """F05.1: the failing response's ``intuit_tid`` is kept on ``sync_run.detail`` so a
+    support case can name the call."""
+    tenant, cid, fake, served = _backfilled(company, rw_engine)
+    fake.on_api(
+        "cdc", lambda request: httpx.Response(503, json={}, headers={"intuit_tid": "tid-cdc-503"})
+    )
+    with tenant_session(rw_engine, tenant) as db:
+        schedule.enqueue_cdc_poll(db, tenant, cid, slot=None)
+    _drain(rw_engine, tenant)
+    (run,) = _runs(rw_engine, tenant, "cdc")
+    assert run.outcome == "failed" and run.error == "unavailable"
+    assert run.detail["intuit_tid"] == "tid-cdc-503"
 
 
 def test_a_scheduled_poll_enqueues_its_successor_first_and_a_sync_now_is_deduped(

@@ -109,12 +109,19 @@ def clear_connection_tokens(connection: Connection) -> None:
     connection.token_expires_at = connection.refresh_token_expires_at = None
 
 
-def mark_needs_reconnect(db: Session, connection: Connection, *, reason: str) -> None:
+def mark_needs_reconnect(
+    db: Session, connection: Connection, *, reason: str, tid: str | None = None
+) -> None:
     """The source refused the refresh token, or the connection was revoked there.
-    ``reason`` is a short code (``invalid_grant``), never a response body. Tokens
-    that no longer work are cleared. Audited; the actor is the system."""
+    ``reason`` is a short code (``invalid_grant``), never a response body; ``tid`` is
+    the source's trace id of the refusal (Intuit's ``intuit_tid``), kept on the audit
+    row for a support case (F05.1). Tokens that no longer work are cleared.
+    Audited; the actor is the system."""
     if connection.status == "needs_reconnect":
         return
+    detail: dict = {"system": connection.system, "reason": reason[:80]}
+    if tid:
+        detail["intuit_tid"] = tid[:80]
     clear_connection_tokens(connection)
     connection.status = "needs_reconnect"
     connection.last_error = reason[:500]
@@ -127,7 +134,7 @@ def mark_needs_reconnect(db: Session, connection: Connection, *, reason: str) ->
         entity_id=connection.id,
         actor_user_id=None,
         actor_role=None,
-        detail={"system": connection.system, "reason": reason[:80]},
+        detail=detail,
     )
 
 

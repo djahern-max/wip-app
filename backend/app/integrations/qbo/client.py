@@ -7,7 +7,9 @@ OAuth token endpoints; nothing else in the application opens a connection to the
 - 429, 5xx and transport failures: wait (``Retry-After`` when given, otherwise
   doubling from one second, capped) and try again, ``MAX_TRIES`` in all.
 - Log lines carry the operation, the status code and Intuit's ``intuit_tid``; never
-  a payload, a token, a code, the client secret or a name.
+  a payload, a token, a code, the client secret or a name. A failure's ``QboError``
+  carries the same ``tid`` (Intuit support traces a call by it), and the callers
+  store it on ``sync_run.detail`` or the audit row (F05.1).
 - ``TRANSPORT`` is ``None`` in production (the network). The test harness installs
   a stub here, so CI never reaches Intuit.
 
@@ -48,12 +50,15 @@ SLEEP = time.sleep
 
 
 class QboError(Exception):
-    """``code`` is a short machine word; messages never carry a response body."""
+    """``code`` is a short machine word; messages never carry a response body.
+    ``tid`` is Intuit's ``intuit_tid`` of the failing response (``None`` when no
+    response came back), safe to store and show."""
 
-    def __init__(self, code: str, status: int | None = None) -> None:
+    def __init__(self, code: str, status: int | None = None, *, tid: str | None = None) -> None:
         super().__init__(code)
         self.code = code
         self.status = status
+        self.tid = tid
 
 
 class TokenRefused(QboError):
@@ -86,6 +91,14 @@ def _retry_after(response: httpx.Response | None, fallback: float) -> float:
     return fallback
 
 
+def tid_of(response: httpx.Response | None) -> str | None:
+    """Intuit's trace id of a response, at most 80 characters, ``None`` when absent."""
+    if response is None:
+        return None
+    value = response.headers.get(TID_HEADER, "").strip()
+    return value[:80] or None
+
+
 def _send(operation: str, build: Any, *, read_timeout: float) -> httpx.Response:
     """``build(client)`` sends one request. Retries 429, 5xx and transport errors."""
     delay = BACKOFF_FIRST_SECONDS
@@ -112,7 +125,9 @@ def _send(operation: str, build: Any, *, read_timeout: float) -> httpx.Response:
                 break
             SLEEP(_retry_after(response, delay))
             delay = min(delay * 2, BACKOFF_CAP_SECONDS)
-    raise QboError("unavailable", None if response is None else response.status_code)
+    raise QboError(
+        "unavailable", None if response is None else response.status_code, tid=tid_of(response)
+    )
 
 
 def _body(response: httpx.Response) -> Any:
@@ -130,8 +145,8 @@ def _token_set(response: httpx.Response, now: datetime) -> TokenSet:
     if response.status_code != 200 or not isinstance(body, dict):
         error = body.get("error") if isinstance(body, dict) else None
         if error == "invalid_grant":
-            raise TokenRefused("invalid_grant", response.status_code)
-        raise QboError("token_endpoint_error", response.status_code)
+            raise TokenRefused("invalid_grant", response.status_code, tid=tid_of(response))
+        raise QboError("token_endpoint_error", response.status_code, tid=tid_of(response))
     try:
         refresh_in = body.get("x_refresh_token_expires_in")
         return TokenSet(
@@ -225,8 +240,8 @@ def api_get(
         read_timeout=READ_TIMEOUT,
     )
     if response.status_code == 401:
-        raise Unauthorized("unauthorized", 401)
+        raise Unauthorized("unauthorized", 401, tid=tid_of(response))
     body = _body(response)
     if response.status_code != 200 or body is None:
-        raise QboError("api_error", response.status_code)
+        raise QboError("api_error", response.status_code, tid=tid_of(response))
     return body

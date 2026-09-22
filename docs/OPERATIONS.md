@@ -670,6 +670,13 @@ these words, adding nothing):
   ("Deleting a tenant").
 - **Contact**: `admin@jobcost.dev`; the operating entity is Ryze Group, Inc., a New
   Hampshire corporation.
+- **Error handling**: a 429, 5xx or transport failure at Intuit is retried five times in
+  all with exponential backoff (1 s doubling, capped at 60 s, `Retry-After` honoured); an
+  `invalid_grant` refusal is never retried and ends the connection as "needs reconnect".
+  The failing response's `intuit_tid` is stored on the failed `sync_run.detail` or on the
+  `connection_needs_reconnect` audit row, and every Intuit call is logged with its
+  `intuit_tid`, so a support case can name the call. The signed-in app's footer carries
+  `Support: admin@jobcost.dev`.
 
 When the keys arrive, on the droplet as root: put them in `/etc/wip/app.env` as
 `QBO_CLIENT_ID` and `QBO_CLIENT_SECRET`, set `QBO_ENVIRONMENT=production`, put the
