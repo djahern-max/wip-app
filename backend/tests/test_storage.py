@@ -124,6 +124,44 @@ def test_s3_store_puts_privately_under_the_tenant_prefix() -> None:
     stub.assert_no_pending_responses()
 
 
+class _StreamingBody:
+    """What boto3 hands back for ``get_object``: readable, closeable, not seekable."""
+
+    def __init__(self, data: bytes) -> None:
+        self._buf = io.BytesIO(data)
+        self.closed = False
+
+    def read(self, amt: int | None = None) -> bytes:
+        return self._buf.read(amt)
+
+    def seek(self, *_args: object) -> int:
+        raise io.UnsupportedOperation("seek")
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_s3_open_yields_a_seekable_stream_and_closes_the_body() -> None:
+    """Production-only bug: ``parse_chart`` reads 4 bytes and rewinds. The local store
+    yields a real file, boto3 a streaming body that refuses ``seek`` (this class);
+    the S3 store must spool so every source kind sees the local store's contract."""
+    store, stub = _stubbed_store()
+    key = f"tenant/{TENANT}/imports/chart.xlsx"
+    body = _StreamingBody(b"PK\x03\x04rest-of-workbook")
+    stub.add_response(
+        "get_object", {"Body": body, "ContentLength": 20}, {"Bucket": "wip-bucket", "Key": key}
+    )
+    with stub:
+        with store.open(TENANT, "imports/chart.xlsx") as f:
+            assert f.read(4) == b"PK\x03\x04"
+            assert f.seek(0) == 0
+            assert f.read() == b"PK\x03\x04rest-of-workbook"
+            assert f.seekable()
+            assert body.closed  # the network body is released once spooled
+        assert f.closed  # the spool file is released on exit
+    stub.assert_no_pending_responses()
+
+
 def test_s3_signed_url_names_bucket_key_and_expiry() -> None:
     store, _stub = _stubbed_store()
     url = store.signed_url(TENANT, "imports/abc.csv", 60)

@@ -387,7 +387,12 @@ Before the first deployment (D-21): create the Space and an access key, set the
 five variables, then upload one file through the Imports page and download it, and
 record the date and the bucket name here.
 
-_First manual upload/download against Spaces: not yet done (F05.0 owner pass; see "Production (jobcost.dev)")._
+First manual upload/download against Spaces (D-21): **done 2026-09-22**, bucket
+`jobcost-files` (NYC3), one file uploaded through Imports and downloaded by signed
+URL. The same check found that the chart-of-accounts parse failed against Spaces
+(`UnsupportedOperation`: boto3's body is not seekable); `S3ObjectStore.open` now
+spools the object to a temporary file so every source kind reads a seekable stream,
+as it does from the local store.
 
 ### Imports
 

@@ -9,10 +9,16 @@ refused. Objects are private; downloads use signed URLs with a short expiry.
 never writes outside it. ``S3ObjectStore`` talks to DigitalOcean Spaces through
 ``boto3`` with a private ACL. No S3 emulator: the S3 store is tested with
 botocore's Stubber.
+
+``open`` yields a *seekable* stream from every store. boto3's streaming body is
+not seekable, so the S3 store spools the object to a temporary file first (an
+object is at most ``MAX_UPLOAD_BYTES``); a parser that sniffs the first bytes and
+rewinds then behaves the same in production as it does against the local store.
 """
 
 import re
 import shutil
+import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -52,7 +58,8 @@ class ObjectStore(Protocol):
 
     @contextmanager
     def open(self, tenant_id: UUID, relative_key: str) -> Iterator[BinaryIO]:
-        """A readable binary stream; ``ObjectStoreError`` when the object is missing."""
+        """A readable, seekable binary stream positioned at 0; ``ObjectStoreError``
+        when the object is missing."""
 
     def signed_url(self, tenant_id: UUID, relative_key: str, ttl: int) -> str | None:
         """A short-lived download URL, or ``None`` when the store streams instead."""
@@ -132,10 +139,16 @@ class S3ObjectStore:
                 raise ObjectStoreError("object not found") from None
             raise
         body = response["Body"]
+        tmp = tempfile.TemporaryFile()
         try:
-            yield body
+            shutil.copyfileobj(body, tmp)
         finally:
             body.close()
+        try:
+            tmp.seek(0)
+            yield tmp
+        finally:
+            tmp.close()
 
     def signed_url(self, tenant_id: UUID, relative_key: str, ttl: int) -> str | None:
         return self.client.generate_presigned_url(
