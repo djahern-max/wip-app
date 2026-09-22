@@ -432,7 +432,7 @@ def test_status_shows_counts_attention_items_and_month_totals_as_strings(
         assert admin.post("/api/qbo/backfill", headers=CSRF).json()["created"] is False
         body = admin.get("/api/qbo/status").json()
         assert body["held"]["backfill"]["outcome_label"] == "Running"
-        _drain(rw_engine)
+        _drain(rw_engine, fresh_tenant)
         body = admin.get("/api/qbo/status").json()
     held = body["held"]
     assert held["backfill"]["outcome_label"] == "Succeeded" and held["backfill_needed"] is False

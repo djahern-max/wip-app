@@ -43,10 +43,15 @@ def company(fresh_tenant: uuid.UUID, rw_engine: Engine):
         yield fresh_tenant, cid, fake, served
 
 
-def _drain(engine: Engine, *, limit: int = 400) -> int:
-    """Run the worker until nothing is due (all tenants: a leftover task of another
-    test runs too, on its own tenant)."""
+def _drain(engine: Engine, tenant_id: uuid.UUID, *, limit: int = 400) -> int:
+    """Run the worker until nothing of ``tenant_id`` is due. Pinned to the one tenant:
+    the real worker sweeps every tenant, and a scheduled change poll seeded by an
+    earlier test's tenant (next 15-minute wall-clock slot, ``next_cdc_slot``) comes due
+    at some point in the run. Let in, it runs under *this* test's ``FakeIntuit``, whose
+    401 → refresh → ``invalid_grant`` path counts a refresh this test never made
+    (CI #24, 2026-09-22: ``refresh_calls`` 2 instead of 1)."""
     w = Worker(engine, name="w-qbo", listen=False, poll_seconds=0.01)
+    w.tenant_ids = lambda: [tenant_id]  # type: ignore[method-assign]
     ran = 0
     for _ in range(limit):
         n = w.run_once()
@@ -102,7 +107,7 @@ def test_backfill_is_one_task_per_page_stores_every_record_and_a_second_run_writ
     assert len(first_pages) == len(ENTITIES) and {t.payload["after_id"] for t in first_pages} == {
         "0"
     }
-    _drain(rw_engine)
+    _drain(rw_engine, tenant)
     pages = _tasks(rw_engine, tenant, BACKFILL_PAGE_KIND)
     assert all(t.status == "succeeded" for t in pages), [t.last_error for t in pages]
     # Keyset paging: a full page is followed by one more fetch that comes back short or
@@ -139,7 +144,7 @@ def test_backfill_is_one_task_per_page_stores_every_record_and_a_second_run_writ
     before = _raw_count(rw_engine, tenant)
     with tenant_session(rw_engine, tenant) as db:
         assert start_backfill(db, tenant, db.get(Connection, cid)) is not None
-    _drain(rw_engine)
+    _drain(rw_engine, tenant)
     assert _raw_count(rw_engine, tenant) == before
     second = _runs(rw_engine, tenant, "backfill")[1]
     assert second.outcome == "succeeded" and second.records_stored == 0
@@ -155,7 +160,7 @@ def test_backfill_stops_without_retries_when_the_connection_needs_reconnecting(
         c = db.get(Connection, cid)
         c.token_expires_at = datetime.now(UTC)  # expired: the first call must refresh
         start_backfill(db, tenant, c)
-    _drain(rw_engine)
+    _drain(rw_engine, tenant)
     pages = _tasks(rw_engine, tenant, BACKFILL_PAGE_KIND)
     failed = [t for t in pages if t.status == "failed"]
     assert failed and {t.last_error for t in failed} == {"needs_reconnect"}
@@ -176,7 +181,7 @@ def _backfilled(company, rw_engine: Engine):
     tenant, cid, fake, served = company
     with tenant_session(rw_engine, tenant) as db:
         start_backfill(db, tenant, db.get(Connection, cid))
-    _drain(rw_engine)
+    _drain(rw_engine, tenant)
     return tenant, cid, fake, served
 
 
@@ -195,7 +200,7 @@ def test_a_poll_stores_the_changed_and_deleted_invoice_and_the_deleted_one_leave
     served.cdc_body = {"CDCResponse": [{"QueryResponse": [{"Invoice": [held]}]}], "time": "x"}
     with tenant_session(rw_engine, tenant) as db:
         schedule.enqueue_cdc_poll(db, tenant, cid, slot=None)
-    _drain(rw_engine)
+    _drain(rw_engine, tenant)
     with tenant_session(rw_engine, tenant) as db:
         month = held["TxnDate"][:7]
         before = next(t for t in month_totals(db, tenant) if t.month == month).invoices
@@ -204,7 +209,7 @@ def test_a_poll_stores_the_changed_and_deleted_invoice_and_the_deleted_one_leave
     served.cdc_body = fixture("cdc_changed_and_deleted")
     with tenant_session(rw_engine, tenant) as db:
         schedule.enqueue_cdc_poll(db, tenant, cid, slot=None)
-    _drain(rw_engine)
+    _drain(rw_engine, tenant)
     runs = _runs(rw_engine, tenant, "cdc")
     assert [r.outcome for r in runs] == ["succeeded", "succeeded"]
     assert runs[-1].detail["deleted"] == {"Invoice": 1} and runs[-1].detail["changed"] == {
@@ -249,7 +254,7 @@ def test_a_scheduled_poll_enqueues_its_successor_first_and_a_sync_now_is_deduped
     assert seeded.dedupe_key.startswith(f"cdc:{cid}:") and seeded.run_after > datetime.now(UTC)
     with tenant_session(rw_engine, tenant) as db:  # make it due
         db.execute(text("UPDATE task SET run_after = now() WHERE id = :id"), {"id": seeded.id})
-    _drain(rw_engine)
+    _drain(rw_engine, tenant)
     polls = _tasks(rw_engine, tenant, CDC_KIND)
     done = [t for t in polls if t.id == seeded.id]
     assert done[0].status == "succeeded"
@@ -278,7 +283,7 @@ def test_the_chain_stops_when_disconnected_and_a_too_old_cursor_asks_for_a_backf
         db.get(Connection, cid).status = "disconnected"
         seeded = [t for t in _tasks(rw_engine, tenant, CDC_KIND) if t.status == "queued"][0]
         db.execute(text("UPDATE task SET run_after = now() WHERE id = :id"), {"id": seeded.id})
-    _drain(rw_engine)
+    _drain(rw_engine, tenant)
     polls = _tasks(rw_engine, tenant, CDC_KIND)
     assert [t.status for t in polls if t.id == seeded.id] == ["succeeded"]
     assert not [t for t in polls if t.status == "queued"]  # no successor
@@ -296,7 +301,7 @@ def test_the_chain_stops_when_disconnected_and_a_too_old_cursor_asks_for_a_backf
         )
         schedule.enqueue_cdc_poll(db, tenant, cid, slot=None)
     calls = len(served.cdc_calls)
-    _drain(rw_engine)
+    _drain(rw_engine, tenant)
     (run,) = _runs(rw_engine, tenant, "cdc")
     assert run.outcome == "failed" and run.error == "cursor_too_old"
     assert len(served.cdc_calls) == calls
@@ -315,7 +320,7 @@ def test_a_changed_payment_arriving_by_poll_replaces_its_applications(
     served.cdc_body = {"CDCResponse": [{"QueryResponse": [{"Payment": [reapplied]}]}], "time": "x"}
     with tenant_session(rw_engine, tenant) as db:
         schedule.enqueue_cdc_poll(db, tenant, cid, slot=None)
-    _drain(rw_engine)
+    _drain(rw_engine, tenant)
     with tenant_session(rw_engine, tenant) as db:
         p = db.execute(select(Payment).where(Payment.external_id == "74")).scalar_one()
         assert p.unapplied_amount == p.total == 100
@@ -364,7 +369,7 @@ def test_normalize_ignores_a_version_that_is_no_longer_the_latest(
             NORMALIZE_KIND,
             {"connection_id": str(cid), "entity": "Invoice", "raw_record_ids": [str(old_id)]},
         )
-    _drain(rw_engine)
+    _drain(rw_engine, tenant)
     with tenant_session(rw_engine, tenant) as db:
         billing = db.execute(select(Billing).where(Billing.external_id == "39")).scalar_one()
         assert billing.raw_record_id == old_id  # untouched: the old version is stale
@@ -387,7 +392,7 @@ def test_a_clean_drift_check_ends_succeeded_re_pulls_nothing_and_re_arms(
     raw_before = _raw_count(rw_engine, tenant)
     queries_before = len(served.queries)
     task_row = _due_drift(rw_engine, tenant)
-    _drain(rw_engine)
+    _drain(rw_engine, tenant)
     (run,) = _runs(rw_engine, tenant, "drift")
     assert run.outcome == "succeeded" and run.detail["counts"] == {} and run.detail["months"] == {}
     assert _raw_count(rw_engine, tenant) == raw_before
@@ -419,7 +424,7 @@ def test_a_missing_record_and_a_wrong_total_are_named_by_the_drift_check(
         billing.subtotal = billing.subtotal + 1
         month = billing.txn_date.strftime("%Y-%m")
     _due_drift(rw_engine, tenant)
-    _drain(rw_engine)
+    _drain(rw_engine, tenant)
     (run,) = _runs(rw_engine, tenant, "drift")
     assert run.outcome == "drift"
     assert run.detail["counts"] == {
@@ -458,7 +463,7 @@ def test_a_chart_loaded_after_the_backfill_attaches_without_any_account_change(
     polls_before = len(served.cdc_calls)
     with installed(fake):
         upload_chart(client, ("\n".join(lines) + "\n").encode(), "sandbox-chart.csv")
-        _drain(rw_engine)  # the import, its follow-on, and nothing from QuickBooks
+        _drain(rw_engine, tenant)  # the import, its follow-on, and nothing from QuickBooks
     assert len(served.cdc_calls) == polls_before
     with tenant_session(rw_engine, tenant) as db:
         match = chart_match(db, tenant)

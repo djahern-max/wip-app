@@ -19,6 +19,12 @@ polling runs only while `make worker` runs. Production holds test tenants that a
 delete-tenant command (Discovered below) will remove.
 
 ## Discovered
+Test isolation (2026-09-22, from CI #24): `tests/test_worker.py` asserts `run_once() == 1`
+/ `== 2` with a worker that sweeps every tenant, so a scheduled change poll seeded by an
+earlier QBO test's tenant (next 15-minute wall-clock slot) can be claimed in that count;
+under `refuse_all_transport` it would fail and retry. Same cause as the `_drain` fix in
+`tests/test_qbo_tasks.py`; pin `_worker()` to the seed tenants when it shows.
+
 F05.0 (2026-09-22, owner pass and droplet work; carry into the F05.1 brief or later):
 - Imports download should send `Content-Disposition` with the original filename (the signed Spaces URL serves the object under its content-addressed key).
 - The TOTP enrolment page does not recover from a reload mid-enrolment; issuing a new activation link was the workaround.
