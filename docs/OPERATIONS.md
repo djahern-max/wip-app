@@ -24,9 +24,13 @@ Run `db/init/01_roles.sh` once against the server with a superuser or the
 managed-service admin role:
 
 ```sh
-APP_OWNER_PASSWORD=… APP_RW_PASSWORD=… APP_DATABASES=wip \
-PGHOST=… PGPORT=… POSTGRES_USER=doadmin PGPASSWORD=… db/init/01_roles.sh
+APP_OWNER_PASSWORD=… APP_RW_PASSWORD=… APP_DATABASES=wip PG_MAINTENANCE_DB=defaultdb \
+PGSSLMODE=require PGHOST=… PGPORT=25060 POSTGRES_USER=doadmin PGPASSWORD=… db/init/01_roles.sh
 ```
+
+`PG_MAINTENANCE_DB` is the database the script connects to for the role and `CREATE
+DATABASE` statements: DigitalOcean Managed Postgres has no `postgres` database, only
+`defaultdb`; Docker and CI keep the default `postgres`.
 
 Then set `DATABASE_OWNER_URL` (app_owner) for the migration step and
 `DATABASE_URL` (app_rw) for the API and worker. For jobcost.dev the exact command, the
@@ -658,7 +662,9 @@ lines; `--since "1 hour ago"`). nginx: `/var/log/nginx/access.log`, `error.log`.
 ### First-time set-up, in order
 
 Console work first (done 2026-09-21): project, droplet with SSH key only, Managed Postgres
-with the droplet as its only trusted source, the Space and one access key, the cloud
+with the droplet as its only trusted source (added as the droplet resource, not as its
+public IP: the droplet reaches the cluster over the VPC address), the Space and one
+access key, the cloud
 firewall (22 from the owner's IP, 80 and 443 from anywhere), Namecheap A records for `@`
 and `www`, the Intuit redirect URI `https://jobcost.dev/api/qbo/callback`.
 
@@ -692,11 +698,16 @@ and `www`, the Intuit redirect URI `https://jobcost.dev/api/qbo/callback`.
    (`python3 -c "import secrets;print(secrets.token_hex(24))"` twice), put them in the
    two URLs of step 2, then:
    ```sh
-   PGSSLMODE=require PGHOST=<private hostname> PGPORT=25060 \
+   PGSSLMODE=require PGHOST=<private hostname> PGPORT=25060 PG_MAINTENANCE_DB=defaultdb \
    POSTGRES_USER=doadmin PGPASSWORD='<doadmin password>' \
    APP_OWNER_PASSWORD='<app_owner password>' APP_RW_PASSWORD='<app_rw password>' \
    APP_DATABASES=wip bash /opt/wip/db/init/01_roles.sh
    ```
+   `PG_MAINTENANCE_DB=defaultdb` because the managed cluster has no `postgres` database.
+   If the connection is refused or times out, check the cluster's trusted sources: the
+   entry must be the **droplet as a resource** (chosen from the list of droplets), not
+   its public IP address, because connections from the droplet arrive over the VPC
+   address, not the public one.
    If `CREATE DATABASE wip OWNER app_owner` is refused with "must be able to SET ROLE
    app_owner" (Postgres 16 on a managed cluster, where `doadmin` is not a superuser), run
    `psql "sslmode=require host=<private hostname> port=25060 user=doadmin dbname=defaultdb" -c 'GRANT app_owner TO doadmin;'`
@@ -768,7 +779,8 @@ touched, and the scratch database is dropped afterwards.
 
 ```sh
 # 1. a scratch database on the cluster (roles exist already; the script skips them)
-PGSSLMODE=require PGHOST=<private hostname> PGPORT=25060 POSTGRES_USER=doadmin PGPASSWORD='…' \
+PGSSLMODE=require PGHOST=<private hostname> PGPORT=25060 PG_MAINTENANCE_DB=defaultdb \
+POSTGRES_USER=doadmin PGPASSWORD='…' \
 APP_OWNER_PASSWORD='<app_owner password>' APP_RW_PASSWORD='<app_rw password>' \
 APP_DATABASES=wip_scratch bash /opt/wip/db/init/01_roles.sh
 
