@@ -28,14 +28,12 @@ export default function App() {
   }
 
   if (window.location.pathname === "/activate") {
-    // The token is in the fragment (never sent to a server). Read it once and clear
-    // it from the address bar; the page posts it in the request body.
-    const fromHash = new URLSearchParams(window.location.hash.replace(/^#/, "")).get("token") || "";
-    if (fromHash) {
-      window.__activationToken = fromHash;
-      window.history.replaceState(null, "", "/activate");
-    }
-    return <Activate token={window.__activationToken || ""} />;
+    // The token is in the fragment (never sent to a server); the page posts it in the
+    // request body. It stays in the address until the link has been used, so a reload
+    // before "Save password" still has it (F05.1 small fix: clearing it on first read
+    // left a reloaded page with nothing, and only a new link could recover).
+    const token = new URLSearchParams(window.location.hash.replace(/^#/, "")).get("token") || "";
+    return <Activate token={token} />;
   }
   if (me === undefined) return <p className="main">Loading…</p>;
   if (me === null) return <Login onLoggedIn={refresh} />;

@@ -10,7 +10,12 @@ import time
 import httpx
 import uvicorn
 
-from app.api.qbo import CALLBACK_PATH, CallbackQueryFilter, install_access_log_filter
+from app.api.qbo import (
+    CALLBACK_PATH,
+    DISCONNECTED_PATH,
+    CallbackQueryFilter,
+    install_access_log_filter,
+)
 from app.main import create_app
 from tests.leaks import record_secret
 from tests.logcapture import RECORDS
@@ -82,3 +87,8 @@ def test_the_filter_is_installed_once_and_only_touches_the_callback() -> None:
     )
     other = record("/api/imports?x=1")
     assert filters[0].filter(other) and "x=1" in other.getMessage()
+    # F05.1: the disconnect page's realm id is dropped the same way.
+    gone = record(f"{DISCONNECTED_PATH}?realmId=9130000000000000")
+    assert filters[0].filter(gone) and gone.getMessage().endswith(
+        f'"GET {DISCONNECTED_PATH} HTTP/1.1" 303'
+    )

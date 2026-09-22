@@ -7,8 +7,9 @@ and both expiries from the response, commit. It never shares a transaction with 
 API call, so a later failure cannot roll back a refresh token Intuit has already
 replaced.
 
-``invalid_grant`` (or no refresh token at all) sets ``needs_reconnect`` with an audit
-row, in the same transaction, and raises ``NeedsReconnect``. Tasks turn that into a
+``invalid_grant`` (or no refresh token at all, or a connection made with the other
+Intuit environment than the server's keys, F05.1) sets ``needs_reconnect`` with an
+audit row, in the same transaction, and raises ``NeedsReconnect``. Tasks turn that into a
 permanent failure: no retries, the worker keeps running.
 """
 
@@ -81,9 +82,16 @@ def access_for(
             access_token, refresh_token = None, None
         now = datetime.now(UTC)
         environment = connection.environment or settings.qbo_environment or ""
-        if access_token and _fresh(connection, now, not_before=rejected_at):
+        if connection.environment and connection.environment != settings.qbo_environment:
+            # F05.1 (plan question 5): the server's keys belong to the other Intuit
+            # environment (the sandbox tenant after the production key swap). A
+            # refresh would be refused with something other than invalid_grant and
+            # retried for ever; end the chain once instead.
+            mark_needs_reconnect(db, connection, reason="environment_mismatch")
+            reason = "environment_mismatch"
+        elif access_token and _fresh(connection, now, not_before=rejected_at):
             return Access(access_token, connection.realm_id, environment)
-        if not refresh_token:
+        elif not refresh_token:
             mark_needs_reconnect(db, connection, reason="no_refresh_token")
             reason = "no_refresh_token"
         else:

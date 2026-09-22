@@ -26,6 +26,11 @@ from app.integrations.base import load_source_kinds
 
 log = logging.getLogger("app")
 
+# F05.1: the one POST that no browser sends. Intuit's webhook carries its own proof
+# (the HMAC signature, checked first thing in the route) and no session or cookie is
+# ever read there, so the CSRF header has nothing to protect.
+CSRF_EXEMPT_PATHS = frozenset({"/api/qbo/webhook"})
+
 # The production source kinds, from the same list the worker loads.
 load_source_kinds()
 
@@ -94,6 +99,7 @@ def create_app() -> FastAPI:
         elif (
             request.method in CSRF_METHODS
             and request.url.path.startswith("/api/")
+            and request.url.path not in CSRF_EXEMPT_PATHS
             and not request.headers.get(CSRF_HEADER)
         ):
             response = JSONResponse(

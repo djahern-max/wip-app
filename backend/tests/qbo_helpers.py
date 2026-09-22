@@ -19,10 +19,11 @@ import httpx
 
 from app.integrations.qbo import client as qbo_client
 from app.integrations.qbo.constants import REVOKE_URL, TOKEN_URL
-from tests._env import QBO_CLIENT_SECRET
+from tests._env import QBO_CLIENT_SECRET, QBO_WEBHOOK_VERIFIER
 from tests.leaks import record_secret
 
 record_secret("client_secret", QBO_CLIENT_SECRET)
+record_secret("webhook_verifier", QBO_WEBHOOK_VERIFIER)
 
 
 def refuse_all_transport() -> httpx.MockTransport:

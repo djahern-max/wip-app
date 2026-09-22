@@ -11,6 +11,11 @@ NOT NULL, an index leading with it, RLS enabled and forced in migration 0004.
   (unique on the SHA-256). The original filename is data, never part of a key.
 - ``raw_record`` (D-20): insert-only, versioned per ``(source, entity_type,
   external_id)``; exactly one of ``import_batch_id`` / ``sync_run_id`` (CHECK).
+- ``webhook_event`` (F05.1, D-29): **the one table here without ``tenant_id``**. A
+  webhook delivery is stored before anyone knows which tenant holds the realm, so
+  the row cannot carry a tenant; it is insert-only (``make_append_only``) and holds
+  the delivery as received. It is read without tenant context only to store a
+  delivery and to count deliveries for a realm the requesting tenant holds.
 """
 
 import uuid
@@ -133,6 +138,9 @@ class Connection(Base):
         UUID(as_uuid=True), ForeignKey("user.id", ondelete="RESTRICT")
     )
     oauth_state_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # F05.1 (0009): when a webhook delivery last named this company's realm. Written by
+    # the dispatcher, never by the webhook request itself.
+    last_webhook_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
@@ -227,3 +235,37 @@ class RawRecord(Base):
     sync_run_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("sync_run.id", ondelete="RESTRICT")
     )
+
+
+WEBHOOK_EVENT_ID_INDEX = "uq_webhook_event_event_id"
+
+
+class WebhookEvent(Base):
+    """One row per event of a webhook delivery (F05.1, D-29). Tenant-less and
+    insert-only; see the module docstring. ``event_id`` is the CloudEvents ``id``
+    (NULL for the legacy shape and for a body that matches neither), unique where
+    present so a retried delivery stores once. ``payload`` is the event object as
+    received (or the legacy notification, or the whole unknown body). The two
+    ``intuit-*`` headers are kept for a support case; neither is a secret."""
+
+    __tablename__ = "webhook_event"
+    __table_args__ = (
+        Index("ix_webhook_event_realm_id_received_at", "realm_id", "received_at"),
+        Index(
+            WEBHOOK_EVENT_ID_INDEX,
+            "event_id",
+            unique=True,
+            postgresql_where=text("event_id IS NOT NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    received_at: Mapped[datetime] = _created_at()
+    event_id: Mapped[str | None] = mapped_column(String(120))
+    realm_id: Mapped[str | None] = mapped_column(String(40))
+    event_type: Mapped[str | None] = mapped_column(String(80))
+    entity_id: Mapped[str | None] = mapped_column(String(80))
+    entity_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    payload: Mapped[dict | list | None] = mapped_column(JSONB, nullable=False)
+    intuit_tid: Mapped[str | None] = mapped_column(String(80))
+    schema_version: Mapped[str | None] = mapped_column(String(40))

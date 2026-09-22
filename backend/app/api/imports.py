@@ -5,7 +5,6 @@ returns it. Uploads need the CSRF header like every state-changing route."""
 
 import logging
 from typing import Annotated
-from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile
@@ -17,7 +16,7 @@ from app.core.audit import request_meta
 from app.core.auth import Principal, TenantSession
 from app.core.authz import can_manage_imports
 from app.core.config import get_settings
-from app.core.storage import ObjectStore, ObjectStoreError
+from app.core.storage import ObjectStore, ObjectStoreError, content_disposition
 from app.ingest.imports import (
     FOLLOWUP_LABELS,
     UploadRefused,
@@ -176,8 +175,15 @@ def download(request: Request, actor: Actor, db: TenantSession, store: Store, ba
         actor_role=actor.role,
         meta=request_meta(request),
     )
+    # The original name is data: offered to the browser (RFC 5987, percent-encoded),
+    # never used as a key. Ascii fallback is the content hash. The signed Spaces URL
+    # carries the same header (F05.1: the object is stored under its hash).
+    disposition = content_disposition(batch.original_filename, f"{batch.sha256}.bin")
     url = store.signed_url(
-        batch.tenant_id, relative_key(batch), get_settings().signed_url_ttl_seconds
+        batch.tenant_id,
+        relative_key(batch),
+        get_settings().signed_url_ttl_seconds,
+        disposition=disposition,
     )
     if url is not None:
         return RedirectResponse(url, status_code=307)
@@ -186,12 +192,7 @@ def download(request: Request, actor: Actor, db: TenantSession, store: Store, ba
             data = f.read()
     except ObjectStoreError:
         raise HTTPException(status_code=404, detail="object not found") from None
-    # The original name is data: offered to the browser (RFC 5987, percent-encoded),
-    # never used as a key. Ascii fallback is the content hash.
-    headers = {
-        "Content-Disposition": f'attachment; filename="{batch.sha256}.bin"; '
-        f"filename*=UTF-8''{quote(batch.original_filename)}"
-    }
+    headers = {"Content-Disposition": disposition}
     return StreamingResponse(
         iter([data]), media_type=batch.content_type or "application/octet-stream", headers=headers
     )

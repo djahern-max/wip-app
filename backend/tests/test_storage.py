@@ -16,6 +16,7 @@ from app.core.storage import (
     LocalObjectStore,
     ObjectStoreError,
     S3ObjectStore,
+    content_disposition,
     full_key,
     validate_relative_key,
 )
@@ -205,3 +206,60 @@ def test_s3_start_with_every_credential_succeeds() -> None:
 def test_unknown_store_name_is_refused() -> None:
     proc = _start_app({"OBJECT_STORE": "minio"})
     assert proc.returncode != 0 and "OBJECT_STORE" in proc.stderr
+
+
+# --- F05.1: listing and deleting a tenant's objects; the download name on a signed URL ------
+
+
+def test_local_store_lists_and_deletes_only_the_tenant_prefix(tmp_path: Path) -> None:
+    store = LocalObjectStore(tmp_path / "store")
+    other = uuid.uuid4()
+    store.put(TENANT, "imports/a.bin", io.BytesIO(b"a"))
+    store.put(TENANT, "imports/deep/b.bin", io.BytesIO(b"b"))
+    store.put(other, "imports/c.bin", io.BytesIO(b"c"))
+    assert store.list_keys(TENANT) == ["imports/a.bin", "imports/deep/b.bin"]
+    assert store.list_keys(uuid.uuid4()) == []
+    for key in store.list_keys(TENANT):
+        store.delete(TENANT, key)
+    store.delete(TENANT, "imports/a.bin")  # a second delete is quiet
+    assert store.list_keys(TENANT) == [] and store.list_keys(other) == ["imports/c.bin"]
+    with pytest.raises(ObjectStoreError):
+        store.delete(TENANT, "../escape")
+
+
+def test_s3_store_lists_by_prefix_and_deletes_each_key() -> None:
+    store, stub = _stubbed_store()
+    prefix = f"tenant/{TENANT}/"
+    stub.add_response(
+        "list_objects_v2",
+        {
+            "IsTruncated": True,
+            "NextContinuationToken": "more",
+            "Contents": [{"Key": prefix + "imports/a.bin"}, {"Key": prefix}],
+        },
+        {"Bucket": "wip-bucket", "Prefix": prefix},
+    )
+    stub.add_response(
+        "list_objects_v2",
+        {"IsTruncated": False, "Contents": [{"Key": prefix + "imports/b.bin"}]},
+        {"Bucket": "wip-bucket", "Prefix": prefix, "ContinuationToken": "more"},
+    )
+    stub.add_response(
+        "delete_object", {}, {"Bucket": "wip-bucket", "Key": prefix + "imports/a.bin"}
+    )
+    with stub:
+        assert store.list_keys(TENANT) == ["imports/a.bin", "imports/b.bin"]
+        store.delete(TENANT, "imports/a.bin")
+    stub.assert_no_pending_responses()
+
+
+def test_s3_signed_url_carries_the_download_name() -> None:
+    from urllib.parse import parse_qs, urlparse
+
+    store, _stub = _stubbed_store()
+    disposition = content_disposition("Rye Beach jobs.xlsx", "abc.bin")
+    url = store.signed_url(TENANT, "imports/abc.bin", 60, disposition=disposition)
+    query = parse_qs(urlparse(url).query)
+    assert query["response-content-disposition"] == [disposition]
+    assert "filename*=UTF-8''Rye%20Beach%20jobs.xlsx" in disposition
+    assert 'filename="abc.bin"' in disposition

@@ -1,39 +1,163 @@
 # current-feature.md
 
-_No feature in flight (2026-09-22)._ **F05.0 · First deployment (jobcost.dev) is closed**: the
-platform runs at https://jobcost.dev (one droplet, Managed Postgres, Space `jobcost-files`;
-D-27), the owner's pass from a phone on 2026-09-22 is done and every criterion is ticked. Its
-brief is `docs/briefs/F05.0.md`; the runbooks are OPERATIONS.md "Production (jobcost.dev)".
+## F05.1 · QBO production connection
+**Roadmap phase**: B · **Blueprint refs**: §6.2, §11 (Secrets), §13.7 (S-01), §15 (risk 6) · **Decisions**: D-25, D-27, D-28 (drafted with this brief)
+**Status**: in progress (go-ahead 2026-09-22).
 
-Next per ROADMAP: **F05.1 · QBO production connection**: Intuit's production questionnaire
-and keys, the launch and disconnect URLs (`/qbo/disconnected` exists; the server-side handling
-does not), Rye Beach connected read-only with monthly totals tied to Rye Beach's own
-QuickBooks reports, webhooks, S-01's Ramp line check. The Phase B gate applies. Not started;
-the owner supplies the brief. Copy it here, expand it, and restate the acceptance criteria
-before coding.
+### Goal
+Rye Beach's own QuickBooks Online company is connected to the `rye-beach` tenant on jobcost.dev, read-only, with Intuit production keys, and its monthly invoice, credit memo, sales receipt and payment totals equal the reports QuickBooks itself produces. Intuit's production questionnaire is submitted and the app has production keys. Webhooks are registered so a change in QuickBooks reaches the copy in minutes rather than at the next poll, with polling kept as the safety net (D-25). The fourth S-01 question, whether Ramp-synced expenses carry the job on the line, is answered against the real company from raw records. The production server is left with production keys only; the sandbox stays on the Mac.
 
-Standing state from F05.0: the owner deploys by hand (`deploy.sh` over ssh, then
-`prod_check.py`); migrations are forward-only in production; the sandbox company stays
-connected to tenant `qbo-sandbox` on production and on dev, never to `rye-beach`; on dev,
-polling runs only while `make worker` runs. Production holds test tenants that a
-delete-tenant command (Discovered below) will remove.
+### In scope
+**Owner work in the Intuit developer portal (nothing here is code; Claude Code writes the OPERATIONS.md steps first so the owner follows them)**
+- Production tab of the Intuit app: host domain `jobcost.dev`, launch URL `https://jobcost.dev/`, disconnect URL `https://jobcost.dev/qbo/disconnected`, privacy policy `https://jobcost.dev/privacy`, EULA `https://jobcost.dev/terms`, redirect URI `https://jobcost.dev/api/qbo/callback`, scope `com.intuit.quickbooks.accounting` only. Whatever else the Production tab asks for at the time (the app assessment questionnaire, categories, contact) is answered from OPERATIONS.md's "Intuit questionnaire answers" subsection, which Claude Code drafts from the facts already recorded there: DigitalOcean, US region, TLS only, tokens encrypted at the application layer with a key held only on the server, no write-back, no data sharing, one operator, daily managed backups, deletion on request.
+- Production client id and secret go straight into `/etc/wip/app.env` on the droplet (`QBO_CLIENT_ID`, `QBO_CLIENT_SECRET`, `QBO_ENVIRONMENT=production`). They never appear in chat, in the repo, or on the Mac.
+- Webhooks, Development tab first (sandbox, pointed at `https://jobcost.dev/api/qbo/webhook`) to prove the endpoint on the public host, then Production tab. Entities: the F05 set (Customer, Invoice, Payment, CreditMemo, SalesReceipt, Deposit, Account) and the F10 set (Bill, VendorCredit, Purchase, JournalEntry, BillPayment) so F10 needs no portal change. The verifier token from each tab goes into `app.env` as `QBO_WEBHOOK_VERIFIER`. One tab at a time: the server holds one verifier, matching whichever environment `QBO_ENVIRONMENT` names.
+- Connect Rye Beach: signed in to QuickBooks as a user with company-admin rights (only admins can authorize apps; confirm which Rye Beach login that is before starting).
 
-## Discovered
-Test isolation (2026-09-22, from CI #24): `tests/test_worker.py` asserts `run_once() == 1`
-/ `== 2` with a worker that sweeps every tenant, so a scheduled change poll seeded by an
-earlier QBO test's tenant (next 15-minute wall-clock slot) can be claimed in that count;
-under `refuse_all_transport` it would fail and retry. Same cause as the `_drain` fix in
-`tests/test_qbo_tasks.py`; pin `_worker()` to the seed tenants when it shows.
+**Repo: webhooks**
+- `POST /api/qbo/webhook`, unauthenticated, outside the session and CSRF machinery, rate-limited by IP like the login route. Verify `intuit-signature` (HMAC-SHA256 of the raw request body with `QBO_WEBHOOK_VERIFIER`, base64; Claude Code cites the Intuit page in the plan). Bad or missing signature → 401, nothing stored, one throttled log line. Good signature → store the raw payload first, then answer 200; all work is queued, none is done in the request. The endpoint must answer within Intuit's timeout regardless of database load, so the store is the only synchronous step.
+- New append-only table `webhook_event` (tenant-less: the payload arrives before the tenant is known): `id`, `received_at`, `realm_id`, `payload` (raw JSON), `signature_ok`, `entity_count`, `connection_id` nullable. Stored raw before anything is read from it (raw-before-normalized).
+- Dispatch: for each realm in the payload with a `connection` in state connected, enqueue one `qbo.change_poll` task for that connection unless one is already queued or running for it (debounce, so a burst of twenty notifications makes one poll). The existing CDC poll from F05 is the consumer; the webhook payload's entity list is not used as data, only as the trigger. Unknown realm → 200, counted, no task. Realm of a connection that needs reconnecting → 200, no task, the existing exception stands.
+- Polling stays on at F05's cadence; webhooks shorten latency, they do not replace the poll. The nightly drift check is unchanged.
+- Connections page shows "Last webhook received" per connection and the count in the last 24 hours, so the owner can see they are arriving.
 
-F05.0 (2026-09-22, owner pass and droplet work; carry into the F05.1 brief or later):
-- Imports download should send `Content-Disposition` with the original filename (the signed Spaces URL serves the object under its content-addressed key).
-- The TOTP enrolment page does not recover from a reload mid-enrolment; issuing a new activation link was the workaround.
-- A delete-tenant command is needed (test tenants on production).
-- OPERATIONS.md needs a short "environments" note: Mac dev, CI, production, and which env file each reads.
-- Found on the D-21 check and fixed in 0b703bb (not carried): `S3ObjectStore.open` yielded boto3's non-seekable body; it now spools to a temporary file.
+**Repo: disconnect and revoke**
+- Our Disconnect button calls Intuit's revoke endpoint before removing the tokens (the privacy policy promises revocation on disconnect; Claude Code confirms F05 does this and adds it if not).
+- Intuit-side disconnect (the user removes the app inside QuickBooks): Claude Code checks in the plan whether Intuit passes `realmId` to the disconnect URL. If it does, `GET /api/qbo/disconnected?realmId=…` marks the matching connection as needing reconnection only after a refresh attempt fails (never on the query string alone, which anyone can send), then serves the static page. If it does not, the existing 401-on-next-call path from F05 is the handling and the plan says so.
 
-Carried from the stub of 2026-09-21 (F05, `docs/briefs/F05.md`, Discovered; and older), still open:
-- F05 (2026-09-21): Imports defaulting to "Unparsed file" cost the owner one upload; an empty "Choose a source" option is the fix. The nightly drift check's `drift` outcome and the "fresh backfill needed" state are proven in tests only. A `billing` row for a document whose customer is a sub-customer (not a project) carries the sub-customer's id; F07 decides how sub-customers relate to jobs. `ProjectRef` (a Projects-API id, S-01 (b)) is in the raw payloads only; F07 may want it as a second `job_alias`. A mapping from QuickBooks `AccountType` to `gl_account.ledger_type` is not built (owner answer 10).
-- F04: no screen for suggestion rules (script / `PUT /api/config/suggest-rules`); a general "no money as a JSON number" response assertion is still per test; **for the owner**: the real Rye Beach chart has one account the fixture does not (2630); the owner supplies an updated fixture and oracle if it should be added.
-- F03: money in API responses must be strings (F08; `formatMoney` is ready); reports (F08+) use `.table-wrap` with the first column held.
-- F02.1: pending TOTP secret is per user, not per session (deferred; rule recorded there); no rendered-browser test dependency for now; a client user's optional enrol confirm records a second `login_success`.
+**Repo: `scripts/delete_tenant.py` (D-28)**
+- Runs on the droplet as root with `/etc/wip/migrate.env` (owner role), never through the API, never with `app_rw`. Prints the tenant's row counts per table and the object count under its Space prefix, requires the slug typed back exactly, refuses any slug listed in a new `PROTECTED_TENANT_SLUGS` setting (production: `rye-beach`), then deletes in one transaction with `session_replication_role = replica` so append-only triggers do not fire for that transaction only, deletes the Space objects under the tenant prefix, and writes one `firm_audit_log` row (`tenant_deleted`, slug, counts, operator) that survives because it is firm-level. Revokes the tenant's QuickBooks tokens at Intuit first if a connection exists. Test: create a scratch tenant with rows in every tenant table and two objects in the local object store, delete it, assert zero rows remain and the audit row exists; assert the protected slug is refused; assert it fails closed when run with `app_rw`.
+
+**Repo: account numbers on the real chart**
+- F05 attaches Account ids to `gl_account` by account number. On Rye Beach every mapped account must carry an `AcctNum`; those that do not are listed under "Needs attention" (the F05 line already exists). After connection the count of attached accounts is compared with the F04 chart load (160 accounts, 9 unmapped). Any account in the chart file but not in QuickBooks, or the reverse, is listed by number.
+
+**Small fixes carried from F05.0 (each is one commit-sized change; do them, do not expand them)**
+- Imports download sends `Content-Disposition` with the original filename.
+- The TOTP enrolment page survives a reload mid-enrolment (the pending secret is kept server-side until confirmed or expired, not only in page state).
+- OPERATIONS.md "Environments" note: Mac dev, CI, production; which env file each reads; which Intuit keys each holds.
+
+**Owner setup on production, following OPERATIONS.md, in this order**
+1. Register the Development webhook at `https://jobcost.dev/api/qbo/webhook`, put its verifier in `app.env`, restart, create an invoice in the sandbox company, watch it arrive on the `qbo-sandbox` tenant without pressing Sync now. This is the end-to-end proof of webhooks and happens before any production key exists.
+2. Submit the questionnaire; receive production keys.
+3. Put the production keys, `QBO_ENVIRONMENT=production` and the Production webhook verifier in `app.env`; restart. The `qbo-sandbox` tenant on production can no longer reach Intuit from this point; delete it with `delete_tenant.py` (its first real use). The sandbox continues on the Mac with the Development keys.
+4. Load the F04 suggest rules on production if not already loaded (the F04 seed command; record the count).
+5. Connect Rye Beach to `rye-beach`. Backfill runs. Record the connection date and the realm in OPERATIONS.md (the realm id is not a secret).
+6. Tie out the totals (acceptance below). Answer S-01 question 4.
+
+**Docs**: OPERATIONS.md gains "Intuit production keys and questionnaire answers", "Webhooks (registering, verifier rotation, what to check when none arrive)", "Deleting a tenant", the environments note, and the Rye Beach connection record. BLUEPRINT §13.7 gains the answer to S-01's fourth question; ROADMAP S-01 flips to ☑. CHANGELOG. D-28 in DECISIONS.md.
+
+**Dependencies**: none new. The Intuit revoke and webhook formats are documented at developer.intuit.com; Claude Code cites the pages it relied on in the plan.
+
+### Out of scope
+Normalizing cost entities (Bills, Purchases, Journal Entries) beyond storing them raw; that is F10, and S-01 question 4 is answered from raw records only. Deposits normalization (D-02). Per-connection Intuit environments (one key pair per deployment; the sandbox lives on the Mac). Webhook payloads used as data. Any write to QuickBooks. Monitoring or alerting on missing webhooks (F23; the Connections page count is the check for now). Intuit App Store listing. The Phase B gate items P0-1 to P0-6 themselves; F05.1 connects the company as it is, and re-tagged transactions arrive through the poll like any other change.
+
+### Acceptance criteria
+Real Rye Beach amounts are not committed to the repo. The tie-out is recorded in OPERATIONS.md as the report name, the months compared and "equal" or the difference, with the amounts kept in the owner's own workpaper.
+- [x] Webhook signature: a unit test with a fixed verifier and a fixed body asserts the computed signature equals a value produced independently (a one-line `openssl dgst` or Python `hmac` outside the app, recorded in the test); a wrong signature, a missing header and a modified body each get 401 and store nothing.
+- [x] Webhook dispatch: five notifications for one realm inside one second store five `webhook_event` rows and enqueue one `qbo.change_poll`; a notification for an unknown realm stores a row and enqueues nothing; a notification for a connection needing reconnection enqueues nothing; the endpoint never touches Intuit.
+- [ ] Live, sandbox on jobcost.dev: an invoice created in the sandbox company appears on the `qbo-sandbox` tenant within five minutes with no Sync now; the Connections page shows the webhook time and count.
+- [~] Production keys in `app.env`, `QBO_ENVIRONMENT=production` (owner, pending); `deploy/env.template` and `.env.example` gain `QBO_WEBHOOK_VERIFIER` and `PROTECTED_TENANT_SLUGS` and the parity test passes (done).
+- [ ] Rye Beach connected read-only to `rye-beach`, scope `com.intuit.quickbooks.accounting` only (the stored scope is asserted); backfill completes; the Connections page shows Connected with month totals.
+- [ ] Tie-out: for each of the last twelve calendar months through the most recent closed month, invoices, credit memos, sales receipts and payments by month equal QuickBooks' own reports (Transaction List by Date filtered by type, or the equivalent the owner names), to the cent. Any month that does not tie is explained by a named cause (a deleted or voided document, a date edit) before the criterion is ticked.
+- [ ] Account numbers: every account mapped in F04 is attached to a QuickBooks Account id; the "Needs attention" list of accounts without a number is empty or every entry is explained; chart-vs-QuickBooks differences listed by number.
+- [ ] S-01 question 4 answered from raw records of at least three Ramp-synced Purchases or Bills that John assigned a Customer/Job to in Ramp: does each line carry `CustomerRef`? Answer recorded in BLUEPRINT §13.7 with the record ids (not amounts); ROADMAP S-01 ☑.
+- [~] Disconnect: our Disconnect revokes at Intuit (asserted against the fake in tests: done; verified live once on the sandbox before step 3 above: pending). Intuit-side disconnect lands on `/qbo/disconnected` and the connection shows as needing reconnection no later than the next poll.
+- [~] `delete_tenant.py`: the test in the D-28 paragraph passes (done); on production it removed `qbo-sandbox` and the `tenant_deleted` audit row exists; `prod_check.py` passes afterwards (append-only triggers still enabled).
+- [x] The small fixes: download filename asserted in a test; TOTP reload asserted in a test; environments note present.
+- [x] CI green locally (589 backend, 12 frontend; lint clean); no test needs Intuit or the droplet. CI itself runs on push.
+- [ ] **Owner pass (not ticked by Claude Code)**: from the phone, the `rye-beach` tenant's Connections page shows Connected, the month totals match the owner's workpaper for the most recent closed month, and a change made in QuickBooks (a memo edit on one invoice) is visible on the platform within five minutes.
+
+### Plan (Claude Code fills in before coding)
+_Written 2026-09-22 from the code as of 4427aa3. Nothing coded. Waiting for the owner's go-ahead: this feature takes production keys, adds a table without `tenant_id`, and deletes a tenant._
+
+**Sources.** Answers 1 and 2 rest on Intuit's "Configure webhooks" and "Best practices" pages (developer.intuit.com, printed by the owner 2026-09-22). Answers 3 and 6 rest on search-engine extracts of the help articles "Retrieving the realmId from the disconnect URL" and "API call limits and throttling" (those pages render in the browser only). Answer 4 is from the PostgreSQL 16 manual.
+
+#### Acceptance criteria, restated
+1. Signature: a fixed verifier and body reproduce a signature computed outside the app; wrong, missing and body-modified cases are 401 and store nothing.
+2. Dispatch: five deliveries for one realm in one second → five `webhook_event` rows, one poll task; unknown realm → row, no task; connection needing reconnect → no task; the endpoint never calls Intuit.
+3. Live on jobcost.dev with the sandbox: an invoice made in the sandbox is on `qbo-sandbox` within five minutes without Sync now; the page shows the webhook time and count.
+4. Production keys and `QBO_ENVIRONMENT=production` in `app.env`; both env templates gain `QBO_WEBHOOK_VERIFIER` and `PROTECTED_TENANT_SLUGS`; the parity test passes.
+5. Rye Beach connected read-only to `rye-beach`, stored scope asserted, backfill complete, Connected with month totals.
+6. Twelve months of invoices, credit memos, sales receipts and payments tie to QuickBooks' reports to the cent, or each difference is named.
+7. Every F04-mapped account is attached to a QuickBooks Account id; "Accounts without a number" empty or explained; chart-vs-QuickBooks differences by number.
+8. S-01 question 4 answered from at least three Ramp-synced Purchases or Bills; ids in BLUEPRINT §13.7; ROADMAP S-01 ☑.
+9. Disconnect revokes at Intuit (test against the fake, live once on the sandbox before the key swap); an Intuit-side disconnect shows as needing reconnection no later than the next poll.
+10. `delete_tenant.py`: the D-28 test passes; `qbo-sandbox` removed on production with the `tenant_deleted` row; `prod_check.py` passes afterwards.
+11. Download filename and TOTP reload each asserted in a test; environments note present.
+12. CI green without Intuit or the droplet. Owner pass from the phone.
+
+#### Answers to the six questions
+
+**1. Signature, payload, timing** (Intuit "Configure webhooks", "Best practices", 2026-09-22). Header `intuit-signature` = base64(HMAC-SHA256(key = Verifier Token as UTF-8, message = the raw payload bytes)); Intuit's Java sample is `SecretKeySpec(verifier.getBytes("UTF-8"), "HmacSHA256")` and `Base64` of `mac.doFinal(payload.getBytes())`, and the test vector is produced the same way with `openssl dgst -sha256 -hmac … -binary | base64` outside the app and recorded in the test. Comparison is `hmac.compare_digest` on the decoded bytes; a header that is not base64 is a bad signature. One verifier per portal tab, so the server holds one, matching `QBO_ENVIRONMENT`. The delivery headers `intuit-t-id` and `intuit-notification-schema-version` are stored on each row.
+Raw body in FastAPI: `async def webhook(request: Request)` with no body parameter and no body-reading dependency; `await request.body()` first, the HMAC over those bytes, and only a good signature is parsed (`json_loads`, the one codec). No session, no principal, no cookie. `app/main.py` exempts exactly `/api/qbo/webhook` and `/api/qbo/disconnected` from the CSRF-header rule; the Origin rule needs nothing.
+Payload: the CloudEvents format is the live one (the legacy `eventNotifications` format was retired 2026-07-31). The body is a JSON array of `{specversion, id, source, type: "qbo.<entity>.<event>.v1", datacontenttype, time, intuitentityid, intuitaccountid, data}`; `intuitaccountid` is the realm and one delivery may carry events for several realms. The parser reads that shape, accepts the legacy `eventNotifications[].realmId` shape as a fallback (tested), and stores a body matching neither as one row with no realm and `entity_count` 0, answered 200. Storage is **one row per event**: `event_id` (the CloudEvents `id`; NULL for legacy and unknown shapes), `realm_id`, `event_type`, `entity_id`, `payload` (that event object, or the legacy notification, or the whole unknown body), `entity_count` (1; the legacy notification's entity count; 0). A partial unique index on `event_id` with `INSERT … ON CONFLICT DO NOTHING` makes a retried delivery (same ids) store once.
+Timing: 200 within 3 seconds; a missed delivery is retried at 10 s, 20 s, 30 s, 5 min, 20 min, 2 h, 4 h, 6 h, then every 6 h, and **later events are held until the first is acknowledged**, so a failing endpoint stalls delivery rather than losing it. Hence the only synchronous step is the insert(s) in one untenanted transaction, commit, 200. OPERATIONS.md "what to check when none arrive" says: a stuck first event, and the endpoint answering non-200 (nginx access log). Intuit's own recommendation, a CDC call back to the last processed event plus a daily CDC sweep, is what F05's poll and nightly check already are; the docs say so.
+Entities: the F05 and F10 sets are all supported. `Void` is a distinct operation on Invoice, Payment, CreditMemo, SalesReceipt, Purchase and BillPayment; `Merge` exists on Customer, Account, Item, Vendor, Class, Department, Employee and PaymentMethod. The payload is only a trigger, so the poll is unchanged; Merge is noted under Discovered for F07.
+
+**2. Debounce.** No advisory lock and no read-then-write. Dispatch calls the existing `enqueue_cdc_poll(db, tenant_id, connection_id, slot=None)`, dedupe key `cdc:{connection_id}:now`, **the same key Sync now uses**, so a webhook, a second webhook and a Sync now all coalesce into one poll. `enqueue` is `INSERT … ON CONFLICT DO NOTHING` against the partial unique index `uq_task_tenant_kind_dedupe_open` (`status IN ('queued','running') AND dedupe_key IS NOT NULL`). Two dispatches arriving together both insert; Postgres makes the second wait on the first's transaction and then reports the conflict, so exactly one row exists and the other call returns `None`. That is the race answer: the database's unique-index enforcement, in place since D-19. Consequence to know: the index covers *running* rows, so a notification that arrives while a poll is running enqueues nothing and that change lands on the next scheduled poll (≤ 15 min; the two-minute cursor overlap guarantees it is not skipped). Acceptable under the brief ("polling stays on as the safety net"); tightening it is a follow-up.
+Where dispatch runs: in a FastAPI `BackgroundTask` after the 200 is sent, in the API process, over the distinct realms of the rows just stored. For each realm it reads the tenant list (untenanted, as the worker does), opens one `tenant_session` per tenant, and looks for `connection` with `system = 'qbo'` and that `realm_id` (under forced RLS the realm cannot be looked up any other way). Connected → enqueue the poll and set `connection.last_webhook_at`; `needs_reconnect` or `disconnected` → set `last_webhook_at`, no task; no tenant holds the realm → nothing. If the API process dies between the store and the dispatch, the scheduled poll covers it. No new task kind: the brief's `qbo.change_poll` is F05's `qbo.cdc_poll`.
+
+**3. Intuit-side disconnect and `realmId`.** Intuit's help article "Retrieving the realmId from the disconnect URL" (help.developer.intuit.com/s/article/Retrieving-the-realmId-from-the-disconnect-URL), as extracted: "When a user disconnects from your app through the app store, they are redirected to your disconnect URL in your app settings. You can append `?realmId=` to your disconnect URL to get the realm Id." So: it is a **browser redirect (GET)**, not a server call, and the realm arrives **only if the registered URL ends in `?realmId=`**, which Intuit then fills. Therefore the first handling applies, with one change to the portal entry in the brief: the disconnect URL is registered as **`https://jobcost.dev/api/qbo/disconnected?realmId=`** (the API, not the static page). The route is unauthenticated GET, no session, and does **not** mark anything on the query string alone: it finds the connection by realm exactly as dispatch does and, if it is connected, enqueues the same `cdc:{id}:now` poll and answers 303 to the static `/qbo/disconnected` page. That poll's first API call gets 401 → one refresh → `invalid_grant` → `mark_needs_reconnect`, audited, which is F05's existing path and satisfies "no later than the next poll" without an Intuit call inside a browser request. Unknown or already-disconnected realm, or no `realmId` at all → 303 to the page, nothing else. The 401-on-next-call path remains the handling for a user whose disconnect never reaches us.
+
+**4. `session_replication_role` on Managed Postgres.** Not available, and the script will not try it. PostgreSQL 16 manual (runtime-config-client, `session_replication_role`): "Only superusers and users with the appropriate SET privilege can change this setting." `app_owner` is not a superuser (recorded 2026-09-22 in OPERATIONS.md), and on a DigitalOcean cluster `doadmin` is not one either, so nobody can `GRANT SET ON PARAMETER` it. The fallback is the design: inside the one transaction, `ALTER TABLE … DISABLE TRIGGER <name>` for both append-only triggers of every table that is **both** in `APPEND_ONLY_TABLES` and a tenant table (today `audit_log` and `raw_record`; `firm_audit_log` is never touched because it is firm-level and we insert into it), then the deletes, then `ENABLE TRIGGER`, then `COMMIT`. `ALTER TABLE` needs table ownership, which `app_owner` has and `app_rw` lacks; DDL is transactional, so an abort restores the triggers. Two consequences: (a) unlike `replica`, foreign keys stay on, so the script deletes tenant tables in an order derived at run time from `pg_constraint` (a later feature's table needs no script change); (b) `ALTER TABLE` holds an `ACCESS EXCLUSIVE` lock on those two tables until commit, so API requests writing audit rows wait for the seconds the deletion takes. OPERATIONS.md says to run it in a quiet moment. `FORCE ROW LEVEL SECURITY` binds the owner too, so the script sets `app.tenant_id` for the transaction, as data migrations do; the `tenant` row goes last; the `firm_audit_log` row (`tenant_deleted`: slug, per-table counts, object count, operator = `$SUDO_USER` or `root`) is written in the same transaction. Fail-closed checks before anything runs: connected role owns every tenant table (so `app_rw` stops with one sentence), slug not in `PROTECTED_TENANT_SLUGS`, slug typed back exactly. `prod_check.py` needs no change: it already asserts both triggers enabled.
+Environment: the script needs the owner URL (`migrate.env`, root-only) **and** the key ring, the Intuit keys and the Space key (`app.env`) to revoke tokens and delete objects. It runs as root with `ENV_FILE=/etc/wip/app.env` plus `DATABASE_OWNER_URL` exported from `migrate.env` (one documented command line); `Settings.database_owner_url` already exists. `PROTECTED_TENANT_SLUGS` goes in `app.env` and `.env.example` (`migrate.env`'s test pins it to two names; it stays that way).
+Order of operations: revoke at Intuit if tokens exist (best effort, reported) → delete objects under `tenant/{id}/` → the transaction. If the transaction fails the objects are gone and the tenant remains; a re-run finishes the job. The object store protocol gains `list_keys(tenant_id)` and `delete(tenant_id, relative_key)` (local and S3, the S3 side under botocore's Stubber).
+
+**5. `qbo-sandbox` between the key swap and its deletion.** Two things. First, the order in OPERATIONS.md avoids the state altogether: **press Disconnect on `qbo-sandbox` while the Development keys are still on the server** (this is also the live revoke check the criteria ask for), *then* swap keys, *then* delete. A disconnected connection ends its poll chain at the first task (`status != connected → return`, no successor). Second, a code guard for the case where the order is not followed: today the sandbox connection's access token would keep working against the sandbox API (`connection.environment` picks the base URL) until it expires within the hour, after which every poll's refresh would be sent with production credentials, Intuit would answer something other than `invalid_grant`, the client would raise `QboError("token_endpoint_error")`, and the task would **retry five times with backoff every fifteen minutes for ever**: exactly the noise the question is about. `access_for` gains one check: a connection whose `environment` differs from `QBO_ENVIRONMENT` raises `NeedsReconnect("environment_mismatch")` via `mark_needs_reconnect` (once, audited, tokens cleared, chain ends), and the Connections page says so. Tested with the fake.
+
+**6. Production-only behaviour.** Limits (Intuit help article "API call limits and throttling", as extracted): 500 requests a minute per realm, 10 concurrent per app and realm, HTTP 429 with `errorCode=003001`, `ThrottleExceeded`. Today on a 429: `_send` waits `Retry-After` when given, otherwise 1 s doubling to a 60 s cap, five tries, then `QboError("unavailable")`; the task then fails and the worker retries it with its own backoff (30 s × 2ⁿ, cap 900 s) up to five attempts; a backfill page that finally fails leaves the run open until the owner presses "Start fresh backfill". Concurrency is 1 by construction: one worker process, one task per pass, one request in flight per connection under the advisory lock, so the backfill sends about one request a second and cannot approach either limit. Nothing to change; the constants file already cites the page. Refresh token: 100 days, rotated on every refresh, both expiries read from every response (F05). A poll every 15 minutes refreshes at least hourly, so a polled connection never ages out. It can only expire when polling has stopped (`needs_reconnect`, `disconnected`, or the "fresh backfill needed" stop), and then the next use ends in `needs_reconnect`, which is the right outcome. F05 met everything else in the sandbox; the API base is the only difference and it is already keyed on `QBO_ENVIRONMENT`.
+
+#### Points that need the owner's word before coding
+- **A. `webhook_event` has no `tenant_id`** (the payload arrives before the tenant is known). CLAUDE.md says any such table needs a decision. Proposed **D-29** (drafted at close-out): `webhook_event` is tenant-less and append-only; readable without tenant context only to store a delivery and to count deliveries for a realm the requesting tenant holds; CLAUDE.md's approved list gains it; `APPEND_ONLY_TABLES` gains it so `prod_check.py` covers it.
+- **B.** `signature_ok` and `connection_id` are dropped (never fillable on an append-only row stored before the tenant is known); "last webhook received" is `connection.last_webhook_at`, written by dispatch, and the 24-hour count is `COUNT(*)` of `webhook_event` by `realm_id`. Columns are as in answer 1, plus `received_at`, `intuit_tid`, `schema_version`.
+- **C. Rate limiting of the two unauthenticated routes.** The login throttle counts `login_failure` rows in `firm_audit_log`; a bad webhook signature must store nothing, so it cannot use that. Proposal: an in-process per-IP window in `app/core/throttle.py` with the same numbers (`IP_THROTTLE_FAILURES` in `IP_THROTTLE_MINUTES`), counting bad signatures and unknown-realm disconnect hits only; a good signature is never throttled (Intuit's retries must never be refused). It resets on restart and is per process; there is one process. If the owner prefers nginx `limit_req` instead, say so (it cannot be covered by a test).
+- **D. The portal disconnect URL** becomes `https://jobcost.dev/api/qbo/disconnected?realmId=` (question 3). The static page stays at `/qbo/disconnected`.
+- **E. TOTP reload**: reading the code, the server already keeps the pending secret per user and `start_totp_enrolment` is idempotent, and the page re-requests it on mount, so the recorded failure is not explained yet. Step one is a test that reproduces a reload (a second `/api/session/me` and a second `/totp/enrol` on the same cookie, then confirm); the fix follows what it shows. If it does not reproduce, I will say so and ask the owner what the screen showed.
+- **F. Download filename**: the local path already sends `Content-Disposition`; the Spaces path is a 307 to a signed URL served under the content-addressed key. Fix: `signed_url` gains the filename and passes `ResponseContentDisposition` into the presigned URL, so Spaces sends the header. Asserted in the Stubber test and the local test.
+
+#### Files to create
+- `backend/alembic/versions/0009_webhook_event.py`: `webhook_event` (tenant-less, `make_append_only`), `connection.last_webhook_at`. Reversible.
+- `backend/app/integrations/qbo/webhooks.py`: `signature_ok(body, header, verifier)`, `store_delivery`, `dispatch_delivery`, `connection_for_realm` (the per-tenant lookup, shared with the disconnect route), `webhook_stats` (last time, 24 h count).
+- `backend/scripts/delete_tenant.py` (D-28).
+- `backend/tests/test_qbo_webhooks.py`, `backend/tests/test_delete_tenant.py`, `backend/tests/test_qbo_disconnected.py`.
+- `docs/briefs/F05.1.md` at close.
+
+#### Files to modify
+- `backend/app/api/qbo.py`: `POST /qbo/webhook`, `GET /qbo/disconnected`, `last_webhook_at` and `webhooks_24h` on the status; `CallbackQueryFilter` also strips the disconnected route's query string.
+- `backend/app/main.py`: CSRF exemption for the two paths.
+- `backend/app/core/config.py`: `qbo_webhook_verifier` (no default, required by the webhook route only), `protected_tenant_slugs` (default empty).
+- `backend/app/core/throttle.py`: the in-process window (C).
+- `backend/app/core/storage.py`: `list_keys`, `delete`, filename on `signed_url`.
+- `backend/app/core/audit.py`: `FirmEvent.tenant_deleted`.
+- `backend/app/ingest/models.py`: `WebhookEvent`, `Connection.last_webhook_at`.
+- `backend/app/integrations/qbo/tokens.py`: environment-mismatch guard (question 5).
+- `backend/app/tenancy/rls.py`: `APPEND_ONLY_TABLES` gains `webhook_event`.
+- `backend/app/api/schemas.py`, `backend/app/api/imports.py`, `backend/app/auth/service.py` (only if E shows a server cause).
+- `backend/tests/test_deploy.py` (`SECRETS` gains `QBO_WEBHOOK_VERIFIER`; `PRODUCTION_VALUES` gains `PROTECTED_TENANT_SLUGS=rye-beach`), `tests/test_append_only.py` (the new table), `tests/test_storage.py`, `tests/test_imports.py`, `tests/test_auth*.py` (E), `tests/test_qbo_tokens.py`.
+- `frontend/src/pages/Connections.jsx`: "Last webhook received" and the 24-hour count; `TotpEnrol.jsx` if E shows a page cause.
+- `deploy/env.template`, `.env.example`: `QBO_WEBHOOK_VERIFIER`, `PROTECTED_TENANT_SLUGS`.
+- `CLAUDE.md`: approved tenant-less tables gains `webhook_event` (A); append-only rule gains the D-28 exception.
+- `docs/OPERATIONS.md`: "Intuit production keys and questionnaire answers", "Webhooks", "Deleting a tenant", "Environments", the Rye Beach record; `docs/BLUEPRINT.md` §11 (D-28 sentence), §13.7 (S-01 q4); `docs/DECISIONS.md` (D-29); `ROADMAP.md`; `CHANGELOG.md`.
+
+#### Order of work
+1. Tests first for the webhook signature and dispatch, the disconnected route, the token guard, `delete_tenant.py`, the two small fixes; then the migration and code. CI green.
+2. OPERATIONS.md steps for the portal (written before the owner touches the portal), the questionnaire answers, webhooks, deleting a tenant, environments.
+3. Deploy; owner step 1 (Development webhook on jobcost.dev, invoice in the sandbox arrives without Sync now).
+4. Owner: Disconnect `qbo-sandbox` (live revoke), questionnaire, production keys and verifier, restart, `delete_tenant.py qbo-sandbox`, `prod_check.py`, suggest rules, connect Rye Beach, backfill.
+5. Tie-out, account numbers, S-01 question 4 from raw records; docs; close-out; one commit.
+
+### Discovered (do not fix here)
+_Things noticed along the way that belong to another feature._
+
+- F05.1 (2026-09-22, full-suite run): `tests/test_rls.py::test_f04_tables_read_zero_rows_of_another_tenant` seeds a `cost_category` in tenant B with `slot = uuid.hex[:2]`; once another test has seeded the D-23 categories in tenant B, a random marker collides about once in a few hundred params (seen once as `uq_cost_category_tenant_slot` on slot 31; passed on rerun). Fix: a slot outside the D-23 range, or a marker that is not hex. Same run showed one setup ERROR in `test_migrations.py::test_0003_data_step…` that did not reproduce in two later full runs; cause not seen.
+- F05.1 (2026-09-22): a webhook that arrives while a poll is *running* enqueues nothing (the dedupe index covers running rows); the change lands on the next scheduled poll. A "one more after this" follow-up would shorten that to seconds. Not needed for the acceptance criteria.
+- F05.1 (2026-09-22, from Intuit "Configure webhooks"): `Merge` is a webhook operation on Customer, Account, Item, Vendor, Class, Department, Employee and PaymentMethod. What CDC returns after a customer merge (the merged-away customer id) needs checking in F07 before `job_alias` links are trusted across a merge.
+
+### Close-out
+- [ ] CHANGELOG entry written
+- [ ] ROADMAP: F05.1 status flipped; S-01 ☑
+- [~] OPERATIONS.md: the four new subsections written 2026-09-22 (keys and questionnaire, webhooks, Intuit-side disconnect, deleting a tenant, environments); the Rye Beach connection record and the first `delete_tenant.py` use are placeholders until the live steps
+- [ ] BLUEPRINT §13.7: S-01 question 4 answered
+- [x] D-28 present in `docs/DECISIONS.md` (owner, 2026-09-22); D-29 appended 2026-09-22
+- [ ] Brief copied to `docs/briefs/F05.1.md`; live file rewritten as a stub pointing at F06
+- [ ] One commit, not pushed

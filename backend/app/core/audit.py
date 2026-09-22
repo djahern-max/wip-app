@@ -66,6 +66,7 @@ class FirmEvent(enum.StrEnum):
     firm_membership_created = "firm_membership_created"
     firm_membership_role_changed = "firm_membership_role_changed"
     firm_membership_removed = "firm_membership_removed"
+    tenant_deleted = "tenant_deleted"  # F05.1 (D-28): scripts/delete_tenant.py, operator only
 
 
 class TenantEvent(enum.StrEnum):

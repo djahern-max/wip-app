@@ -161,3 +161,27 @@ def test_inserts_still_work(seed: Seed, rw_engine: Engine) -> None:
             text("SELECT count(*) FROM audit_log WHERE entity_id = :m"), {"m": marker}
         ).scalar_one()
     assert n == 1
+
+
+# --- F05.1: webhook_event (tenant-less, D-29) -------------------------------------------------
+
+
+@pytest.mark.parametrize("engine_name", ["rw_engine", "owner_engine"])
+@pytest.mark.parametrize("stmt", ["UPDATE", "DELETE", "TRUNCATE"])
+def test_webhook_event_rejects_changes(
+    request: pytest.FixtureRequest, migrated_db: None, engine_name: str, stmt: str
+) -> None:
+    from app.ingest.models import WebhookEvent
+
+    engine: Engine = request.getfixturevalue(engine_name)
+    sql = {
+        "UPDATE": "UPDATE webhook_event SET realm_id = 'x' WHERE id = :id",
+        "DELETE": "DELETE FROM webhook_event WHERE id = :id",
+        "TRUNCATE": "TRUNCATE webhook_event",
+    }[stmt]
+    with pytest.raises(DBAPIError, match=APPEND_ONLY_ERROR):
+        with untenanted_session(engine) as s:
+            row = WebhookEvent(entity_count=0, payload={"probe": True})
+            s.add(row)
+            s.flush()
+            s.execute(text(sql), {"id": row.id})

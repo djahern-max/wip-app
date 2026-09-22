@@ -116,6 +116,13 @@ export default function Connections({ me, result }) {
         {status.last_success_at && (
           <p className="hint">Last successful sync: {new Date(status.last_success_at).toLocaleString()}</p>
         )}
+        {status.connected_company && (
+          <p className="hint">
+            {status.last_webhook_at
+              ? `Last webhook received: ${new Date(status.last_webhook_at).toLocaleString()}; ${status.webhooks_24h} in the last 24 hours.`
+              : "No webhook received yet. Changes arrive with the change poll until one does."}
+          </p>
+        )}
         {held && held.last_sync && (
           <p className="hint">
             Last run: {held.last_sync.kind_label}, {held.last_sync.outcome_label.toLowerCase()}

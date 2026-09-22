@@ -6,6 +6,16 @@ the session (``app.integrations.qbo.connect``), sets no cookie, and always answe
 with a 303 to the Connections page carrying a short result code. Its query string
 holds the authorization ``code`` and the ``state``: ``CallbackQueryFilter`` keeps
 both out of the access log.
+
+F05.1 adds two more routes that no session reaches. ``POST /qbo/webhook`` is
+Intuit's delivery: the HMAC signature is its only proof, the raw body is stored in
+one transaction and the request answers 200; the poll it triggers is enqueued after
+the response (``app.integrations.qbo.webhooks``). ``GET /qbo/disconnected`` is where
+Intuit sends the browser when a user disconnects the app inside QuickBooks, with the
+realm on the query string; the route enqueues one poll for that company (whose first
+call ends in ``needs_reconnect`` through the ordinary refresh path) and redirects to
+the static page. Neither marks anything on the query string alone. Refused requests
+on both are counted per IP in the process and store nothing.
 """
 
 import logging
@@ -13,9 +23,10 @@ from typing import Annotated
 from urllib.parse import urlencode
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
+from starlette.concurrency import run_in_threadpool
 
 from app.api.schemas import QboConnectOut, QboStatusOut, QboSyncRequestOut
 from app.core.audit import request_meta
@@ -23,6 +34,7 @@ from app.core.auth import Principal, TenantSession, find_session_by_token, is_ex
 from app.core.authz import can_manage_connections, can_view_connections
 from app.core.config import MissingSettings, get_settings
 from app.core.db import AppEngine, untenanted_session
+from app.core.throttle import MemoryThrottle
 from app.ingest.models import CONNECTION_STATUS_LABELS, Connection
 from app.integrations.qbo import SYSTEM
 from app.integrations.qbo.connect import (
@@ -33,12 +45,30 @@ from app.integrations.qbo.connect import (
 )
 from app.integrations.qbo.schedule import request_sync
 from app.integrations.qbo.status import copy_status
+from app.integrations.qbo.webhooks import (
+    SCHEMA_HEADER,
+    SIGNATURE_HEADER,
+    TID_HEADER,
+    deliveries_in_window,
+    dispatch,
+    dispatch_in_background,
+    signature_ok,
+    store_delivery,
+)
 from app.tenancy.models import Role
 
 router = APIRouter(prefix="/qbo", tags=["qbo"])
 
 CALLBACK_PATH = "/api/qbo/callback"
+DISCONNECTED_PATH = "/api/qbo/disconnected"
 CONNECTIONS_PAGE = "/connections"
+DISCONNECTED_PAGE = "/qbo/disconnected"  # the static page nginx serves (F05.0)
+# Paths whose query string is dropped from the access log (the callback's code and
+# state; the disconnect page's realm id, for symmetry).
+QUIET_PATHS = (CALLBACK_PATH, DISCONNECTED_PATH)
+
+log = logging.getLogger("app.qbo")
+WEBHOOK_THROTTLE = MemoryThrottle()
 
 Manager = Annotated[Principal, Depends(can_manage_connections)]
 Viewer = Annotated[Principal, Depends(can_view_connections)]
@@ -51,6 +81,12 @@ STATUS_MESSAGES: dict[str, str | None] = {
     "error": "The last sync failed. It will be tried again; "
     "if this stays, see the operations guide.",
 }
+# F05.1: the reason behind ``needs_reconnect`` when it is not Intuit's doing.
+REASON_MESSAGES: dict[str, str] = {
+    "environment_mismatch": "This company was connected with the other Intuit environment "
+    "(sandbox or production) than the keys this server holds. Disconnect it; if this is "
+    "the sandbox tenant, delete the tenant (operations guide, Deleting a tenant).",
+}
 
 
 class CallbackQueryFilter(logging.Filter):
@@ -60,8 +96,9 @@ class CallbackQueryFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         args = record.args
         if isinstance(args, tuple) and len(args) >= 3 and isinstance(args[2], str):
-            if args[2].startswith(CALLBACK_PATH):
-                record.args = (*args[:2], CALLBACK_PATH, *args[3:])
+            for path in QUIET_PATHS:
+                if args[2].startswith(path):
+                    record.args = (*args[:2], path, *args[3:])
         return True
 
 
@@ -80,13 +117,18 @@ def _status_out(
     status = connection.status if connection is not None else "disconnected"
     known_result = result if result in RESULT_MESSAGES else None
     held = None
+    webhooks_24h = 0
     if db is not None and connection is not None and connection.realm_id is not None:
         held = copy_status(db, principal.active_tenant_id, connection)
+        webhooks_24h = deliveries_in_window(db, connection.realm_id, utcnow())
+    message = STATUS_MESSAGES.get(status)
+    if connection is not None and connection.last_error in REASON_MESSAGES:
+        message = REASON_MESSAGES[connection.last_error]
     return QboStatusOut(
         held=held,
         status=status,
         status_label=CONNECTION_STATUS_LABELS.get(status, status.replace("_", " ").capitalize()),
-        message=STATUS_MESSAGES.get(status),
+        message=message,
         error_detail=connection.last_error if connection is not None else None,
         company_name=connection.company_name if connection is not None else None,
         environment=connection.environment if connection is not None else None,
@@ -99,6 +141,12 @@ def _status_out(
         can_manage=principal.role is Role.firm_admin,
         result=known_result,
         result_message=RESULT_MESSAGES.get(known_result) if known_result else None,
+        last_webhook_at=(
+            connection.last_webhook_at.isoformat()
+            if connection is not None and connection.last_webhook_at
+            else None
+        ),
+        webhooks_24h=webhooks_24h,
     )
 
 
@@ -209,3 +257,57 @@ def callback(
     base = get_settings().app_base_url.rstrip("/")
     target = f"{base}{CONNECTIONS_PAGE}?{urlencode({'result': result})}"
     return RedirectResponse(target, status_code=303)
+
+
+# --- F05.1: Intuit's webhook and the disconnect page ---------------------------------------
+
+
+@router.post("/webhook", include_in_schema=False)
+async def webhook(request: Request, engine: AppEngine, background: BackgroundTasks) -> Response:
+    """Store first, answer 200, enqueue after. The raw bytes are read before anything
+    parses them; the signature is the only proof (no session, no CSRF header)."""
+    body = await request.body()
+    verifier = get_settings().qbo_webhook_verifier
+    meta = request_meta(request)
+    now = utcnow()
+    if not verifier:
+        log.error("qbo webhook refused: QBO_WEBHOOK_VERIFIER is not set")
+        return Response(status_code=503)
+    if not signature_ok(body, request.headers.get(SIGNATURE_HEADER), verifier):
+        if WEBHOOK_THROTTLE.refused(meta.ip, now):
+            return Response(status_code=429)
+        WEBHOOK_THROTTLE.record_failure(meta.ip, now)
+        if WEBHOOK_THROTTLE.should_log(meta.ip, now):
+            log.warning("qbo webhook bad signature request_id=%s", meta.request_id)
+        return Response(status_code=401)
+    stored = await run_in_threadpool(
+        store_delivery,
+        engine,
+        body=body,
+        tid=request.headers.get(TID_HEADER),
+        schema_version=request.headers.get(SCHEMA_HEADER),
+        now=now,
+    )
+    if stored.realms:
+        background.add_task(dispatch_in_background, engine, stored.realms, now)
+    return Response(status_code=200)
+
+
+@router.get("/disconnected", include_in_schema=False)
+def disconnected(
+    request: Request,
+    engine: AppEngine,
+    realmId: str | None = None,  # noqa: N803 - Intuit's parameter name
+) -> RedirectResponse:
+    """Intuit sends the browser here (registered as ``…/api/qbo/disconnected?realmId=``).
+    A connected company named on the query string gets one poll, whose first call
+    finds the revoked token and sets ``needs_reconnect``; nothing is marked here."""
+    meta = request_meta(request)
+    now = utcnow()
+    realm = (realmId or "").strip()[:40]
+    if realm and not WEBHOOK_THROTTLE.refused(meta.ip, now):
+        outcome = dispatch(engine, (realm,), now, source="disconnect").get(realm, "unknown")
+        if outcome == "unknown":
+            WEBHOOK_THROTTLE.record_failure(meta.ip, now)
+    base = get_settings().app_base_url.rstrip("/")
+    return RedirectResponse(f"{base}{DISCONNECTED_PAGE}", status_code=303)

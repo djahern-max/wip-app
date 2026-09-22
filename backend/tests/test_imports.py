@@ -168,7 +168,9 @@ def test_list_get_download_and_cross_tenant_404(
     assert c.get(f"/api/imports/{bid}").json()["original_filename"] == "Rye Beach jobs.bin"
     r = c.get(f"/api/imports/{bid}/download")
     assert r.status_code == 200 and r.content == content
-    assert "attachment" in r.headers["content-disposition"]
+    # F05.1 small fix: the original name travels on the download (RFC 5987 form).
+    assert r.headers["content-disposition"].startswith("attachment; filename=")
+    assert "filename*=UTF-8''Rye%20Beach%20jobs.bin" in r.headers["content-disposition"]
     assert audit_actions(rw_engine, seed.tenant_a, bid)[-1] == "import_downloaded"
     # Another tenant: 404 for detail and download, not 403 (RLS never returns the row).
     cb = login_as("client_admin_b", tenant=seed.tenant_b)

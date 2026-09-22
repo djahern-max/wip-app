@@ -23,6 +23,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import BinaryIO, Protocol
+from urllib.parse import quote
 from uuid import UUID
 
 from app.core.config import Settings
@@ -52,6 +53,16 @@ def full_key(tenant_id: UUID, relative_key: str) -> str:
     return f"tenant/{tenant_id}/{validate_relative_key(relative_key)}"
 
 
+def tenant_prefix(tenant_id: UUID) -> str:
+    return f"tenant/{tenant_id}/"
+
+
+def content_disposition(filename: str, fallback: str) -> str:
+    """``attachment`` with the original name (RFC 5987, percent-encoded) and an ASCII
+    fallback; the name is data and never part of a key (F03; F05.1 small fix)."""
+    return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{quote(filename)}"
+
+
 class ObjectStore(Protocol):
     def put(self, tenant_id: UUID, relative_key: str, stream: BinaryIO) -> str:
         """Write the object; returns the full key. Overwrites an identical key."""
@@ -61,10 +72,19 @@ class ObjectStore(Protocol):
         """A readable, seekable binary stream positioned at 0; ``ObjectStoreError``
         when the object is missing."""
 
-    def signed_url(self, tenant_id: UUID, relative_key: str, ttl: int) -> str | None:
-        """A short-lived download URL, or ``None`` when the store streams instead."""
+    def signed_url(
+        self, tenant_id: UUID, relative_key: str, ttl: int, *, disposition: str | None = None
+    ) -> str | None:
+        """A short-lived download URL, or ``None`` when the store streams instead.
+        ``disposition`` is the ``Content-Disposition`` the download should carry."""
 
     def exists(self, tenant_id: UUID, relative_key: str) -> bool: ...
+
+    def list_keys(self, tenant_id: UUID) -> list[str]:
+        """Every relative key under the tenant's prefix (F05.1, delete_tenant.py)."""
+
+    def delete(self, tenant_id: UUID, relative_key: str) -> None:
+        """Remove one object; a missing object is not an error."""
 
 
 class LocalObjectStore:
@@ -95,11 +115,24 @@ class LocalObjectStore:
         with path.open("rb") as f:
             yield f
 
-    def signed_url(self, tenant_id: UUID, relative_key: str, ttl: int) -> str | None:
+    def signed_url(
+        self, tenant_id: UUID, relative_key: str, ttl: int, *, disposition: str | None = None
+    ) -> str | None:
         return None
 
     def exists(self, tenant_id: UUID, relative_key: str) -> bool:
         return self._path(tenant_id, relative_key).is_file()
+
+    def list_keys(self, tenant_id: UUID) -> list[str]:
+        base = (self.root / tenant_prefix(tenant_id)).resolve()
+        if self.root not in base.parents or not base.is_dir():
+            return []
+        return sorted(p.relative_to(base).as_posix() for p in base.rglob("*") if p.is_file())
+
+    def delete(self, tenant_id: UUID, relative_key: str) -> None:
+        path = self._path(tenant_id, relative_key)
+        if path.is_file():
+            path.unlink()
 
 
 class S3ObjectStore:
@@ -150,12 +183,27 @@ class S3ObjectStore:
         finally:
             tmp.close()
 
-    def signed_url(self, tenant_id: UUID, relative_key: str, ttl: int) -> str | None:
-        return self.client.generate_presigned_url(
-            "get_object",
-            Params={"Bucket": self.bucket, "Key": full_key(tenant_id, relative_key)},
-            ExpiresIn=ttl,
-        )
+    def signed_url(
+        self, tenant_id: UUID, relative_key: str, ttl: int, *, disposition: str | None = None
+    ) -> str | None:
+        params = {"Bucket": self.bucket, "Key": full_key(tenant_id, relative_key)}
+        if disposition:
+            params["ResponseContentDisposition"] = disposition
+        return self.client.generate_presigned_url("get_object", Params=params, ExpiresIn=ttl)
+
+    def list_keys(self, tenant_id: UUID) -> list[str]:
+        prefix = tenant_prefix(tenant_id)
+        keys: list[str] = []
+        paginator = self.client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
+            for obj in page.get("Contents", []) or []:
+                key = obj.get("Key", "")
+                if key.startswith(prefix) and len(key) > len(prefix):
+                    keys.append(key[len(prefix) :])
+        return sorted(keys)
+
+    def delete(self, tenant_id: UUID, relative_key: str) -> None:
+        self.client.delete_object(Bucket=self.bucket, Key=full_key(tenant_id, relative_key))
 
     def exists(self, tenant_id: UUID, relative_key: str) -> bool:
         from botocore.exceptions import ClientError

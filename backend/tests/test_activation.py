@@ -694,3 +694,32 @@ def test_cli_create_tenant_and_add_entry_are_audited_with_actor_none(
         cli.main(["create-tenant", "--name", "Again", "--slug", slug])
     with tenant_session(owner_engine, tenant.id) as s:  # leave the seed user as seeded
         s.execute(text("DELETE FROM membership WHERE user_id = :u"), {"u": su.id})
+
+
+# --- F05.1 small fix: a reload mid-enrolment ---------------------------------------------------
+
+
+def test_a_reload_mid_enrolment_gets_the_same_pending_secret_and_completes(
+    login_as: Callable[..., TestClient], seed: Seed, rw_engine: Engine
+) -> None:
+    """A reload is: the page loads, asks /session/me, mounts the enrolment screen and
+    requests the enrolment again on the same cookie. The server hands back the secret
+    it already holds; the code from the authenticator set up before the reload confirms."""
+    admin_c = login_as("firm_admin")
+    uid, _email, token = make_firm_user_via_api(admin_c, seed, "reload")
+    with make_client() as c:
+        assert activate(c, token, new_password("reload")).status_code == 200
+        first = c.post("/api/auth/totp/enrol", headers=CSRF)
+        assert first.status_code == 200, first.text
+        secret = first.json()["secret"]
+        record_secret("totp_secret", secret)
+        # The reload.
+        me = c.get("/api/session/me").json()
+        assert me["totp"] == "enrol_required"
+        second = c.post("/api/auth/totp/enrol", headers=CSRF)
+        assert second.status_code == 200 and second.json()["secret"] == secret
+        r = c.post("/api/auth/totp/enrol/confirm", json={"code": totp_code(secret)}, headers=CSRF)
+        assert r.status_code == 200, r.text
+        assert len(r.json()["recovery_codes"]) == 10
+        assert c.get("/api/session/me").json()["totp"] == "ok"
+    assert firm_events(rw_engine, uid, "totp_enrolled")

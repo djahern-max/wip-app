@@ -39,8 +39,8 @@ The owner is a CPA and the domain expert. When accounting treatment is unclear, 
 - Worker tasks take `tenant_id` as an explicit argument and set context the same way. No task iterates tenants inside one transaction.
 - No query, log line, error message, cache key, or file path may mix tenants. Object storage keys start with `tenant/{tenant_id}/`.
 - `membership` carries one additional `FOR SELECT` policy (own rows by `app.user_id`), created by `allow_own_membership_read()` (D-11). No other table may have a policy beyond `tenant_isolation` without a new decision.
-- Insert-only tables call `make_append_only()` and are listed in `APPEND_ONLY_TABLES` (D-13).
-- Approved tables without `tenant_id`: `firm`, `tenant`, `user`, `session`, `firm_audit_log`, `firm_membership`. Any other table without `tenant_id` needs a decision.
+- Insert-only tables call `make_append_only()` and are listed in `APPEND_ONLY_TABLES` (D-13). The one exception is deleting a whole tenant: `scripts/delete_tenant.py`, run by the operator on the server with the owner role, suspends the triggers for that one transaction (D-28). The application role never can.
+- Approved tables without `tenant_id`: `firm`, `tenant`, `user`, `session`, `firm_audit_log`, `firm_membership`, `webhook_event` (D-29: a webhook delivery is stored before the tenant is known). Any other table without `tenant_id` needs a decision.
 - A table without tenant scope may never have a column named `tenant_id`; the enumeration test identifies tenant tables by that name.
 - Data migrations set tenant context per tenant and never disable or unforce RLS.
 - Reading another user's `membership` rows from an admin request goes only through `read_as_user()` in `app/core/auth.py` (D-18): it swaps `app.user_id` for the block, restores the actor's id in `finally`, is called only from `app/auth/admin.py` after the firm-role check, and its results are limited to tenants of the actor's firm.

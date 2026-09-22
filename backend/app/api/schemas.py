@@ -336,6 +336,10 @@ class QboStatusOut(_Out):
     result: str | None
     result_message: str | None
     held: QboCopyOut | None
+    # F05.1: when a webhook delivery last named this company, and how many arrived in
+    # the last 24 hours (0 when none, or when no company is connected).
+    last_webhook_at: str | None = None
+    webhooks_24h: int = 0
 
 
 class QboSyncRequestOut(_Out):

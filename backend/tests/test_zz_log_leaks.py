@@ -26,6 +26,7 @@ def test_suite_produced_logs_and_secrets() -> None:
         "oauth_state",  # F05
         "oauth_code",
         "client_secret",
+        "webhook_verifier",  # F05.1
     )
     for kind in kinds:
         assert LEAKS[kind], f"no {kind} was recorded by the suite"
@@ -43,6 +44,7 @@ def test_no_secret_appears_in_any_log_line() -> None:
         "oauth_state",
         "oauth_code",
         "client_secret",
+        "webhook_verifier",
     ]
     for kind in verbatim:
         for secret in LEAKS[kind]:

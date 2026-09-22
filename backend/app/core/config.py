@@ -105,6 +105,13 @@ class Settings(BaseSettings):
     qbo_environment: str | None = None
     qbo_redirect_uri: str | None = None
     qbo_cdc_poll_minutes: int = 15
+    # F05.1 · webhooks. The Verifier Token of the Intuit app's webhook tab that matches
+    # QBO_ENVIRONMENT (one tab at a time). No default; the webhook route answers 503
+    # naming the variable when it is unset. Never logged or returned.
+    qbo_webhook_verifier: str | None = None
+    # F05.1 (D-28) · tenants that scripts/delete_tenant.py refuses to delete, as
+    # comma-separated slugs. Production: rye-beach.
+    protected_tenant_slugs: str = ""
 
 
 SPACES_SETTINGS: tuple[str, ...] = (
@@ -146,6 +153,10 @@ def require_qbo_settings(settings: "Settings") -> None:
         raise MissingSettings(
             "invalid configuration: QBO_ENVIRONMENT must be 'sandbox' or 'production'"
         )
+
+
+def protected_tenant_slug_set(settings: "Settings") -> frozenset[str]:
+    return frozenset(s.strip() for s in settings.protected_tenant_slugs.split(",") if s.strip())
 
 
 class MigrationSettings(BaseSettings):

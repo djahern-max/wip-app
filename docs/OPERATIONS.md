@@ -533,6 +533,8 @@ QuickBooks" is pressed.
 | `QBO_CLIENT_SECRET` | Same place. Never logged, returned, or stored in the database |
 | `QBO_ENVIRONMENT` | `sandbox` (Development keys reach sandbox companies only) or `production` |
 | `QBO_REDIRECT_URI` | Development: `http://localhost:5173/api/qbo/callback` |
+| `QBO_WEBHOOK_VERIFIER` | F05.1. The Verifier Token of the Intuit app's webhook tab that matches `QBO_ENVIRONMENT`. Only on a public host; unset on the Mac (the webhook route answers 503) |
+| `PROTECTED_TENANT_SLUGS` | F05.1 (D-28). Slugs `scripts/delete_tenant.py` refuses; production `rye-beach` |
 
 The redirect URI must be listed, character for character, under "Redirect URIs" on the same
 page of the Intuit app. In development it points at the Vite server (port 5173), which passes
@@ -627,6 +629,121 @@ Reading a run by hand (as `app_rw`, with `SET LOCAL app.tenant_id`):
 `SELECT kind, outcome, started_at, finished_at, records_fetched, records_stored, error, detail
 FROM sync_run ORDER BY started_at DESC LIMIT 20;`
 
+### Intuit production keys and questionnaire answers (F05.1)
+Production keys are issued from the Intuit app's **Production** tab once its settings and the
+app assessment questionnaire are complete. Everything below is done by the owner in the
+developer portal; nothing is code, and no key is ever pasted into chat, the repo or the Mac.
+
+Production tab settings, character for character:
+
+| Field | Value |
+|---|---|
+| Host domain | `jobcost.dev` |
+| Launch URL | `https://jobcost.dev/` |
+| Disconnect URL | `https://jobcost.dev/api/qbo/disconnected?realmId=` (Intuit fills the realm after `=`; see "Intuit-side disconnect") |
+| Privacy policy | `https://jobcost.dev/privacy` |
+| EULA / terms | `https://jobcost.dev/terms` |
+| Redirect URI | `https://jobcost.dev/api/qbo/callback` |
+| Scope | `com.intuit.quickbooks.accounting` only |
+
+Questionnaire answers (the facts recorded in this file and on the privacy page; answer in
+these words, adding nothing):
+- **What the app does**: job cost and work-in-progress reporting for construction and
+  landscape contractors, operated by a CPA practice for its own clients. Not listed on the
+  Intuit App Store; one operator, one deployment.
+- **Data read**: the client's own QuickBooks Online company, read-only, through the
+  Accounting API: accounts, customers and projects, vendors, items, invoices, payments,
+  credit memos, sales receipts, deposits, bills, vendor credits, purchases, journal
+  entries, time activities, preferences, company info. Nothing is written to QuickBooks.
+- **Hosting**: one DigitalOcean droplet and a DigitalOcean Managed Postgres cluster and
+  Space, United States (New York region). TLS only (Let's Encrypt; HSTS).
+- **Token storage**: OAuth tokens are encrypted at the application layer with a key held
+  only on the server (key id stored beside the ciphertext, rotation supported); the
+  database role the application uses cannot bypass row-level security; tokens are never
+  logged or returned by the API.
+- **Data sharing**: none. Data is not sold and not shared with third parties.
+- **Access**: authorized users of the client and of the practice, by role, with a password
+  and, for practice staff, a required authenticator app.
+- **Backups**: daily managed backups with seven-day retention.
+- **Deletion**: on request; QuickBooks tokens are revoked at Intuit and removed as soon as a
+  connection is disconnected, and a client's data is deleted with `scripts/delete_tenant.py`
+  ("Deleting a tenant").
+- **Contact**: `admin@jobcost.dev`; the operating entity is Ryze Group, Inc., a New
+  Hampshire corporation.
+
+When the keys arrive, on the droplet as root: put them in `/etc/wip/app.env` as
+`QBO_CLIENT_ID` and `QBO_CLIENT_SECRET`, set `QBO_ENVIRONMENT=production`, put the
+**Production** webhook verifier in `QBO_WEBHOOK_VERIFIER`, then `systemctl restart wip-api
+wip-worker`. The Development keys stay on the Mac's `.env` only. `app.env` was installed once
+by `setup.sh` and is never overwritten: the two F05.1 names (`QBO_WEBHOOK_VERIFIER`,
+`PROTECTED_TENANT_SLUGS=rye-beach`) are added to it by hand, in the order
+`deploy/env.template` shows.
+
+### Webhooks (F05.1)
+Intuit posts a signed delivery to `https://jobcost.dev/api/qbo/webhook` when something changes
+in a connected company. The delivery is only a trigger: the route checks the signature, stores
+the delivery raw (`webhook_event`, insert-only, one row per event), answers 200, and then
+queues one change poll for the company, the same poll "Sync now" queues; a burst of
+notifications is one poll. Polling every `QBO_CDC_POLL_MINUTES` stays on as the safety net,
+and the nightly check is unchanged. That is Intuit's own recommendation (Best practices: a
+CDC call back to the last processed event plus a daily sweep), which F05 already was.
+
+**Registering** (owner, developer portal, one tab at a time: the server holds one verifier,
+the one for the environment `QBO_ENVIRONMENT` names):
+1. Webhooks → **Development** tab first, while the server still runs the Development keys:
+   endpoint URL `https://jobcost.dev/api/qbo/webhook`; entities: Customer, Invoice, Payment,
+   CreditMemo, SalesReceipt, Deposit, Account (the F05 set) and Bill, VendorCredit, Purchase,
+   JournalEntry, BillPayment (the F10 set, so F10 needs no portal change). Save; copy the
+   **Verifier Token** into `QBO_WEBHOOK_VERIFIER` in `app.env`; restart both services.
+2. Prove it end to end: switch to the `qbo-sandbox` tenant, create an invoice in the sandbox
+   company, do **not** press Sync now, and watch it appear on the Connections page within five
+   minutes. The page shows "Last webhook received" and the count in the last 24 hours.
+3. **Production** tab, after the keys arrive: the same endpoint and entities; its own Verifier
+   Token replaces the Development one in `app.env` at the same moment as the keys; restart.
+
+**Verifier rotation**: generate a new token on the tab that matches `QBO_ENVIRONMENT`, put it
+in `app.env`, restart. Deliveries signed with the old token are refused with 401 during the
+seconds in between and Intuit retries them (below), so nothing is lost.
+
+**What to check when none arrive**:
+- Intuit's rules (Best practices): the endpoint must answer 200 within three seconds; a missed
+  delivery is retried at 10 s, 20 s, 30 s, 5 min, 20 min, 2 h, 4 h, 6 h and then every 6 h;
+  **later events are held until the first is acknowledged**, so a failing endpoint stalls
+  delivery rather than losing it, and an endpoint that exhausts its retries is disabled on the
+  tab. Look first for a stuck first event and for the endpoint answering something other
+  than 200: `grep '/api/qbo/webhook' /var/log/nginx/access.log | tail` (503 = the verifier
+  is unset; 401 = it does not match the tab; 429 = an address sent twenty bad signatures in
+  fifteen minutes; 200 = arriving). `journalctl -u wip-api | grep 'qbo webhook'` shows one
+  line per stored delivery (counts and Intuit's transaction id, never a payload) and one
+  line per bad signature per address per window.
+- The verifier on the tab matching `QBO_ENVIRONMENT` equals `QBO_WEBHOOK_VERIFIER`, and the
+  services were restarted after it was set.
+- The tab's endpoint status is not "disabled"; if it is, fix the cause, re-enable, and press
+  Sync now once to catch up (the poll never needed the deliveries).
+- The company is Connected: a delivery for a company that is "Needs reconnect" or "Not
+  connected" is stored and counted but queues nothing; an unknown realm is stored and
+  ignored.
+- Reading a delivery by hand (as `app_owner`, no tenant context needed):
+  `SELECT received_at, realm_id, event_type, entity_id, intuit_tid FROM webhook_event ORDER BY
+  received_at DESC LIMIT 20;`
+
+### Intuit-side disconnect (F05.1)
+When a user removes the app inside QuickBooks (Apps → My apps → Disconnect), Intuit sends the
+browser to the registered disconnect URL and, because it is registered with `?realmId=`, fills
+in the company's realm. `GET /api/qbo/disconnected?realmId=…` queues one change poll for that
+company (nothing is marked on the query string alone: anyone can send it) and shows the static
+"QuickBooks connection ended" page. The poll's first call finds the revoked token, the refresh
+is refused, and the connection shows **Needs reconnect** with `invalid_grant`, audited: no later
+than the next scheduled poll, usually within a minute. A disconnect that never reaches us ends
+the same way at the next poll. Our own **Disconnect** button revokes at Intuit first, then
+clears the tokens (F05); the privacy page promises exactly that.
+
+### Rye Beach connection record (F05.1)
+_To be filled at connection: date, realm id (not a secret), backfill duration, the tie-out
+(report name, months compared, "equal" or the named difference; amounts stay in the owner's
+workpaper), the account-number check (attached count against the F04 chart, differences by
+number), and the S-01 question 4 answer (record ids only; BLUEPRINT §13.7)._
+
 ### Recording the test fixtures
 `cd backend && .venv/bin/python scripts/qbo_record_fixtures.py --tenant qbo-sandbox` writes
 `tests/fixtures/qbo_sandbox/*.json` from the connected sandbox company (realm id replaced;
@@ -645,6 +762,55 @@ API and the worker; Managed Postgres 16 (`jobcost-db`, NYC1, private hostname, t
 source = the droplet) is the database; the private Space `jobcost-files` (NYC3) is the
 object store. No containers on the server. The owner deploys by hand over ssh. Everything
 below is reproducible from the repo by two scripts.
+
+### Environments (F05.1)
+
+| Environment | Where | Env file | Intuit keys | Webhooks |
+|---|---|---|---|---|
+| Mac (development) | the laptop, compose Postgres on 5433 | repo-root `.env` (never committed) | **Development** keys, `QBO_ENVIRONMENT=sandbox`, the sandbox company on tenant `qbo-sandbox` | none (no public host; `QBO_WEBHOOK_VERIFIER` unset) |
+| CI | GitHub Actions | `tests/_env.py` (throwaway keys and verifier per run) | none: Intuit is never reached; `FakeIntuit` answers | signed by the throwaway verifier |
+| Production | the droplet, `jobcost.dev` | `/etc/wip/app.env` (API and worker), `/etc/wip/migrate.env` (owner URL, root only) | **Production** keys, `QBO_ENVIRONMENT=production`, Rye Beach on tenant `rye-beach`; no sandbox tenant after F05.1 | Production tab, verifier in `app.env` |
+
+One key pair per deployment: the server holds either the Development or the Production
+keys, never both, and `QBO_ENVIRONMENT` says which. A connection made under the other
+environment shows **Needs reconnect** with `environment_mismatch` at its next poll and stops
+(never retried); disconnect it, or delete its tenant.
+
+### Deleting a tenant (F05.1, D-28)
+An operator action on the server, never through the API, and the one time the append-only
+triggers are suspended (for that transaction only; `prod_check.py` proves they are back).
+Run in a quiet moment: the script holds an exclusive lock on `audit_log` and `raw_record` for
+the seconds the deletion takes, and API requests writing audit rows wait for it.
+
+```sh
+cd /opt/wip/backend
+set -a && . /etc/wip/migrate.env && set +a
+ENV_FILE=/etc/wip/app.env .venv/bin/python scripts/delete_tenant.py <slug>
+```
+
+The owner URL comes from the root-only migration file; the key ring, the Intuit keys and the
+Space key come from `app.env` (to revoke the tokens and delete the objects). The script:
+1. refuses a slug in `PROTECTED_TENANT_SLUGS` (production: `rye-beach`) and refuses to run
+   as a role that does not own the tenant tables (`app_rw` stops with one sentence);
+2. prints the row count per tenant table and the object count under `tenant/{id}/`, and
+   asks for the slug typed back exactly; anything else stops it, nothing changed;
+3. revokes the QuickBooks tokens at Intuit if the tenant holds any (best effort: with the
+   server on the other environment's keys the revoke fails and is reported, which is why
+   the runbook says to press **Disconnect** on the tenant *before* a key swap);
+4. deletes the objects under the tenant's prefix in the Space;
+5. in one transaction, as the owner with the tenant context set: disables the append-only
+   triggers on the tenant tables that have them, deletes every tenant table's rows in
+   foreign-key order (derived from the catalog), re-enables the triggers, clears sessions
+   pointing at the tenant, deletes the `tenant` row, and writes one `firm_audit_log` row
+   (`tenant_deleted`: slug, rows per table, objects, operator). A failure anywhere rolls
+   everything back, triggers included.
+
+Afterwards run `prod_check.py`; "append-only triggers present and enabled" must be `ok`.
+The audit row survives because it is firm-level: `SELECT occurred_at, detail FROM
+firm_audit_log WHERE action = 'tenant_deleted' ORDER BY occurred_at DESC;` as `app_owner`.
+
+**First use, `qbo-sandbox` on production (F05.1, step 3)**: _to be recorded: date, counts, the
+`prod_check.py` line._
 
 ### Server layout, and who may read what
 

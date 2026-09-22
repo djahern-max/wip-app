@@ -156,3 +156,28 @@ def test_a_second_401_is_an_error_not_a_loop(fresh_tenant: uuid.UUID, rw_engine:
             CompanyReader(rw_engine, fresh_tenant, cid).company_info()
         assert fake.refresh_calls == 1
         assert _row(rw_engine, fresh_tenant, cid)["status"] == "connected"
+
+
+def test_a_connection_from_the_other_environment_needs_reconnect_once_without_a_call(
+    fresh_tenant: uuid.UUID, rw_engine: Engine
+) -> None:
+    """F05.1 (plan question 5): after the production key swap, the sandbox tenant's
+    connection is ended once, audited, with no token request; not retried for ever."""
+    with installed(FakeIntuit()) as fake:
+        cid = connect_directly(rw_engine, fresh_tenant, fake)
+        with tenant_session(rw_engine, fresh_tenant) as db:
+            db.get(Connection, cid).environment = "production"  # the server holds sandbox keys
+        before = len(_audit_actions(rw_engine, fresh_tenant))
+        with pytest.raises(NeedsReconnect, match="environment_mismatch"):
+            access_for(rw_engine, fresh_tenant, cid)
+        assert fake.refresh_calls == 0
+        row = _row(rw_engine, fresh_tenant, cid)
+        assert (row["status"], row["last_error"], row["access"]) == (
+            "needs_reconnect",
+            "environment_mismatch",
+            None,
+        )
+        assert _audit_actions(rw_engine, fresh_tenant)[before:] == ["connection_needs_reconnect"]
+        with pytest.raises(NeedsReconnect, match="not connected"):
+            access_for(rw_engine, fresh_tenant, cid)  # the chain is over; nothing repeats
+        assert len(_audit_actions(rw_engine, fresh_tenant)) == before + 1

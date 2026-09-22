@@ -2,11 +2,13 @@ import { useState } from "react";
 import { api } from "../api.js";
 
 // Reached from the one-time activation link a firm administrator hands over
-// (D-16: no e-mail). The token arrives in the URL fragment (App.jsx reads it and
-// clears the address bar) and is sent only in the POST body. Sets the password;
-// for a firm user the server opens an enrolment-only session and the app continues
-// into TOTP enrolment and the recovery codes on "/", so the account becomes usable
-// only once that is done.
+// (D-16: no e-mail). The token arrives in the URL fragment (App.jsx reads it; the
+// address keeps it until the link has been used, so a reload of this page still
+// works) and is sent only in the POST body. Sets the password; for a firm user the
+// server opens an enrolment-only session and the app continues into TOTP enrolment
+// and the recovery codes on "/", so the account becomes usable only once that is
+// done. A reload during enrolment re-requests the same pending secret from the
+// server (start_totp_enrolment is idempotent).
 export default function Activate({ token }) {
   const [password, setPassword] = useState("");
   const [again, setAgain] = useState("");
@@ -24,6 +26,8 @@ export default function Activate({ token }) {
     setBusy(true);
     try {
       const r = await api("POST", "/api/auth/activate", { token, new_password: password });
+      // The link is used: drop the token from the address now, not before.
+      window.history.replaceState(null, "", "/activate");
       if (r && r.next === "totp_enrol") {
         window.location.assign("/"); // stays busy while the page reloads
         return;

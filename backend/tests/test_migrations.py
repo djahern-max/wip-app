@@ -43,6 +43,8 @@ EXPECTED_TABLES = {
     "billing_line",
     "payment",
     "payment_application",
+    # F05.1 (0009): tenant-less, append-only (D-29)
+    "webhook_event",
 }
 F03_TABLES = {"connection", "sync_run", "import_batch", "raw_record", "task"}
 F05_TABLES = {"customer", "billing", "billing_line", "payment", "payment_application"}

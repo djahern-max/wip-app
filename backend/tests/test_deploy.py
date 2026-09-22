@@ -43,6 +43,7 @@ SECRETS = {
     "SPACES_SECRET_ACCESS_KEY",
     "QBO_CLIENT_ID",
     "QBO_CLIENT_SECRET",
+    "QBO_WEBHOOK_VERIFIER",  # F05.1
 }
 PRODUCTION_VALUES = {
     "ENV_FILE": "/etc/wip/app.env",
@@ -54,6 +55,7 @@ PRODUCTION_VALUES = {
     "QBO_REDIRECT_URI": "https://jobcost.dev/api/qbo/callback",
     "CRYPTO_ACTIVE_KEY_ID": "prod1",
     "MAX_UPLOAD_BYTES": "26214400",
+    "PROTECTED_TENANT_SLUGS": "rye-beach",  # F05.1 (D-28)
 }
 
 

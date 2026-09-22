@@ -36,6 +36,8 @@ ACTIVE_KEY_ID = "test1"
 OBJECT_STORE_DIR = tempfile.mkdtemp(prefix="wip-object-store-")
 
 QBO_CLIENT_SECRET = base64.b64encode(os.urandom(24)).decode()
+# F05.1: a throwaway webhook verifier per run (tests/qbo_helpers registers it as a secret).
+QBO_WEBHOOK_VERIFIER = base64.b64encode(os.urandom(24)).decode()
 
 # Never read the developer's .env: a path that does not exist disables file loading.
 ENVIRONMENT: dict[str, str] = {
@@ -55,5 +57,6 @@ ENVIRONMENT: dict[str, str] = {
     "QBO_CLIENT_SECRET": QBO_CLIENT_SECRET,
     "QBO_ENVIRONMENT": "sandbox",
     "QBO_REDIRECT_URI": "https://app.example.test/api/qbo/callback",
+    "QBO_WEBHOOK_VERIFIER": QBO_WEBHOOK_VERIFIER,
 }
 os.environ.update(ENVIRONMENT)

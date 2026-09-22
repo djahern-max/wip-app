@@ -66,3 +66,45 @@ def is_throttled(db: Session, meta: RequestMeta, now: datetime) -> bool:
         meta=meta,
     )
     return True
+
+
+class MemoryThrottle:
+    """Per-IP window kept in the process (F05.1) for the two unauthenticated QuickBooks
+    routes, whose refused requests must **store nothing** (a bad webhook signature, a
+    disconnect page hit for an unknown realm), so the audit-log count above cannot
+    serve them. Same numbers (``IP_THROTTLE_FAILURES`` in ``IP_THROTTLE_MINUTES``);
+    resets on restart; per process, and there is one. ``should_log`` is true once
+    per window per IP, so a flood of bad signatures is one log line."""
+
+    def __init__(self) -> None:
+        self._failures: dict[str, list[datetime]] = {}
+        self._logged_at: dict[str, datetime] = {}
+
+    def _window(self, now: datetime) -> datetime:
+        return now - timedelta(minutes=get_settings().ip_throttle_minutes)
+
+    def refused(self, ip: str | None, now: datetime) -> bool:
+        if ip is None:
+            return False
+        since = self._window(now)
+        recent = [t for t in self._failures.get(ip, ()) if t > since]
+        self._failures[ip] = recent
+        return len(recent) >= get_settings().ip_throttle_failures
+
+    def record_failure(self, ip: str | None, now: datetime) -> None:
+        if ip is None:
+            return
+        since = self._window(now)
+        self._failures[ip] = [t for t in self._failures.get(ip, ()) if t > since] + [now]
+
+    def should_log(self, ip: str | None, now: datetime) -> bool:
+        key = ip or "-"
+        last = self._logged_at.get(key)
+        if last is not None and last > self._window(now):
+            return False
+        self._logged_at[key] = now
+        return True
+
+    def reset(self) -> None:
+        self._failures.clear()
+        self._logged_at.clear()
