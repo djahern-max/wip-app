@@ -346,7 +346,16 @@ def test_deploy_script_locks_then_migrates_before_it_restarts() -> None:
     migrate = first(r"alembic\" upgrade head|alembic upgrade head")
     swap = first(r"mv dist.new dist")
     restart = first(r"systemctl restart wip-api wip-worker")
-    assert lock < build < migrate < swap < restart < first(r"curl -fsS")
+    assert lock < build < migrate < swap < restart < first(r"\bcurl -sS")
+    # Every git command runs as wip (root refuses a checkout owned by another user).
+    bare_git = [ln for ln in lines if re.search(r"\bgit\b", ln) and "git_wip()" not in ln]
+    assert bare_git == [], bare_git  # only the git_wip definition names git itself
+    assert (
+        sum(1 for ln in lines if re.search(r"\bgit_wip ", ln)) >= 4
+    )  # rev-parse ×2, fetch, checkout
+    # The health step tells a 503 with a body apart from no answer.
+    text_after_restart = "\n".join(lines[restart:])
+    assert '"db":"unavailable"' in text_after_restart and "no answer from" in text_after_restart
     assert lines.count("systemctl restart wip-api wip-worker") == 1
     text = "\n".join(lines)
     assert 'MIGRATE_ENV="${MIGRATE_ENV_FILE:-/etc/wip/migrate.env}"' in text

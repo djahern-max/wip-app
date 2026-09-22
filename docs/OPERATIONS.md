@@ -718,6 +718,13 @@ and `www`, the Intuit redirect URI `https://jobcost.dev/api/qbo/callback`.
    SELECT datname, pg_get_userbyid(datdba) FROM pg_database WHERE datname = 'wip';  -- app_owner
    ```
    Nothing in the repo ever holds these passwords; the two env files on the droplet do.
+   **Recorded 2026-09-22 (first run on `jobcost-db`)**: `app_owner` rolsuper f, rolbypassrls f;
+   `app_rw` rolsuper f, rolbypassrls f; database `wip` present. It took two server-side
+   fixes to get there: the trusted source had to be the droplet as a resource (the public-IP
+   entry did not admit the VPC connection) and `PG_MAINTENANCE_DB=defaultdb`. The password
+   in `DATABASE_URL` must be the one given to `01_roles.sh`: on the first deploy they
+   differed, the health check answered 503 with `"db":"unavailable"`, and
+   `ALTER ROLE app_rw PASSWORD '…'` as `doadmin` plus a restart fixed it.
 4. **First release**: `bash /opt/wip/deploy/deploy.sh` (below). It migrates, builds, starts
    both services and checks `https://jobcost.dev/api/health`.
 5. **Production data set-up** (the owner, from the droplet as `wip`; each command is the
@@ -759,6 +766,18 @@ any restart**, inside `timeout 600`; then the frontend swap (`dist` → `dist.pr
 and the roll-back command. **A failed migration stops the script before the restart**: the
 old release keeps serving, new code is on disk, the database is unchanged (Alembic runs the
 migrations in one transaction). Fix the migration and run `deploy.sh` again, or go back.
+
+Every `git` command in `deploy.sh` runs as `wip`, the checkout's owner (`git_wip`), so root
+needs no `safe.directory` entry: git refuses a repository owned by another user as
+"dubious ownership", which is what stopped the first deploy on 2026-09-22 when root ran
+`rev-parse`. The `safe.directory /opt/wip` entry added by hand that day in root's global git
+config is harmless and unused; `git config --global --unset-all safe.directory` removes it.
+
+The health step tells the outcomes apart: **no answer** (nginx or `wip-api` not up: read the
+journal), a **503 with `"db":"unavailable"`** (the API is up but cannot reach the database:
+check `DATABASE_URL` in `/etc/wip/app.env`, in particular that the `app_rw` password equals
+the role's, then restart both services), or another status. Each message ends with the
+`journalctl` line to read.
 
 ### Rolling back
 
@@ -872,7 +891,21 @@ the D-11 allow-list; append-only triggers present and enabled on each of
 `APPEND_ONLY_TABLES` and the register matches; a HEAD on the Space's bucket succeeds. Exit 1
 on any `FAIL:` line. It never prints a URL, key, hostname or row. The same catalog queries
 (`app/tenancy/catalog.py`) are what `tests/test_rls.py` and `tests/test_append_only.py`
-enforce in CI. Recorded output of the run after the first deploy: _not yet run_.
+enforce in CI. Recorded output of the run after the first deploy (2026-09-22, commit
+81158c2 plus the two fixes above, database `wip` at 0008; exit 0):
+
+```
+ok: role is app_rw, NOSUPERUSER, NOBYPASSRLS
+ok: role owns no table
+ok: connection over SSL
+ok: tenant tables enumerated
+ok: RLS enabled and forced with tenant_isolation on every tenant table
+ok: no policy outside the D-11 allow-list
+ok: append-only triggers present and enabled
+ok: append-only register matches the catalog
+ok: object store answers a HEAD on the bucket
+all 9 checks passed
+```
 
 ### Firewall
 

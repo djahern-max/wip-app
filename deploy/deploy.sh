@@ -28,9 +28,13 @@ VENV="$APP_DIR/backend/.venv"
 [ -r "$MIGRATE_ENV" ] || { echo "deploy.sh: $MIGRATE_ENV is missing" >&2; exit 1; }
 
 as_wip() { sudo -u "$APP_USER" -H "$@"; }
+# Every git command runs as wip, the checkout's owner: root would otherwise refuse the
+# repository as "dubious ownership" (found on the first deploy, 2026-09-22), and root
+# needs no safe.directory entry.
+git_wip() { as_wip git -C "$APP_DIR" "$@"; }
 
 STEP=start
-PREVIOUS="$(git -C "$APP_DIR" rev-parse HEAD)"
+PREVIOUS="$(git_wip rev-parse HEAD)"
 on_error() {
     echo >&2
     echo "deploy failed at step: $STEP" >&2
@@ -43,11 +47,11 @@ echo "== deploy $REF (serving $PREVIOUS) =="
 free -m
 
 STEP=fetch
-as_wip git -C "$APP_DIR" fetch --prune --quiet origin
+git_wip fetch --prune --quiet origin
 
 STEP=checkout
-as_wip git -C "$APP_DIR" checkout --detach --quiet "$REF"
-SHA="$(git -C "$APP_DIR" rev-parse HEAD)"
+git_wip checkout --detach --quiet "$REF"
+SHA="$(git_wip rev-parse HEAD)"
 echo "checked out $SHA"
 
 STEP="node version"
@@ -86,17 +90,33 @@ STEP=restart
 systemctl restart wip-api wip-worker
 
 STEP=health
+# Up to ten tries, two seconds apart. "No answer" (nginx or the API not up) is told apart
+# from a 503 whose body says the API is up but its database connection failed (first
+# deploy, 2026-09-22: a DATABASE_URL password that did not match the role).
 ok=0
+code=""
+body=""
 for _ in 1 2 3 4 5 6 7 8 9 10; do
-    body="$(curl -fsS --max-time 5 "$HEALTH_URL" 2>/dev/null || true)"
-    if [[ "$body" == *'"status":"ok"'* && "$body" == *'"db":"ok"'* ]]; then
+    body="$(curl -sS --max-time 5 -w '\n%{http_code}' "$HEALTH_URL" 2>/dev/null || true)"
+    code="${body##*$'\n'}"
+    body="${body%$'\n'*}"
+    if [ "$code" = 200 ] && [[ "$body" == *'"status":"ok"'* && "$body" == *'"db":"ok"'* ]]; then
         ok=1
         break
     fi
     sleep 2
 done
 if [ "$ok" != 1 ]; then
-    echo "health check failed: $HEALTH_URL did not answer status ok / db ok within 20 s" >&2
+    if [[ "$body" == *'"db":"unavailable"'* ]]; then
+        echo "health check failed (HTTP $code): the API is up but its database connection failed." >&2
+        echo "check DATABASE_URL in /etc/wip/app.env: host, port, sslmode=require, and the app_rw" >&2
+        echo "password, which must equal the role's (ALTER ROLE app_rw PASSWORD '…' as doadmin if not);" >&2
+        echo "then: systemctl restart wip-api wip-worker" >&2
+    elif [ -z "$code" ] || [ "$code" = 000 ]; then
+        echo "health check failed: no answer from $HEALTH_URL within 20 s (nginx or wip-api not up)" >&2
+    else
+        echo "health check failed: $HEALTH_URL answered HTTP $code without status ok / db ok" >&2
+    fi
     echo "the services were restarted on $SHA; read: journalctl -u wip-api -u wip-worker -n 100" >&2
     false
 fi
