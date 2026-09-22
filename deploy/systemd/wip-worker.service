@@ -1,0 +1,28 @@
+# The worker (F05.0, D-27). Installed by deploy/setup.sh as
+# /etc/systemd/system/wip-worker.service. One instance of python -m app.worker with
+# the same environment as the API (/etc/wip/app.env; never /etc/wip/migrate.env).
+# SIGTERM lets a task in flight finish: the stop timeout is one lease plus a margin.
+# Logs go to journald: journalctl -u wip-worker.
+[Unit]
+Description=jobcost.dev worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=wip
+Group=wip
+WorkingDirectory=/opt/wip/backend
+EnvironmentFile=/etc/wip/app.env
+ExecStart=/opt/wip/backend/.venv/bin/python -m app.worker
+Restart=always
+RestartSec=2
+KillSignal=SIGTERM
+TimeoutStopSec=330
+# Hardening (owner yes, 2026-09-22): see wip-api.service.
+NoNewPrivileges=true
+ProtectSystem=strict
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

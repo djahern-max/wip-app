@@ -1,0 +1,40 @@
+/* Stylesheet for the three static pages under frontend/public (privacy, terms,
+   qbo-disconnected): served as a file so the pages carry no <style> block under
+   style-src 'self' (F05.0). The app's own stylesheet is src/styles.css (D-22). */
+:root {
+  --accent: #0b5cad; /* the one accent colour: links */
+  --text: #1a1a1a;
+  --muted: #666;
+}
+html {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--text);
+  line-height: 1.5;
+}
+body {
+  margin: 0;
+  padding: 0 16px;
+}
+main {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 1.5rem 0;
+}
+a {
+  color: var(--accent);
+}
+h1 {
+  font-size: 1.5rem;
+}
+h2 {
+  font-size: 1.125rem;
+  margin-top: 1.5rem;
+}
+footer {
+  max-width: 40rem;
+  margin: 2rem auto 0;
+  padding: 1rem 0;
+  border-top: 1px solid var(--muted);
+  color: var(--muted);
+  font-size: 0.9rem;
+}

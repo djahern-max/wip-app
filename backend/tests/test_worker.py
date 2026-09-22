@@ -3,6 +3,8 @@ explicit tenant context, one context per transaction, SKIP LOCKED, lease expiry,
 conditional completion, backoff, dedupe, NOTIFY wake-up."""
 
 import logging
+import os
+import socket
 import threading
 import time
 import uuid
@@ -375,3 +377,41 @@ def test_notify_wakes_an_idle_worker_in_under_a_second(
         t.join(5)
     assert key in RESULTS and elapsed < 1.0, elapsed
     assert not t.is_alive()
+
+
+def test_listener_whose_socket_is_closed_under_it_is_replaced_on_the_next_wait(
+    seed: Seed, rw_engine: Engine, clean_queue: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    """F05.0: the LISTEN connection carries TCP keepalives, and a listener that dies
+    is replaced: the wait that sees the failure falls back to sleeping, the next wait
+    opens a new connection and NOTIFY wakes the worker again."""
+    w = Worker(rw_engine, name="w-relisten", listen=True, poll_seconds=0.3)
+    caplog.set_level(logging.WARNING, logger="app.worker")
+    try:
+        w._wait()  # opens the listener
+        first = w._listener
+        assert first is not None
+        params = first.info.get_parameters()
+        assert (params["keepalives"], params["keepalives_idle"]) == ("1", "30")
+        assert (params["keepalives_interval"], params["keepalives_count"]) == ("10", "3")
+        # Shut the socket down from outside (a dup, so closing the Python object does
+        # not close the connection's own descriptor): the peer is gone as far as the
+        # listener can tell.
+        s = socket.socket(fileno=os.dup(first.fileno()))
+        s.shutdown(socket.SHUT_RDWR)
+        s.close()
+        w._wait()  # notifies() raises; the listener is dropped and the wait sleeps out
+        assert w._listener is None
+        assert any("listener failed" in r.getMessage() for r in caplog.records)
+        # The next wait opens a fresh connection and NOTIFY wakes it before the poll.
+        started = time.monotonic()
+        t = threading.Thread(target=w._wait)
+        t.start()
+        time.sleep(0.05)
+        with tenant_session(rw_engine, seed.tenant_a) as db:
+            queue.notify(db, seed.tenant_a)
+        t.join(5)
+        assert time.monotonic() - started < 0.25
+        assert w._listener is not None and w._listener is not first
+    finally:
+        w._close_listener()

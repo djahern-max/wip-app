@@ -9,27 +9,14 @@ from sqlalchemy.exc import DBAPIError
 from app.audit.models import AuditLog, FirmAuditLog
 from app.core.db import tenant_session, untenanted_session
 from app.ingest.models import ImportBatch, RawRecord
-from app.tenancy.rls import APPEND_ONLY_FUNCTION, APPEND_ONLY_TABLES, append_only_trigger_names
+from app.tenancy import catalog
+from app.tenancy.rls import APPEND_ONLY_FUNCTION, APPEND_ONLY_TABLES
 from tests.conftest import Seed
 
 
 def _missing_triggers(engine: Engine, tables: tuple[str, ...]) -> list[str]:
-    missing: list[str] = []
     with engine.connect() as conn:
-        for table in tables:
-            for trigger in append_only_trigger_names(table):
-                enabled = conn.execute(
-                    text(
-                        "SELECT tgenabled FROM pg_trigger "
-                        "WHERE tgrelid = to_regclass(:t) AND tgname = :n AND NOT tgisinternal"
-                    ),
-                    {"t": f'public."{table}"', "n": trigger},
-                ).scalar_one_or_none()
-                if enabled is None:
-                    missing.append(f"{table}: trigger {trigger} missing")
-                elif enabled == "D":
-                    missing.append(f"{table}: trigger {trigger} disabled")
-    return missing
+        return catalog.append_only_failures(conn, tables)
 
 
 def test_every_registered_table_has_both_triggers(migrated_db: None, owner_engine: Engine) -> None:
@@ -39,16 +26,7 @@ def test_every_registered_table_has_both_triggers(migrated_db: None, owner_engin
 def test_register_matches_catalog(migrated_db: None, owner_engine: Engine) -> None:
     """Every table wired to the trigger function is registered, and vice versa."""
     with owner_engine.connect() as conn:
-        tables = set(
-            conn.execute(
-                text(
-                    "SELECT DISTINCT tgrelid::regclass::text FROM pg_trigger "
-                    "WHERE tgfoid = to_regproc(:f) AND NOT tgisinternal"
-                ),
-                {"f": f"public.{APPEND_ONLY_FUNCTION}"},
-            ).scalars()
-        )
-    assert tables == set(APPEND_ONLY_TABLES)
+        assert catalog.append_only_register_mismatch(conn) == []
 
 
 def test_registered_table_without_triggers_would_fail(

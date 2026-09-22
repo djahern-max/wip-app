@@ -3,7 +3,9 @@
 Multi-tenant job cost and work-in-progress reporting for construction and landscape
 contractors, operated by a CPA practice. Design: [docs/BLUEPRINT.md](docs/BLUEPRINT.md).
 Build order: [ROADMAP.md](ROADMAP.md). Standing rules for contributors and for Claude
-Code: [CLAUDE.md](CLAUDE.md). Runbooks: [docs/OPERATIONS.md](docs/OPERATIONS.md).
+Code: [CLAUDE.md](CLAUDE.md). Runbooks: [docs/OPERATIONS.md](docs/OPERATIONS.md);
+production (jobcost.dev: the droplet, `deploy/setup.sh`, `deploy/deploy.sh`, `prod_check.py`)
+is its "Production (jobcost.dev)" section.
 
 ## Layout
 
@@ -20,12 +22,13 @@ backend/     FastAPI + SQLAlchemy 2.0 + Alembic (Python 3.12)
   tests/         pytest (probe routes live here, not in the app); fixtures/ and golden/ hold anonymized Rye Beach data
 frontend/    React 18 + Vite, plain JavaScript
 db/init/     role + database bootstrap for Postgres 16
+deploy/      production: setup.sh, deploy.sh, env templates, nginx site, systemd units (F05.0)
 docs/        BLUEPRINT, OPERATIONS, DECISIONS
 ```
 
 ## Run locally
 
-Prerequisites: Docker, Python 3.12, Node 20.
+Prerequisites: Docker, Python 3.12, Node 24 (`frontend/.nvmrc`; CI and the production build use the same pin).
 
 ```sh
 make db-up               # Postgres 16 on localhost:5433; creates app_owner, app_rw, wip, wip_test

@@ -7,8 +7,11 @@ most one due task. One transaction never holds two tenant contexts:
 3. finish  — a third short transaction, conditional on still holding the lease
 
 ``LISTEN`` on ``NOTIFY_CHANNEL`` (payload: a tenant id) wakes an idle loop early;
-polling every ``WORKER_POLL_SECONDS`` is the fallback. Log lines carry task id,
-kind, tenant id, attempt and outcome; never a payload, a filename or a token.
+polling every ``WORKER_POLL_SECONDS`` is the fallback. The listener is a separate
+autocommit connection with TCP keepalives; when it fails it is dropped and the next
+idle wait opens a new one, so a dropped socket costs at most one poll interval. Log
+lines carry task id, kind, tenant id, attempt and outcome; never a payload, a filename
+or a token.
 """
 
 import logging
@@ -201,7 +204,17 @@ class Worker:
             import psycopg
 
             url = make_url(get_settings().database_url).set(drivername="postgresql")
-            conn = psycopg.connect(url.render_as_string(hide_password=False), autocommit=True)
+            # TCP keepalives (F05.0): a peer that vanishes without a packet (a Managed
+            # Postgres failover, an aged-out NAT entry) is detected within about a
+            # minute; ``notifies()`` then raises and ``_wait`` replaces the listener.
+            conn = psycopg.connect(
+                url.render_as_string(hide_password=False),
+                autocommit=True,
+                keepalives=1,
+                keepalives_idle=30,
+                keepalives_interval=10,
+                keepalives_count=3,
+            )
             conn.execute(f"LISTEN {queue.NOTIFY_CHANNEL}")
             self._listener = conn
         return self._listener

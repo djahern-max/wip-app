@@ -20,28 +20,16 @@ from app.domain.config.models import (
     TenantPolicy,
 )
 from app.ingest.models import Connection, ImportBatch, RawRecord, SyncRun
+from app.tenancy import catalog
 from app.tenancy.models import Membership, RlsProbe, Role
-from app.tenancy.rls import OWN_MEMBERSHIP_POLICY, POLICY_NAME
+from app.tenancy.rls import POLICY_NAME
 from app.worker.models import Task
 from tests.conftest import Seed
-
-TENANT_TABLES_SQL = text(
-    """
-    SELECT c.table_name
-    FROM information_schema.columns c
-    JOIN information_schema.tables t
-      ON t.table_schema = c.table_schema AND t.table_name = c.table_name
-    WHERE c.table_schema = 'public'
-      AND c.column_name = 'tenant_id'
-      AND t.table_type = 'BASE TABLE'
-    ORDER BY 1
-    """
-)
 
 
 def _tenant_tables(engine: Engine) -> list[str]:
     with engine.connect() as conn:
-        return [r[0] for r in conn.execute(TENANT_TABLES_SQL)]
+        return catalog.tenant_tables(conn)
 
 
 # --- (a) every tenant table has RLS enabled AND forced, a policy, and a leading index
@@ -75,33 +63,8 @@ def test_every_tenant_table_is_enumerated(migrated_db: None, owner_engine: Engin
 def test_every_tenant_table_has_rls_enabled_and_forced(
     migrated_db: None, owner_engine: Engine
 ) -> None:
-    failures: list[str] = []
     with owner_engine.connect() as conn:
-        for table in _tenant_tables(owner_engine):
-            enabled, forced = conn.execute(
-                text(
-                    "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
-                    "WHERE oid = to_regclass(:t)"
-                ),
-                {"t": f'public."{table}"'},
-            ).one()
-            policies = (
-                conn.execute(
-                    text(
-                        "SELECT policyname FROM pg_policies "
-                        "WHERE schemaname = 'public' AND tablename = :t"
-                    ),
-                    {"t": table},
-                )
-                .scalars()
-                .all()
-            )
-            if not enabled:
-                failures.append(f"{table}: RLS not enabled")
-            if not forced:
-                failures.append(f"{table}: RLS not forced")
-            if POLICY_NAME not in policies:
-                failures.append(f"{table}: policy {POLICY_NAME} missing")
+        failures = catalog.rls_failures(conn)
     assert not failures, "\n".join(failures)
 
 
@@ -472,48 +435,33 @@ def test_unknown_tenant_context_reads_nothing(seed: Seed, rw_engine: Engine) -> 
 # --- (e) D-11: extra policies are allow-listed; membership own-read
 
 
-# (table, policy, command, predicate exactly as Postgres deparses it). Any policy on
-# any tenant table that is neither tenant_isolation nor listed here fails the build.
+# The allow-list (table, policy, command, predicate) lives in ``app.tenancy.catalog``
+# so ``scripts/prod_check.py`` checks production against the same list (F05.0).
 # Adding an entry needs a decision in docs/DECISIONS.md.
-EXTRA_POLICIES: frozenset[tuple[str, str, str, str]] = frozenset(
-    {
-        (
-            "membership",
-            OWN_MEMBERSHIP_POLICY,
-            "SELECT",
-            "(user_id = (NULLIF(current_setting('app.user_id'::text, true), ''::text))::uuid)",
-        ),
-    }
-)
+EXTRA_POLICIES = catalog.EXTRA_POLICIES
 
 
 def test_no_policy_beyond_tenant_isolation_unless_listed(
     migrated_db: None, owner_engine: Engine
 ) -> None:
-    found: set[tuple[str, str, str, str]] = set()
-    failures: list[str] = []
     with owner_engine.connect() as conn:
-        for table in _tenant_tables(owner_engine):
-            rows = conn.execute(
-                text(
-                    "SELECT policyname, cmd, qual, with_check FROM pg_policies "
-                    "WHERE schemaname = 'public' AND tablename = :t"
-                ),
-                {"t": table},
-            ).all()
-            for name, cmd, qual, with_check in rows:
-                if name == POLICY_NAME:
-                    continue
-                key = (table, name, cmd, qual)
-                if key not in EXTRA_POLICIES:
-                    failures.append(f"unlisted policy on {table}: {name} FOR {cmd} USING {qual}")
-                elif with_check is not None:
-                    failures.append(f"{table}.{name}: extra policies must not WITH CHECK")
-                else:
-                    found.add(key)
+        failures = catalog.policy_failures(conn)
     assert not failures, "\n".join(failures)
-    assert found == EXTRA_POLICIES, "an allow-listed policy is missing from the database"
     assert len(EXTRA_POLICIES) == 1  # exactly one after F02 (brief)
+
+
+def test_policy_check_would_catch_an_unlisted_policy(
+    migrated_db: None, owner_engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Mutation check in-process: with an empty allow-list the D-11 policy on
+    ``membership`` is reported, by table and policy name only."""
+    monkeypatch.setattr(catalog, "EXTRA_POLICIES", frozenset())
+    with owner_engine.connect() as conn:
+        failures = catalog.policy_failures(conn)
+    assert failures == [
+        "unlisted policy on membership: own_membership_read FOR SELECT USING "
+        "(user_id = (NULLIF(current_setting('app.user_id'::text, true), ''::text))::uuid)"
+    ]
 
 
 def test_user_context_reads_own_memberships_only(seed: Seed, rw_engine: Engine) -> None:

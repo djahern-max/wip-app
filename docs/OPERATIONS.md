@@ -29,7 +29,9 @@ PGHOST=… PGPORT=… POSTGRES_USER=doadmin PGPASSWORD=… db/init/01_roles.sh
 ```
 
 Then set `DATABASE_OWNER_URL` (app_owner) for the migration step and
-`DATABASE_URL` (app_rw) for the API and worker. Verify the application role:
+`DATABASE_URL` (app_rw) for the API and worker. For jobcost.dev the exact command, the
+`sslmode`, and the Postgres 16 `SET ROLE` note are under "Production (jobcost.dev)".
+Verify the application role:
 
 ```sql
 SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname IN ('app_owner','app_rw');
@@ -381,7 +383,7 @@ Before the first deployment (D-21): create the Space and an access key, set the
 five variables, then upload one file through the Imports page and download it, and
 record the date and the bucket name here.
 
-_First manual upload/download against Spaces: not yet done._
+_First manual upload/download against Spaces: not yet done (F05.0 owner pass; see "Production (jobcost.dev)")._
 
 ### Imports
 
@@ -626,3 +628,244 @@ again. The hand-made fixtures and the oracle are described in that folder's READ
 `cd backend && .venv/bin/python scripts/s01_spike.py --tenant qbo-sandbox` prints field names
 and shapes from the connected sandbox company, never values. Findings are written up in
 `docs/spikes/S-01.md`. It is a throwaway and makes a few dozen metered reads per run.
+
+## Production (jobcost.dev) (F05.0, D-27)
+
+One DigitalOcean droplet (`jobcost`, Ubuntu 24.04, `s-1vcpu-2gb`, NYC1) runs nginx, the
+API and the worker; Managed Postgres 16 (`jobcost-db`, NYC1, private hostname, trusted
+source = the droplet) is the database; the private Space `jobcost-files` (NYC3) is the
+object store. No containers on the server. The owner deploys by hand over ssh. Everything
+below is reproducible from the repo by two scripts.
+
+### Server layout, and who may read what
+
+| Path | Owner, mode | What |
+|---|---|---|
+| `/opt/wip` | `wip:wip` 755 | The checkout (`git`, detached at the deployed commit). `backend/.venv` is the venv; `frontend/dist` is the served build (`dist.prev` the one before). |
+| `/etc/wip/app.env` | `wip:wip` 600 (directory `root:wip` 750) | The API and worker environment: `DATABASE_URL` (`app_rw`), the key ring, the Space key, the Intuit keys. Read by systemd and by hand-run scripts as `wip`. **Never** `DATABASE_OWNER_URL`. |
+| `/etc/wip/migrate.env` | `root:root` 600 | `DATABASE_OWNER_URL` (`app_owner`) and `PROTECTED_DATABASE_NAMES`. Read only by `deploy.sh`, as root, around `alembic upgrade head`. |
+| `/etc/systemd/system/wip-api.service`, `wip-worker.service` | root | From `deploy/systemd/`. `User=wip`, `EnvironmentFile=/etc/wip/app.env`, `Restart=always`, `ProtectSystem=strict` (the processes write nowhere but `/tmp`). |
+| `/etc/nginx/sites-available/jobcost.dev`, `snippets/wip-security-headers.conf`, `snippets/wip-tls.conf` | root | From `deploy/nginx/`. |
+| `/etc/letsencrypt/live/jobcost.dev/` | root | The certificate; `certbot.timer` renews it and the deploy hook reloads nginx. |
+| `/home/wip/.ssh/id_ed25519` | `wip` 600 | The read-only deploy key for the repository. |
+| `/var/www/certbot` | root | ACME webroot. |
+| `/swapfile` | root 600 | 2 GB swap (the frontend build's margin). |
+| `/run/lock/wip-deploy.lock` | root | `deploy.sh`'s lock. |
+
+Logs are in journald: `journalctl -u wip-api -u wip-worker -f` (`-n 200` for the last
+lines; `--since "1 hour ago"`). nginx: `/var/log/nginx/access.log`, `error.log`.
+
+### First-time set-up, in order
+
+Console work first (done 2026-09-21): project, droplet with SSH key only, Managed Postgres
+with the droplet as its only trusted source, the Space and one access key, the cloud
+firewall (22 from the owner's IP, 80 and 443 from anywhere), Namecheap A records for `@`
+and `www`, the Intuit redirect URI `https://jobcost.dev/api/qbo/callback`.
+
+1. **`deploy/setup.sh`** as root on the droplet. From the Mac:
+   ```sh
+   scp deploy/setup.sh root@174.138.33.185:/root/setup.sh
+   ssh root@174.138.33.185 bash /root/setup.sh
+   ```
+   Idempotent: each step prints `done:` or `skipped:`; run it again after any failure. It
+   generates the `wip` user's deploy key and, if the repository is private, stops at the
+   clone with the public key printed: add it under GitHub → repository → Settings → Deploy
+   keys (read-only), then run it again. It ends by getting the certificate for
+   `jobcost.dev` and `www.jobcost.dev` (DNS must already point at the droplet) and says what
+   to do next. It does not run migrations and does not start the services.
+   Re-run it after a change under `deploy/nginx/` or `deploy/systemd/` (after the
+   `deploy.sh` that checked the change out): it installs what differs and reloads.
+2. **Fill the two environment files** on the droplet, as root, with a plain editor
+   (`nano /etc/wip/app.env`, `nano /etc/wip/migrate.env`). Every blank is a secret the
+   owner supplies; nothing else needs changing. Generate the key ring on the server:
+   ```sh
+   python3 -c "import os,base64;print('prod1:'+base64.b64encode(os.urandom(32)).decode())"
+   ```
+   and paste the output as `CRYPTO_KEYS=` (the id `prod1` matches `CRYPTO_ACTIVE_KEY_ID`).
+   The key never leaves the server and is never pasted into chat, e-mail or a ticket.
+   Passwords in the two URLs: letters and digits only, so nothing needs URL-encoding.
+   Both URLs use the cluster's **private** hostname, port 25060, `?sslmode=require`,
+   database `wip`. Then check: `stat -c '%U:%G %a' /etc/wip/app.env /etc/wip/migrate.env`
+   → `wip:wip 600` and `root:root 600`.
+3. **Roles and the database on the cluster**, from the droplet (the cluster trusts only
+   the droplet; `psql` is installed by setup.sh). Choose the two role passwords first
+   (`python3 -c "import secrets;print(secrets.token_hex(24))"` twice), put them in the
+   two URLs of step 2, then:
+   ```sh
+   PGSSLMODE=require PGHOST=<private hostname> PGPORT=25060 \
+   POSTGRES_USER=doadmin PGPASSWORD='<doadmin password>' \
+   APP_OWNER_PASSWORD='<app_owner password>' APP_RW_PASSWORD='<app_rw password>' \
+   APP_DATABASES=wip bash /opt/wip/db/init/01_roles.sh
+   ```
+   If `CREATE DATABASE wip OWNER app_owner` is refused with "must be able to SET ROLE
+   app_owner" (Postgres 16 on a managed cluster, where `doadmin` is not a superuser), run
+   `psql "sslmode=require host=<private hostname> port=25060 user=doadmin dbname=defaultdb" -c 'GRANT app_owner TO doadmin;'`
+   and run the script again (it skips what exists). Verify and record the result:
+   ```sql
+   SELECT rolname, rolsuper, rolbypassrls, rolcreatedb FROM pg_roles WHERE rolname IN ('app_owner','app_rw');
+   -- app_owner f f t ; app_rw f f f
+   SELECT datname, pg_get_userbyid(datdba) FROM pg_database WHERE datname = 'wip';  -- app_owner
+   ```
+   Nothing in the repo ever holds these passwords; the two env files on the droplet do.
+4. **First release**: `bash /opt/wip/deploy/deploy.sh` (below). It migrates, builds, starts
+   both services and checks `https://jobcost.dev/api/health`.
+5. **Production data set-up** (the owner, from the droplet as `wip`; each command is the
+   same audited service the API uses, actor `cli`):
+   ```sh
+   cd /opt/wip/backend
+   sudo -u wip ENV_FILE=/etc/wip/app.env .venv/bin/python scripts/create_user.py bootstrap \
+       --firm-name "<the practice>" --email <owner e-mail> --display-name "<name>"
+   # open the printed link on the phone: password → QR code → confirm → recovery codes
+   sudo -u wip ENV_FILE=/etc/wip/app.env .venv/bin/python scripts/create_user.py create-tenant --name "Rye Beach Landscaping" --slug rye-beach
+   sudo -u wip ENV_FILE=/etc/wip/app.env .venv/bin/python scripts/create_user.py create-tenant --name "QBO Sandbox" --slug qbo-sandbox
+   sudo -u wip ENV_FILE=/etc/wip/app.env .venv/bin/python scripts/create_user.py add-entry --email <owner e-mail> --tenant rye-beach
+   sudo -u wip ENV_FILE=/etc/wip/app.env .venv/bin/python scripts/create_user.py add-entry --email <owner e-mail> --tenant qbo-sandbox
+   ```
+   Then in the browser: switch to QBO Sandbox → Connections → Connect to QuickBooks with the
+   Development keys (the sandbox company works from any host); Imports → upload one file
+   and download it (the D-21 record below).
+6. **`prod_check.py`** (below), and after the owner's first sign-in from outside, the
+   client-IP check: as `app_owner` (`psql` with the owner URL, no tenant context needed)
+   `SELECT ip, at FROM firm_audit_log WHERE action = 'login_success' ORDER BY at DESC LIMIT 1;`
+   must show the owner's public address, not `127.0.0.1` (`TRUSTED_PROXY_COUNT=1`).
+
+### Deploying a release
+
+```sh
+ssh root@174.138.33.185 bash /opt/wip/deploy/deploy.sh            # origin/main
+ssh root@174.138.33.185 bash /opt/wip/deploy/deploy.sh <sha|ref>  # a specific commit
+```
+
+Under a lock (`flock`; a second run says "another deploy is running" and exits 1):
+records the serving commit; `git fetch` and a detached checkout of the ref as `wip`; `pip
+install -e` into the venv; `npm ci` and a Vite build into `frontend/dist.new` (the served
+`dist` is untouched); **`alembic upgrade head` as root from `/etc/wip/migrate.env`, before
+any restart**, inside `timeout 600`; then the frontend swap (`dist` → `dist.prev`,
+`dist.new` → `dist`); `systemctl restart wip-api wip-worker`; up to ten `curl`s of
+`https://jobcost.dev/api/health` two seconds apart, requiring `"status":"ok"` and
+`"db":"ok"`. It prints `deployed <sha>` and `free -m` before and after the build (move to
+`s-2vcpu-2gb` if the build swaps). A failure prints the step, the commit that was serving
+and the roll-back command. **A failed migration stops the script before the restart**: the
+old release keeps serving, new code is on disk, the database is unchanged (Alembic runs the
+migrations in one transaction). Fix the migration and run `deploy.sh` again, or go back.
+
+### Rolling back
+
+`bash /opt/wip/deploy/deploy.sh <previous sha>` (the sha `deploy.sh` printed as "was
+serving"). Migrations are **forward-only in production**: a roll-back checks out the older
+code and runs `alembic upgrade head`, which changes nothing, so the schema stays at the
+newer revision. Every migration is written so that the previous release runs against it
+(additive columns are nullable or defaulted); if a migration is not, its docstring says so
+and the roll-back is a forward fix. `alembic downgrade` against `wip` is refused by the
+guard (`PROTECTED_DATABASE_NAMES=wip` in both env files).
+
+### Proving the failed-migration path (scratch database, never production)
+
+Acceptance criterion 3 of F05.0, run once after the first successful deploy and again
+whenever `deploy.sh` changes. The check points `deploy.sh` at a **scratch database on the
+managed cluster** with a deliberately broken migration; the production database is never
+touched, and the scratch database is dropped afterwards.
+
+```sh
+# 1. a scratch database on the cluster (roles exist already; the script skips them)
+PGSSLMODE=require PGHOST=<private hostname> PGPORT=25060 POSTGRES_USER=doadmin PGPASSWORD='…' \
+APP_OWNER_PASSWORD='<app_owner password>' APP_RW_PASSWORD='<app_rw password>' \
+APP_DATABASES=wip_scratch bash /opt/wip/db/init/01_roles.sh
+
+# 2. a root-only migrate file for it (same owner URL as /etc/wip/migrate.env, database wip_scratch)
+install -m 600 -o root -g root /dev/null /root/migrate-scratch.env
+printf 'DATABASE_OWNER_URL=postgresql+psycopg://app_owner:<password>@<private hostname>:25060/wip_scratch?sslmode=require\nPROTECTED_DATABASE_NAMES=wip\n' > /root/migrate-scratch.env
+
+# 3. a local branch with a migration whose upgrade() raises (never leaves the droplet)
+cd /opt/wip/backend
+HEAD_REV=$(sudo -u wip .venv/bin/alembic heads | awk '{print $1}')
+sudo -u wip git -C /opt/wip checkout -b deploy-check
+sudo -u wip tee alembic/versions/9999_deploy_check.py >/dev/null <<EOF2
+"""deploy-check: fails on purpose (F05.0 criterion 3). Never merged."""
+revision = "9999"
+down_revision = "$HEAD_REV"
+branch_labels = None
+depends_on = None
+
+
+def upgrade() -> None:
+    raise RuntimeError("deploy-check: this migration fails on purpose")
+
+
+def downgrade() -> None:
+    pass
+EOF2
+sudo -u wip git -C /opt/wip -c user.name=deploy-check -c user.email=deploy-check@jobcost.dev commit -qam "deploy-check"
+
+# 4. before: what is running and what is served
+systemctl show -p ActiveEnterTimestamp wip-api wip-worker; ls -ld /opt/wip/frontend/dist
+
+# 5. the deploy must fail at step "migrate" with the services and dist untouched
+MIGRATE_ENV_FILE=/root/migrate-scratch.env bash /opt/wip/deploy/deploy.sh deploy-check; echo "exit $?"
+systemctl show -p ActiveEnterTimestamp wip-api wip-worker; ls -ld /opt/wip/frontend/dist
+
+# 6. back to main (a normal deploy, against the production migrate.env), then clean up
+bash /opt/wip/deploy/deploy.sh
+sudo -u wip git -C /opt/wip branch -D deploy-check
+rm -f /root/migrate-scratch.env
+psql "sslmode=require host=<private hostname> port=25060 user=doadmin dbname=defaultdb" -c 'DROP DATABASE wip_scratch;'
+```
+
+Expected: step 5 exits non-zero at `deploy failed at step: migrate`, both
+`ActiveEnterTimestamp` values are the same before and after, `dist`'s timestamp is
+unchanged, and `psql … -d wip_scratch -c '\dt'` shows nothing (the migrations rolled back).
+Record the date the check was run here: _not yet run_.
+
+### Restarting, and hand-run scripts
+
+`systemctl restart wip-api` (or `wip-worker`); `systemctl status wip-api wip-worker`. Both
+are enabled and start at boot. A crashed process is restarted after 2 s (`Restart=always`).
+Stopping the worker waits up to one task lease (330 s) for a task in flight.
+
+Scripts on the server run as `wip` with the API's environment file:
+
+```sh
+cd /opt/wip/backend
+sudo -u wip ENV_FILE=/etc/wip/app.env .venv/bin/python scripts/create_user.py …
+sudo -u wip ENV_FILE=/etc/wip/app.env .venv/bin/python scripts/reencrypt.py --dry-run
+```
+
+`make` targets are for development; on the server use the commands above.
+
+### Certificate renewal
+
+`certbot.timer` (installed with the package) runs `certbot renew` twice a day; the
+certificate's renewal file carries `renew_hook = systemctl reload nginx` from
+`setup.sh`'s `--deploy-hook`. Check: `systemctl list-timers certbot.timer` and
+`certbot renew --dry-run` (no certificate is changed). Expiry: `certbot certificates`.
+
+### Backups (Managed Postgres)
+
+DigitalOcean takes daily backups of the cluster with 7-day retention, on by default.
+Verify in the console (Databases → jobcost-db → Backups) and record the date checked here:
+_not yet verified_. The restore drill is F23. The Space is not backed up by the provider
+beyond its own durability; uploaded files are also held as raw records where a source
+kind parses them.
+
+### `prod_check.py` after every deploy
+
+```sh
+sudo -u wip ENV_FILE=/etc/wip/app.env /opt/wip/backend/.venv/bin/python /opt/wip/backend/scripts/prod_check.py
+```
+
+Read-only. Connects as the application does (`DATABASE_URL`, `app_rw`) and prints one line
+per check: role is `app_rw`, `NOSUPERUSER`, `NOBYPASSRLS`, owns no table; connection over
+SSL; every tenant table has RLS enabled and forced with `tenant_isolation`; no policy outside
+the D-11 allow-list; append-only triggers present and enabled on each of
+`APPEND_ONLY_TABLES` and the register matches; a HEAD on the Space's bucket succeeds. Exit 1
+on any `FAIL:` line. It never prints a URL, key, hostname or row. The same catalog queries
+(`app/tenancy/catalog.py`) are what `tests/test_rls.py` and `tests/test_append_only.py`
+enforce in CI. Recorded output of the run after the first deploy: _not yet run_.
+
+### Firewall
+
+DigitalOcean cloud firewall on the droplet: inbound 22 from the owner's IP only, 80 and 443
+from anywhere, nothing else. The Managed Postgres cluster's only trusted source is the
+droplet, so port 25060 is unreachable from the internet. uvicorn binds `127.0.0.1:8000`
+only. Check from the Mac: `nc -vz -w 5 174.138.33.185 443` succeeds, `… 8000` and
+`… 5432` fail, and `nc -vz -w 5 <public db hostname> 25060` fails.

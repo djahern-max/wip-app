@@ -19,8 +19,16 @@ def _source_files(root: Path, suffixes: tuple[str, ...]) -> list[Path]:
     ]
 
 
+# The hostname (D-27) is a fact of where the platform runs, not the product name, so
+# ``jobcost.dev`` does not count (F05.0: the three static pages name it once each).
+# When D-09 renames the product, the constant changes and the domain stays.
+DOMAIN = "jobcost.dev"
+_DOMAIN_TAIL = re.escape(DOMAIN[len(PRODUCT_NAME) :])  # ".dev"
+_NAME = re.compile(rf"\b{re.escape(PRODUCT_NAME)}\b(?!{_DOMAIN_TAIL}\b)", re.IGNORECASE)
+
+
 def _occurrences(path: Path) -> int:
-    return len(re.findall(rf"\b{re.escape(PRODUCT_NAME)}\b", path.read_text(), re.IGNORECASE))
+    return len(_NAME.findall(path.read_text()))
 
 
 def test_backend_constant_is_the_only_backend_occurrence() -> None:
@@ -45,3 +53,9 @@ def test_frontend_constant_is_the_only_frontend_occurrence() -> None:
         if p != FRONTEND_CONSTANT and _occurrences(p)
     ]
     assert others == []
+
+
+def test_the_hostname_form_is_not_counted() -> None:
+    assert DOMAIN.startswith(PRODUCT_NAME)
+    assert len(_NAME.findall("operated at jobcost.dev, mail admin@jobcost.dev")) == 0
+    assert len(_NAME.findall("the jobcost app; JOBCOST; jobcost.development")) == 3

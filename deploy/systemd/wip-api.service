@@ -1,0 +1,28 @@
+# The API (F05.0, D-27). Installed by deploy/setup.sh as
+# /etc/systemd/system/wip-api.service. Two uvicorn workers on 127.0.0.1:8000 behind
+# nginx; the process holds /etc/wip/app.env (DATABASE_URL, the app_rw role) and never
+# /etc/wip/migrate.env. Logs go to journald: journalctl -u wip-api.
+[Unit]
+Description=jobcost.dev API (uvicorn)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=wip
+Group=wip
+WorkingDirectory=/opt/wip/backend
+EnvironmentFile=/etc/wip/app.env
+ExecStart=/opt/wip/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 2 --proxy-headers --forwarded-allow-ips 127.0.0.1
+Restart=always
+RestartSec=2
+KillSignal=SIGTERM
+TimeoutStopSec=30
+# Hardening (owner yes, 2026-09-22): the process cannot write anywhere but /tmp. A
+# later feature that writes files adds a ReadWritePaths= line here.
+NoNewPrivileges=true
+ProtectSystem=strict
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

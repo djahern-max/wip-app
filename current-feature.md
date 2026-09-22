@@ -1,57 +1,184 @@
 # current-feature.md
 
-_No feature in flight (2026-09-21)._ **F05 · QBO connection & sync (sandbox) is closed**: the
-owner's pass on the live sandbox was done on 2026-09-21 and every criterion is ticked. Its brief
-is `docs/briefs/F05.md`; findings from the spike are `docs/spikes/S-01.md`.
+## F05.0 · First deployment · jobcost.dev
+**Roadmap phase**: B · **Blueprint refs**: §3 (principle 10), §11 (Secrets, Isolation), §12, §15 (risk 6) · **Decisions**: D-17, D-21, D-25, D-27 (drafted with this brief)
+**Status**: in progress. Go-ahead 2026-09-22 (plan answers 1–5 accepted, answer 2 amended: the failed-migration check runs against a scratch database on the managed cluster; the four "needs a yes" items all yes). Step (a), the repo side, built and committed 2026-09-22; steps (b) and (c) follow the owner's droplet work.
 
-Next per ROADMAP: **F05.0 · First deployment (jobcost.dev)**: the platform live at jobcost.dev
-with the privacy policy and terms pages Intuit requires for production keys (D-25). Not
-started; its acceptance criteria are still to be written; the owner supplies the brief. Copy
-it here, expand it, and restate the acceptance criteria before coding. After it, **F05.1 · QBO
-production connection** (Intuit's production questionnaire and keys, Rye Beach connected
-read-only, monthly totals tied to Rye Beach's own reports, webhooks, S-01's Ramp line check).
+### Goal
+The platform runs at https://jobcost.dev on one DigitalOcean droplet with Managed Postgres and Spaces, the same way superCPE is run, so that Intuit's production questionnaire can be completed in F05.1 and the owner can use the platform from a phone. Nothing in the domain changes. The deployment is reproducible from the repo by two scripts, documented in OPERATIONS.md, and the production database passes the same role and RLS checks the test suite enforces. The privacy policy and terms pages Intuit requires are live and name the operating entity.
 
-Standing state from F05: the sandbox company stays connected to tenant `qbo-sandbox` and never
-to `rye-beach`; polling and the nightly check run only while `make worker` runs; the fixtures
-under `backend/tests/fixtures/qbo_sandbox/` are re-recorded with
-`scripts/qbo_record_fixtures.py` (delete a file to record it again).
+### In scope
+**Owner setup in the DigitalOcean and Namecheap consoles (before Claude Code's scripts run; nothing here is code)**
+- Project `jobcost.dev`, environment **Production**.
+- Droplet: Ubuntu 24.04 LTS, `s-1vcpu-2gb` (Claude Code proposes otherwise in the plan if the frontend build needs more), same region as the database, SSH key only, no password login. Note its public IP.
+- Managed Postgres 16, smallest plan, same region. Trusted sources: the droplet only. Note host, port, admin user, and the `sslmode=require` requirement.
+- Space, private, same region, one access key. Note endpoint, region, bucket name.
+- Cloud firewall on the droplet: 22 from the owner's IP only, 80 and 443 from anywhere, nothing else inbound.
+- Namecheap DNS (its own nameservers, as superCPE): A records for `jobcost.dev` and `www.jobcost.dev` → the droplet IP.
+- Intuit developer app, Development tab, Redirect URIs: add `https://jobcost.dev/api/qbo/callback` (the localhost one stays).
 
-## Discovered
-Carried from F05 (`docs/briefs/F05.md`, Discovered), plus what F05 added:
+**Repo: `deploy/` (new)**
+- `deploy/setup.sh`: idempotent first-time server bootstrap, run as root over ssh. System user `wip` (no shell login), Python 3.12 venv at `/opt/wip/backend/.venv`, Node current LTS for the build, nginx, certbot, directories `/opt/wip` (checkout, owned by `wip`), `/etc/wip/` (root-owned), `/var/log/wip` if used, a 2 GB swap file if none exists. Running it twice changes nothing the second time.
+- `deploy/env.template`: every variable the API and worker need, with production values where they are not secrets (`ENV_FILE=/etc/wip/app.env`, `APP_BASE_URL=https://jobcost.dev`, `SESSION_COOKIE_SECURE=true`, `TRUSTED_PROXY_COUNT=1`, `OBJECT_STORE=s3`, `PROTECTED_DATABASE_NAMES=<production database name>`, `QBO_ENVIRONMENT=sandbox` for now, `QBO_REDIRECT_URI=https://jobcost.dev/api/qbo/callback`) and blanks for secrets. Installed as `/etc/wip/app.env`, mode 600, owner `wip`. A test asserts its keys equal `.env.example`'s keys, so the two cannot drift.
+- `deploy/migrate.env.template` → `/etc/wip/migrate.env`, mode 600, owner root: `DATABASE_OWNER_URL` only. The API and worker processes never hold the owner URL (F02.1 rule).
+- `deploy/nginx/jobcost.dev.conf`: `www` → apex redirect, HTTP → HTTPS, HSTS, the built frontend served from `/opt/wip/frontend/dist` with SPA fallback to `index.html`, `/api/` proxied to `127.0.0.1:8000` with `X-Forwarded-For` and `X-Forwarded-Proto`, `client_max_body_size` equal to `MAX_UPLOAD_BYTES`, gzip on text types, no server tokens, `X-Content-Type-Options`, `Referrer-Policy`, a Content-Security-Policy that the plain stylesheet and the React bundle satisfy (no inline scripts).
+- `deploy/systemd/wip-api.service` (uvicorn, 2 workers, `127.0.0.1:8000`, `EnvironmentFile=/etc/wip/app.env`, user `wip`, `Restart=always`) and `deploy/systemd/wip-worker.service` (`python -m app.worker`, same env, `Restart=always`, one instance). Both `After=network-online.target`. Journald holds the logs.
+- `deploy/deploy.sh`: run as root over ssh for every release: `git fetch` + checkout of the requested ref (default `origin/main`) in `/opt/wip`, `pip install -e .` in the venv, `npm ci && npm run build` in `frontend/`, `alembic upgrade head` as root using `/etc/wip/migrate.env` **before** any restart, then restart `wip-api` and `wip-worker`, then `curl` `https://jobcost.dev/api/health` and exit non-zero if it is not `ok`. A failed migration stops the script before the restart, so the old release keeps serving. Prints the deployed commit.
+- `backend/scripts/prod_check.py`: read-only. Connects with `DATABASE_URL` (as the app does) and reports: `app_rw` is `NOSUPERUSER`, `NOBYPASSRLS`, not the owner of any table; every table with a `tenant_id` column has RLS enabled and forced with the `tenant_isolation` policy and no policy outside the allow-list (reuse the enumeration logic from `tests/test_rls.py`, do not copy it); every `APPEND_ONLY_TABLES` member has its triggers; the connection is over SSL; the object store answers a HEAD on the bucket. Exit non-zero on any failure. Never prints a URL, key or row.
 
-Carried from the stub of 2026-09-20:
+**Static pages (Intuit requirements; D-22 plain HTML, no script)**
+- `frontend/public/privacy.html`, `frontend/public/terms.html`, served at `/privacy` and `/terms` without sign-in. Both carry the line "jobcost.dev is operated by Ryze Group, Inc., a New Hampshire corporation." and a contact e-mail the owner supplies, and the date. The product is referred to as jobcost.dev (D-09 defers the name; one constant, one edit later).
+- Privacy policy states: what is read from QuickBooks Online through Intuit's API (accounting data, read-only, for the client's own company) and from files the client uploads (estimates, timesheets, payroll registers); why (job cost and work-in-progress reporting for that client); who can see it (the practice's staff and the client's authorized users, by role); where it is stored (DigitalOcean, United States; tokens encrypted at the application layer; private object storage); that it is not sold, shared with third parties, or used for anything else; retention (kept while the client is onboarded; deletion on written request; QuickBooks tokens revoked and removed on disconnect); how to disconnect (from the platform, or from QuickBooks' own app settings, which ends access); security contact.
+- Terms of service (Intuit calls it the EULA) states: the service and who provides it; that QuickBooks remains the client's book of record and the platform writes nothing to it; the client's responsibility for its own data and users; no warranty on reports beyond the data supplied; limitation of liability; termination and data return; governing law New Hampshire.
+- `frontend/public/qbo-disconnected.html` at `/qbo/disconnected`: the page Intuit sends a user to when they disconnect the app from inside QuickBooks (F05.1 registers the URL; the page exists now). One sentence: the connection was ended from QuickBooks; sign in to reconnect. The F05.1 brief adds the server-side handling.
+- nginx serves the three pages as files; the React router never sees them.
 
-Carried from F04 (`docs/briefs/F04.md`, Discovered): no screen for suggestion rules
-(script / `PUT /api/config/suggest-rules`); `gl_account.ledger_type` is source text, QBO
-types arrive with F05; a general "no money as a JSON number" response assertion is still
-per test; Imports defaults to "Unparsed file" on a first visit (an empty "Choose a
-source" option would make the choice explicit); **for the owner**: the real Rye Beach
-chart has one account the fixture does not (2630), and the owner supplies an updated
-fixture and oracle if it should be added.
+**Production data set-up (owner, following OPERATIONS.md, after the scripts)**
+- Roles and database on Managed Postgres via `db/init/01_roles.sh` with `APP_DATABASES=<production name>`; the verification query recorded.
+- A production `CRYPTO_KEYS` key (`prod1`) generated on the droplet and written straight into `/etc/wip/app.env`; it never leaves the server or appears in chat.
+- Bootstrap the practice (`create_user.py bootstrap`), activate the owner's real account with TOTP, create tenants `rye-beach` (empty) and `qbo-sandbox`, entry rows.
+- Connect `qbo-sandbox` at https://jobcost.dev with the Development keys (the sandbox company works from any host). This is the end-to-end proof of OAuth over TLS through nginx.
+- One upload and download through Imports against the Space; date and bucket recorded in OPERATIONS.md (D-21).
 
-Carried from F03 (`docs/briefs/F03.md`, Discovered): money in API responses must be
-strings (F08; `formatMoney` is ready); `sync_run` and `connection` have no API yet (F05);
-Imports keeps cards below 640 px, reports (F08+) use `.table-wrap` with the first column
-held.
+**Docs**: OPERATIONS.md gains "Production (jobcost.dev)": server layout, the two scripts, environment files and who may read them, deploying a release, rolling back (checkout the previous ref and run `deploy.sh`; migrations are forward-only in production), reading logs (`journalctl -u wip-api`, `-u wip-worker`), restarting, certificate renewal check, Managed Postgres daily backups (on by default; verify and record; the restore drill is F23), `prod_check.py` after every deploy, and the firewall rules. README gains one line pointing there.
 
-Carried from F02.1 (`docs/briefs/F02.1.md`, Discovered), still open: pending TOTP secret
-is per user, not per session (deferred; rule recorded there); no rendered-browser test
-dependency for now; a client user's optional enrol confirm records a second
-`login_success`.
+**Dependencies**: none new in the application. Server packages: nginx, certbot (with the nginx plugin), Node LTS from NodeSource or the distro. Anything else: stop and ask.
 
-Notes on the carried items (2026-09-20): "`sync_run` and `connection` have no API yet" is
-answered by this feature (`GET /api/qbo/status`). "QBO types arrive with F05" is **not** in
-this brief's scope: F05 stores Account raw and attaches the id only; what `ledger_type`
-should become once QuickBooks account types are on hand is left for the owner (plan
-question 10).
+### Out of scope
+Intuit production keys, the questionnaire, launch and disconnect handling, webhooks, connecting Rye Beach (F05.1). CI-driven deployment (the owner deploys by hand over ssh; revisit when there is a second operator). Monitoring, alerting, uptime checks, error tracking, the backup restore drill, key rotation on production (F23). A staging environment. Containers on the server (D-27). Outbound e-mail. More than one droplet, a load balancer, or a CDN. Changing the product name (D-09).
 
-F05 (2026-09-20): a mapping from QuickBooks `AccountType` to the chart file's type text
-(`gl_account.ledger_type`) is not built here; F05 attaches `external_id` only (owner answer 10).
+### Acceptance criteria
+No Rye Beach fixture applies; acceptance is the live server plus one repo test.
+- [ ] `https://jobcost.dev` serves the sign-in page with a valid certificate for `jobcost.dev` and `www.jobcost.dev`; `http://` and `www.` redirect to it; HSTS and the other headers above are present (checked with `curl -I`); `/api/health` through nginx answers `ok` with `db ok`.
+- [ ] `/privacy`, `/terms` and `/qbo/disconnected` load without sign-in, carry the entity line, the contact address and the date, and the privacy page contains each statement listed above. No script tag on any of the three.
+- [ ] `deploy/setup.sh` run a second time on the same droplet makes no change (idempotent: it reports what it skipped). `deploy/deploy.sh` deploys `origin/main`, runs migrations before the restart, and fails without restarting if the migration step fails (tested by pointing it at a ref with a deliberately broken migration on a scratch database, or by a dry-run flag; state which).
+- [ ] `wip-api` and `wip-worker` run as user `wip`, restart after being killed, and start at boot. The API and worker environment holds `DATABASE_URL` and not `DATABASE_OWNER_URL`; `/etc/wip/migrate.env` is readable by root only.
+- [ ] `prod_check.py` passes on the production database and Space: role flags, RLS enabled and forced on every tenant table, allow-list intact, append-only triggers present, SSL on, bucket reachable. Output recorded in OPERATIONS.md.
+- [ ] The Postgres port is not reachable from the internet (trusted source is the droplet only); the droplet answers only on 22 (owner IP), 80 and 443.
+- [ ] After the owner signs in over the public internet, the `login_success` row in `firm_audit_log` carries the owner's real public IP, not `127.0.0.1` (`TRUSTED_PROXY_COUNT=1` is right).
+- [x] The repo test that `deploy/env.template` and `.env.example` declare the same variable names passes, and fails when one is added to only one file. (2026-09-22: `tests/test_deploy.py`; mutation check run by hand both ways, a name appended to `env.template` and a commented name appended to `.env.example`, each failed the test naming the extra name; both reverted.)
+- [ ] CI green; no test needs the droplet.
+- [ ] **Owner pass (not ticked by Claude Code)**: from a phone on cellular data, sign in at https://jobcost.dev with TOTP; switch to QBO Sandbox; Connections shows Connected with month totals; upload a file on Imports and download it (the D-21 record); open `/privacy` and `/terms`; `prod_check.py` run after the final deploy passes.
 
-F05 (2026-09-21): Imports defaulting to "Unparsed file" cost the owner one upload (the sandbox
-chart went in unparsed the first time); the empty "Choose a source" option is still the fix.
-The nightly drift check has not yet run live (first run queued for 07:00 UTC on 2026-09-21);
-its `drift` outcome and the "fresh backfill needed" state are proven in tests only. A
-`billing` row for a document whose customer is a sub-customer (not a project) carries the
-sub-customer's id; F07 decides how sub-customers relate to jobs. `ProjectRef` (a Projects-API
-id, S-01 (b)) is in the raw payloads only; F07 may want it as a second `job_alias`.
+### Plan (Claude Code fills in before coding)
+_Restate the acceptance criteria, list files to create and modify, and answer these before writing anything. Wait for the owner's go-ahead: this feature adds server scripts that run as root._
+1. Droplet size and whether the frontend build runs on the droplet (with swap) or is built in `deploy.sh` on the owner's Mac and copied. State the trade-off in two sentences.
+2. How `deploy.sh` is made safe to re-run mid-failure (a lock, and the order of steps).
+3. The exact Content-Security-Policy the current bundle satisfies, and how the plan verifies it (no inline script or style in the built `index.html`).
+4. uvicorn worker count and whether the worker's `LISTEN` connection survives a Managed Postgres failover (what the loop does on a dropped connection today).
+5. Which Node source (NodeSource vs Ubuntu 24.04's package) and the version pin, matching CI's Node 24.
+
+_Filled in 2026-09-21; go-ahead 2026-09-22. Step (a) is built (see "Built" at the end of the plan)._
+
+#### What the owner has already set up (facts of 2026-09-21)
+Droplet `jobcost` (Ubuntu 24.04, `s-1vcpu-2gb`, NYC1, 174.138.33.185); Managed Postgres 16 `jobcost-db` (NYC1, trusted source = the droplet, VPC connection); Space `jobcost-files` (NYC3, private, key `jobcost-droplet`, read/write, that bucket only); cloud firewall 22 from the owner's IP, 80 and 443 open; Namecheap A records for `@` and `www`; Intuit Development redirect URI `https://jobcost.dev/api/qbo/callback`; contact address `admin@jobcost.dev`. The Space is in NYC3 because Spaces are not offered in NYC1; the object-store traffic therefore leaves the VPC over TLS, which D-21 already assumes.
+
+**Still needed from the owner before `deploy.sh` can run** (console work, not code):
+- **Read access to the repository from the droplet.** `deploy.sh` runs `git fetch origin` as user `wip`. If `github.com/djahern-max/wip-app` is private, add a read-only deploy key (setup.sh generates it at `/home/wip/.ssh/id_ed25519` and prints the public half once; the owner pastes it into GitHub → Settings → Deploy keys). If the repo is public, nothing.
+- The Managed Postgres **private** hostname (`private-jobcost-db-…`), port, `doadmin` password and the database name, for `01_roles.sh` and the two env files. Use the private host in both URLs so traffic stays on the VPC.
+- The Spaces endpoint is `https://nyc3.digitaloceanspaces.com`, region `nyc3`, bucket `jobcost-files`; the key id and secret for the env file.
+
+#### Acceptance criteria, restated
+Numbered in the order of the checkboxes above. No Rye Beach fixture applies; the evidence is the live server plus the repo tests.
+1. **TLS and headers.** `https://jobcost.dev` serves the sign-in page with a Let's Encrypt certificate covering `jobcost.dev` and `www.jobcost.dev`; `http://jobcost.dev`, `http://www.jobcost.dev` and `https://www.jobcost.dev` each answer 301 to `https://jobcost.dev/…`; `curl -I` shows `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Content-Security-Policy` (the string in question 3) and no `Server` version; `https://jobcost.dev/api/health` answers `{"status":"ok","product":…,"db":"ok"}`.
+2. **The three pages.** `/privacy`, `/terms`, `/qbo/disconnected` answer 200 with no cookie; each carries "jobcost.dev is operated by Ryze Group, Inc., a New Hampshire corporation.", `admin@jobcost.dev` and a "Last updated" date; the privacy page carries each of the nine statements listed under "Static pages"; none of the three contains a `<script` or `<style` tag or a `style=` attribute (repo test, and `curl` on the live pages).
+3. **Scripts.** A second `deploy/setup.sh` run on the same droplet prints one "skipped" line per step and changes nothing (`find /etc/wip /etc/nginx /etc/systemd/system -newer` marker file is empty; `apt` reports nothing to install). `deploy/deploy.sh` with no argument deploys `origin/main`; its migration step runs before the restart step; on a failing migration it exits non-zero with the services untouched (test method in question 2).
+4. **Services.** `systemctl show -p User wip-api wip-worker` says `wip`; `kill -9` of the API's master and of the worker is followed by an automatic restart; both are `enabled` and come up after `reboot`. `systemctl show -p Environment` and `/proc/<pid>/environ` of both hold `DATABASE_URL` and not `DATABASE_OWNER_URL`; `stat /etc/wip/migrate.env` is `0600 root:root`; `/etc/wip/app.env` is `0600 wip:wip`.
+5. **`prod_check.py`.** Run as `wip` with `ENV_FILE=/etc/wip/app.env`, exits 0 and prints one line per check: `app_rw` is `NOSUPERUSER`, `NOBYPASSRLS`, owns no table; every table with a `tenant_id` column has RLS enabled and forced with `tenant_isolation`; no policy outside the allow-list (still exactly one, D-11); both append-only triggers present and enabled on each of `APPEND_ONLY_TABLES`; the connection reports `ssl = t`; a HEAD on the bucket succeeds. No URL, key, hostname or row in the output. Output pasted into OPERATIONS.md.
+6. **Network.** From the owner's Mac: the database port times out (`nc -vz -w 5 <db host> 25060` fails); `nmap`-free check: `nc -vz` to 22 succeeds from the owner's IP, 80 and 443 succeed, 8000 and 5432 fail.
+7. **Client IP.** After the owner's first sign-in from outside, `SELECT ip FROM firm_audit_log WHERE action = 'login_success' ORDER BY at DESC LIMIT 1` (as `app_owner`, no tenant context needed) shows the owner's public address, not `127.0.0.1`.
+8. **Env-file test.** `tests/test_deploy.py` proves the variable names declared in `deploy/env.template` equal those declared in `.env.example` (definition under "Files"); adding a name to one file only makes it fail (a mutation check run by hand and reverted, recorded in the CHANGELOG).
+9. **CI green**; no test opens a network connection to the droplet, the database or the Space (the S3 check in `prod_check.py` is exercised in the test with botocore's Stubber, as `test_storage.py` already does).
+10. **Owner pass** (not ticked by Claude Code): the phone walk in the criterion above.
+
+#### Files
+**Create, `deploy/`** (new directory; every script `set -euo pipefail`, no secrets, no hostnames other than `jobcost.dev`)
+- `deploy/setup.sh`: first-time bootstrap, root, idempotent step by step (each step tests before it acts and prints `skipped: <step>` or `done: <step>`): apt packages (`nginx`, `certbot`, `python3-certbot-nginx`, `python3.12-venv`, `git`, `postgresql-client-16`, `build-essential` only if `pip` needs it, which it should not); NodeSource repo and `nodejs` 24 (question 5); user `wip` (`--system`, home `/home/wip`, shell `/usr/sbin/nologin`) and its deploy key; 2 GB swap file at `/swapfile` if `swapon --show` is empty; `/opt/wip` (clone of the repo if absent, owner `wip`, mode 755 so nginx can read `frontend/dist`), `/etc/wip` (root, 750), the two env files copied from the templates only if absent (never overwritten; modes as in the brief); the venv at `/opt/wip/backend/.venv`; the two systemd units installed and enabled; nginx: the HTTP-only bootstrap site, then `certbot certonly --webroot` for both names with `--deploy-hook 'systemctl reload nginx'` if `/etc/letsencrypt/live/jobcost.dev` is absent, then the full site and `nginx -t && systemctl reload nginx`. It does not run migrations and does not start the services (the env files are empty until the owner fills them); its last lines say what to do next.
+- `deploy/deploy.sh [ref]`: the release script (question 2).
+- `deploy/env.template` → `/etc/wip/app.env`. Every name `.env.example` declares (commented names included), in the same order and with the same comments, production values where they are not secrets, blank where they are. Differences from `.env.example`, each stated in a comment: `DATABASE_OWNER_URL` absent (it is `migrate.env`'s); `TEST_DATABASE_URL`, `TEST_DATABASE_OWNER_URL`, `POSTGRES_HOST_PORT`, `LOCAL_OBJECT_STORE_DIR` absent (development only). See criterion 8 for how the test treats these.
+- `deploy/migrate.env.template` → `/etc/wip/migrate.env`: `DATABASE_OWNER_URL` and `PROTECTED_DATABASE_NAMES`. The second is here as well as in `app.env` because `alembic/env.py` reads it from the process environment, not from a settings file, so `deploy.sh` exports the whole file (`set -a; . /etc/wip/migrate.env; set +a`) around the migration and nothing else.
+- `deploy/nginx/jobcost.dev.conf`: three `server` blocks: port 80 for both names (ACME challenge location, everything else 301 to `https://jobcost.dev`); port 443 for `www.jobcost.dev` (301 to the apex, same certificate); port 443 for `jobcost.dev`: root `/opt/wip/frontend/dist`; `location = /privacy { try_files /privacy.html =404; }`, the same for `/terms` and `/qbo/disconnected` → `/qbo-disconnected.html`; `location /assets/ { try_files $uri =404; Cache-Control immutable }` (Vite hashes the names); `location /api/ { proxy_pass http://127.0.0.1:8000; }` with `Host`, `X-Forwarded-For $remote_addr` (set, never appended: the header can then carry only what nginx saw) and `X-Forwarded-Proto https`; `location / { try_files $uri /index.html; }` with `index.html` sent `Cache-Control: no-cache`; `client_max_body_size 25m` (= `MAX_UPLOAD_BYTES` 26214400); `server_tokens off`; gzip on text, JSON, JavaScript, CSS, SVG. `ssl_certificate` paths under `/etc/letsencrypt/live/jobcost.dev/`, certbot's recommended TLS options file included.
+- `deploy/nginx/security-headers.conf`: the five `add_header` lines (HSTS `max-age=31536000; includeSubDomains`, no `preload` without a decision; `X-Content-Type-Options nosniff`; `Referrer-Policy strict-origin-when-cross-origin`; the CSP of question 3; `X-Frame-Options DENY` beside `frame-ancestors` for old browsers). Included once at `server` level and again inside any `location` that has its own `add_header` (nginx drops inherited headers there; `/assets/` is the one such location).
+- `deploy/nginx/bootstrap-http.conf`: port 80 only, ACME location, used by `setup.sh` until the first certificate exists, then replaced.
+- `deploy/systemd/wip-api.service`: `User=wip`, `WorkingDirectory=/opt/wip/backend`, `EnvironmentFile=/etc/wip/app.env`, `ExecStart=/opt/wip/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 2 --proxy-headers --forwarded-allow-ips 127.0.0.1`, `Restart=always`, `RestartSec=2`, `After=network-online.target`, `Wants=network-online.target`, `NoNewPrivileges`, `ProtectSystem=strict` with `ReadWritePaths=` empty (the API writes nothing to disk in production: the object store is the Space), `PrivateTmp`. `deploy/systemd/wip-worker.service`: same, `ExecStart=… python -m app.worker`, one instance, `KillSignal=SIGTERM`, `TimeoutStopSec=330` (one lease plus a margin, so a task in flight finishes). Logs to journald.
+
+**Create, backend**
+- `backend/app/tenancy/catalog.py`: the catalog queries the tests use today, moved (not copied) so `prod_check.py` and the tests call one implementation: `tenant_tables(conn)`, `rls_failures(conn)` (enabled, forced, `tenant_isolation` present), `policy_failures(conn)` against `EXTRA_POLICIES` (the D-11 allow-list moves here; `test_rls.py` keeps asserting it has exactly one entry), `append_only_failures(conn)` (both triggers, enabled) and `append_only_register_mismatch(conn)`. Pure functions of a connection; no app import beyond `app.tenancy.rls`. The tests' assertions do not change, only where the helper lives.
+- `backend/scripts/prod_check.py`: connects with `DATABASE_URL` (`get_settings()`, so `ENV_FILE` picks the file), asserts `current_user = 'app_rw'`, `rolsuper = f`, `rolbypassrls = f`, `count(*) FROM pg_tables WHERE tableowner = current_user` is 0, `pg_stat_ssl.ssl` is true for `pg_backend_pid()`, the four catalog checks above, then `head_bucket` through `build_object_store` (`OBJECT_STORE=s3` only; with `local` it says so and passes). Prints `ok: <check>` / `FAIL: <check>: <what>` and exits 1 on any failure. Never prints a URL, key, host or row; a check that fails names the table or policy only.
+
+**Create, tests** (written first: `catalog.py` is tenancy)
+- `backend/tests/test_deploy.py`: (a) env-file names, criterion 8: a name is *declared* by a line matching `^#?\s*[A-Z][A-Z0-9_]*=` in either file; `names(env.template) == names(.env.example) − DEV_ONLY − {DATABASE_OWNER_URL}` with `DEV_ONLY` the four names above, listed in the test with the reason; `names(migrate.env.template) == {DATABASE_OWNER_URL, PROTECTED_DATABASE_NAMES}`; every secret name in the template has an empty value; `APP_BASE_URL`, `QBO_REDIRECT_URI`, `SESSION_COOKIE_SECURE`, `TRUSTED_PROXY_COUNT`, `OBJECT_STORE`, `ENV_FILE`, `QBO_ENVIRONMENT` have the production values the brief names. (b) The three pages: exist under `frontend/public/`, no `<script`, `<style` or `style=`, each carries the entity line, the address and `Last updated`; the privacy page contains a marker phrase per required statement (nine phrases listed in the test); the disconnect page says the connection was ended from QuickBooks and to sign in to reconnect. (c) `security-headers.conf` carries the exact CSP string of question 3 and the other headers; `jobcost.dev.conf` carries `client_max_body_size 25m`, `server_tokens off`, the three page locations, no `add_header` outside the include. (d) The units name `User=wip`, `EnvironmentFile=/etc/wip/app.env`, `Restart=always`, `After=network-online.target`; neither mentions `migrate.env`. (e) `deploy.sh`: `bash -n` parses; the `alembic upgrade head` line comes before the first `systemctl restart` line and `flock` appears before both (textual, with the real proof being the droplet test in question 2). (f) `prod_check.py` on the test database: passes; with `EXTRA_POLICIES` monkeypatched to empty it fails naming `membership`; the S3 HEAD is exercised with Stubber for the success and the 403 case.
+- `backend/tests/test_rls.py`, `test_append_only.py`: call `app.tenancy.catalog`; assertions unchanged.
+
+**Create, frontend** (`frontend/public/` is new; Vite copies it to `dist/` unchanged)
+- `frontend/public/privacy.html`, `terms.html`, `qbo-disconnected.html`: plain semantic HTML, `lang="en"`, viewport meta, `<link rel="stylesheet" href="/pages.css">`, one `<main>`, headings per statement, the entity line and address in a `<footer>`, `Last updated 2026-09-21`. The product is written as `jobcost.dev` (D-27).
+- `frontend/public/pages.css` (about 20 lines: system font stack, `max-width: 40rem`, the one accent colour on links, nothing else). Needed so the pages have no `<style>` block under `style-src 'self'` and are legible on a phone. See "Needs a yes".
+- `frontend/.nvmrc` = `24` (question 5).
+
+**Modify**
+- `.github/workflows/ci.yml`: frontend job reads `node-version-file: frontend/.nvmrc`; after `npm run build`, one step asserts `dist/index.html` has no `<script>` without `src` and no `<style`, and that `dist/privacy.html`, `dist/terms.html`, `dist/qbo-disconnected.html`, `dist/pages.css` exist (question 3).
+- `backend/app/worker/runner.py`: TCP keepalive parameters on the `LISTEN` connection (question 4; one `psycopg.connect` call gains four keyword arguments). `test_worker.py` gains one test that a listener whose connection is closed under it is replaced on the next wait.
+- `backend/tests/test_product_name.py`: see "Needs a yes".
+- `docs/OPERATIONS.md`: "Production (jobcost.dev)" section (server layout; the two scripts; env files and who may read them; first-time order: `setup.sh` → fill both env files → `01_roles.sh` from the droplet against the private host with `APP_DATABASES=<name>` → `deploy.sh` → bootstrap the practice → `prod_check.py`; deploying a release; rolling back (`deploy.sh <previous sha>`, migrations forward-only); logs (`journalctl -u wip-api -u wip-worker -f`); restart; certificate renewal check (`certbot renew --dry-run`, the timer); Managed Postgres daily backups (verify in the console, record the date; restore drill F23); `prod_check.py` after every deploy with its recorded output; firewall rules; the D-21 Spaces record replacing the "not yet done" line). Hand-run scripts on the server use `ENV_FILE=/etc/wip/app.env` as user `wip`: `sudo -u wip ENV_FILE=/etc/wip/app.env /opt/wip/backend/.venv/bin/python scripts/create_user.py …`.
+- `README.md`: one line under Runbooks pointing at the production section; "Node 20" in prerequisites becomes "Node 24 (`frontend/.nvmrc`)".
+- At close: `CHANGELOG.md`, `ROADMAP.md`, `docs/briefs/F05.0.md`, this file.
+
+#### Needs a yes
+- **`pages.css`.** A second stylesheet, for the three static pages only (they cannot import `styles.css`: Vite hashes its name). D-22's "one hand-written stylesheet" is about the app; `test_frontend_styles.py` looks under `frontend/src` only and is unaffected. Alternative: no stylesheet, browser defaults with the viewport meta (legible on a phone, long lines on a laptop).
+- **The product-name test.** `test_product_name.py` counts `\bjobcost\b` in every `frontend/**/*.html`, so the three pages saying `jobcost.dev` would fail it. Proposal: the test excludes the hostname form (`jobcost.dev`) from the count, since the domain is a fact of D-27 and not the product name, and the constant stays the only bare occurrence. The pages will name the domain in exactly one place each (the entity line), so D-09's later rename is still one edit per page. Alternative: exclude `frontend/public` from the scan (weaker: it stops guarding those files at all).
+- **The one-line worker change** (question 4).
+- **`ProtectSystem=strict`** in the units (the process cannot write anywhere but `/tmp`). If a later feature writes files (xlsx renders, F13+), it adds a `ReadWritePaths` line then. Say no and the units stay plain.
+
+#### 1. Droplet size and where the frontend is built
+Keep `s-1vcpu-2gb`; build on the droplet with the 2 GB swap. Building on the droplet keeps every release reproducible from the repository alone and the deploy a single ssh command, at the cost of Node on the server and about a minute of one vCPU per release (this bundle is 212 KB of JavaScript and 4 KB of CSS; Vite's peak for it is a few hundred MB). Building on the Mac keeps Node off the server but ties the release to the laptop's Node (20 today, not CI's 24) and adds a copy step whose output can differ from the checked-out commit. Memory budget: two uvicorn workers about 250 MB, the worker about 120 MB, nginx and the OS about 150 MB, the build about 500 MB at its peak; that fits in 2 GB with swap as the margin, and the build runs while the old release keeps serving. Move to `s-2vcpu-2gb` only if `deploy.sh` reports the build swapping (it prints `free -m` before and after).
+
+#### 2. `deploy.sh`: lock and order
+- **Lock.** `exec 9>/run/lock/wip-deploy.lock; flock -n 9 || { echo "another deploy is running"; exit 1; }` as the first statement. The lock is released when the process ends, however it ends.
+- **Failure reporting.** `set -euo pipefail` and a `trap` on `ERR` that prints the step that failed, the sha that was serving before the run and the exact roll-back command. No automatic roll-back: migrations are forward-only in production.
+- **Order, and why each step is where it is.**
+  1. Record `PREVIOUS=$(git -C /opt/wip rev-parse HEAD)`; `free -m`.
+  2. As `wip`: `git fetch --prune origin`, `git checkout --detach <ref>` (default `origin/main`), `git rev-parse HEAD` printed. Detached, so a branch on the server is never ahead of anything.
+  3. As `wip`: `.venv/bin/pip install -e .` (a no-op when nothing changed).
+  4. As `wip`: `npm ci` and `vite build --outDir dist.new --emptyOutDir` in `frontend/`. The served `dist/` is untouched, so the site never shows a half-built directory.
+  5. As root: `set -a; . /etc/wip/migrate.env; set +a; ENV_FILE=/etc/wip/migrate.env .venv/bin/alembic upgrade head`, inside `timeout 600`. Runs before any restart: the processes in memory are still the old release and serve on; the migration process holds only the owner URL (F02.1). A migration waiting on a lock held by a worker task waits at most one lease; the timeout ends it after ten minutes with the transaction rolled back.
+  6. Swap the frontend: `rm -rf dist.prev; mv dist dist.prev; mv dist.new dist` (two renames; the gap is microseconds). Only after the migration, so a failed migration leaves both the API code in memory and the served frontend at the previous release.
+  7. `systemctl restart wip-api wip-worker`.
+  8. `curl -fsS https://jobcost.dev/api/health` up to ten times, two seconds apart; require `"status":"ok"` and `"db":"ok"`. Print `deployed <sha>` and `free -m`; exit non-zero if health never passes.
+- **Re-running after a failure.** Every step before the restart is idempotent: the same ref checks out again, `pip` and `npm ci` redo their work, `alembic upgrade head` at head changes nothing, and nothing in the script deletes data. A failure in step 5 leaves the old release running with new code on disk; the next successful run of `deploy.sh` (same ref after the migration is fixed, or `deploy.sh $PREVIOUS` to go back) puts disk and memory back in step. A failure in step 8 is the one case the operator must act on; the script says which command.
+- **How the failed-migration path is tested** (criterion 3): on the droplet, after the first successful deploy, a local branch `deploy-check` is created in `/opt/wip` with one migration whose `upgrade()` raises; `deploy.sh deploy-check` must exit non-zero at step 5 with `systemctl show -p ActiveEnterTimestamp wip-api wip-worker` unchanged and `frontend/dist` still the previous build; then the branch is deleted and `deploy.sh` (main) run again. The branch never leaves the droplet and the production database is not changed (the failing migration is the first statement of its own transaction). No dry-run flag: it would be a second code path to keep honest.
+
+#### 3. Content-Security-Policy
+```
+default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+```
+Why each source: the built `index.html` (checked on the current build, `dist/index.html` of 2026-09-21) has one `<script type="module" src="/assets/…">` and one `<link rel="stylesheet">`, no inline script or style, so `script-src 'self'` and `style-src 'self'` hold; the bundle has no `eval` or `new Function`; React sets element styles through the CSSOM, which `style-src` does not govern, and the sources carry no `style={{` (the existing test). `img-src data:` is needed for exactly one thing: the TOTP QR code is `QRCode.toDataURL` rendered as `<img src="data:…">` (`TotpEnrol.jsx:27`); without it enrolment shows no QR code. `connect-src 'self'` covers every `fetch` (`/api/…`). Intuit's consent screen and the signed Spaces download URL are top-level navigations, which CSP does not restrict. `frame-ancestors 'none'` and `form-action 'self'` cost nothing. No `upgrade-insecure-requests` (nothing is loaded over http) and no `report-uri` (no collector; F23). The same header is sent on the three static pages, which is why they carry a linked stylesheet and no script.
+**Verification, three places:** (1) CI: after `npm run build`, the new step fails if `dist/index.html` contains `<script>` without a `src` or any `<style`; (2) `tests/test_deploy.py` pins the header string in `security-headers.conf` so it cannot drift silently; (3) on the droplet, `curl -I` for the header, then the browser console on the sign-in, TOTP enrol (QR code visible), Imports and Connections pages must show zero CSP violations; the owner's phone pass covers the same screens. Any future inline style or third-party script fails (1) or (3) before it reaches users.
+
+#### 4. uvicorn workers and the worker's `LISTEN` connection
+**Workers: 2**, as the brief says. Route handlers are synchronous `def`s, so each uvicorn worker already serves concurrent requests from a thread pool; the second process is for continuity while one restarts and for a request stuck on the database, not for CPU. One vCPU would not gain from more.
+**What the loop does today** (`app/worker/runner.py`, `_wait` and `_listener_conn`): the `LISTEN` connection is a separate `psycopg` autocommit connection opened lazily on the first idle wait. If `notifies()` raises, `_wait` logs "listener failed; polling only", closes and drops it, and finishes that wait by sleeping; the next idle wait opens a fresh connection and `LISTEN`s again. The claim, finish and task transactions use the SQLAlchemy engine with `pool_pre_ping`, so after a failover they reconnect on their next use, and a pass that fails is logged and the loop continues. So a failover that closes the socket (a reset or a FIN, which is what a Managed Postgres failover produces when the old primary shuts down) is survived: at most one 5-second poll interval without a wake-up, nothing lost, no restart needed. The DigitalOcean hostname re-points to the new primary; the URL does not change.
+**The gap:** a connection dropped without any packet (the old primary's host vanishes, or a NAT entry ages out) does not raise; `notifies(timeout=0.5)` simply returns nothing, the listener looks healthy, and `NOTIFY` wake-ups stop silently while the 5-second poll keeps every task moving. Tasks are then delayed by up to `WORKER_POLL_SECONDS`, never lost. **Proposed one-line fix, in scope:** open the listener with TCP keepalives (`keepalives=1, keepalives_idle=30, keepalives_interval=10, keepalives_count=3`), so a dead peer is detected within about a minute and the existing replace-on-error path runs. Tested by closing the listener's socket under the running worker in `test_worker.py` and asserting a new `LISTEN` connection replaces it on the next wait. No change to the polling design (D-19).
+
+#### 5. Node source and pin
+Ubuntu 24.04's `nodejs` package is 18.19, not 24, so the distro package is out. **NodeSource's `node_24.x` apt repository**, installed by `setup.sh` from its signing key and a pinned `sources.list.d` entry (no `curl | bash`); `apt` then tracks the 24.x line, which is what CI's `node-version: "24"` does. The pin lives in one place, `frontend/.nvmrc` = `24`: CI reads it with `node-version-file`, `setup.sh` reads it to choose the repository, and `deploy.sh` refuses to build if `node --version` does not start with `v` + that major. The owner's Mac (Node 20) is not used for building. `npm ci` against the committed `package-lock.json` gives the same tree as CI.
+
+#### Built, step (a), 2026-09-22
+Everything under "Files" exists, with these departures from the plan text, each small and stated here so the owner can object:
+- **Production database name**: `wip` (the brief left `<production name>` open). It is the default of the downgrade guard, so the guard protects it even if `PROTECTED_DATABASE_NAMES` were ever missing; both env templates set it explicitly as well.
+- **Answer 2 as amended by the owner**: `deploy.sh` reads its migration file from `MIGRATE_ENV_FILE` (default `/etc/wip/migrate.env`). The failed-migration check points it at a root-only file for `wip_scratch` on the managed cluster, created with `01_roles.sh` and dropped afterwards; the procedure is in OPERATIONS.md ("Proving the failed-migration path"). That variable is the only addition to the script for the check; there is no dry-run flag.
+- **TLS options**: `deploy/nginx/tls.conf` (installed as `snippets/wip-tls.conf`) carries certbot's recommended settings without the DHE suites, so no `ssl_dhparam` is generated; certificates are obtained with `certbot certonly --webroot` (the `python3-certbot-nginx` package is installed as listed but not used to edit nginx's files). The renewal hook reloads nginx.
+- **CI check** (question 3): a short Python step rather than `grep`, same assertions: no `<script>` without `src`, no `<style`, no `style=` in `dist/index.html`; the three pages and `pages.css` present in `dist/`. Run locally on the current build: passes.
+- **Static pages**: `Last updated 2026-09-22`. Each names the domain once (the entity line; the address `admin@jobcost.dev` is not counted) and never the bare product name, which `tests/test_deploy.py` asserts, so D-09's rename stays one edit per page. The owner reads all three before the owner pass; the terms page is plain language, not legal advice.
+- **`setup.sh` packages**: as listed plus `ca-certificates`, `curl`, `gnupg` (for the NodeSource signing key). The clone uses the `wip` user's deploy key over ssh; on a private repository the first run stops at the clone with the public key printed and the second run continues.
+- **Local checks done** (no droplet): 562 backend tests, 12 frontend tests, ruff, `bash -n` on both scripts, `nginx -t` on both site files in an nginx 1.24 container (Ubuntu 24.04's version) with a throwaway certificate, and the built `dist/` served through the real site file: `/privacy`, `/terms`, `/qbo/disconnected`, `/pages.css` answer 200 as files; the five headers are present on `/`, on the three pages and inside `/assets/` (the one location with its own `add_header`); `index.html` is `Cache-Control: no-cache`; `http://` and `https://www.` answer 301 to the apex with the path kept; `Server: nginx` carries no version. Criteria 1–7 and 10 need the droplet and stay open.
+
+### Discovered (do not fix here)
+_Things noticed along the way that belong to another feature._
+
+### Close-out
+- [ ] CHANGELOG entry written
+- [ ] ROADMAP: F05.0 status flipped
+- [ ] OPERATIONS.md: "Production (jobcost.dev)" section, prod_check output, the D-21 Spaces record
+- [ ] D-27 present in `docs/DECISIONS.md`
+- [ ] Brief copied to `docs/briefs/F05.0.md`; live file rewritten as a stub pointing at F05.1
+- [ ] One commit, not pushed
