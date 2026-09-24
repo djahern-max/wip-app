@@ -104,6 +104,10 @@ Estimate vs actual by cost category, hours estimated vs actual, drill to source 
 §8.5 checks 1–4 and 6 on one page per period, with tolerances and waive-with-note.
 **Accept**: introducing a deliberately unassigned bill in sandbox moves the amount from a job to "unassigned" and the tie-out still balances.
 
+### F13.1 · Pool allocation  ☐
+Month-end allocation of each pool job (D-30) by its per-pool driver from `tenant_policy`; formatted reclass entry (DR 5n35 by job / CR 5n35 pool job) for the controller to post; pool-balance tie-out (§8.5 check 7); allocated vs synced lines agree to the cent.
+**Accept**: on the Rye Beach fixture, a pooled bill allocated across eligible jobs sums to the bill to the cent, and the pool job shows 0.00 afterwards.
+
 > **Release C**: estimate vs. billed vs. cost per job, tied to the ledger.
 
 ---
@@ -160,7 +164,7 @@ Backups and restore drill, key rotation procedure, error monitoring, rate-limit 
 - Post JE to QBO via API from an approved period.
 - LMN Zapier webhook for "estimate sold" → instant `EST_UNATTACHED` exception.
 - Ramp API: uncoded-transaction chaser before sync.
-- Owned-equipment and fuel allocation by equipment hours (D-04 revisit).
+- Owned-equipment and fuel allocation by equipment hours (D-04 revisit); reuses F13.1's allocation machinery (D-30).
 - Retainage UI and pay-application (AIA-style) support for GC clients.
 - Pipeline aging; cash forecast from backlog; bonding-format WIP.
 - Second ledger adapter (QuickBooks Desktop/Enterprise is the likely first ask in construction).

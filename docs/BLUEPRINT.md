@@ -129,6 +129,7 @@ Rules:
 - An **estimate** becomes relevant when its status is Sold. The tool proposes: "new job" or "attach to existing job as change order" (same customer + same jobsite → suggest attach). A person confirms.
 - A **QBO project/sub-customer** links to exactly one job. A sold job with no QBO link is an exception. A QBO project with activity and no job is an exception.
 - **Division** comes from the estimate or is set on the job; cost lines whose GL account maps to a *different* division than their job raise a soft warning (mis-coding detector).
+- `revenue_method` gains the value `pool` (D-30, D-31); the values are now `fixed_price`, `time_and_materials`, `recurring_service`, `none`, `pool`. A pool holds shared supplies until month-end allocation; it has no estimate and no contract, and a person sets the value (never inferred from the name).
 
 ---
 
@@ -173,10 +174,10 @@ All tables carry `tenant_id` except `firm`, `user`, and reference enums.
 
 **Tenancy & access**: `firm`, `tenant`, `user`, `membership(user, tenant, role)`, `audit_log`
 **Integration**: `connection`, `sync_run`, `import_batch`, `raw_record`
-**Configuration**: `division`, `cost_category`, `account_map(gl_account → division, cost_category, in_job_cost bool)`, `burden_rate(effective-dated)`, `equipment_rate` (later), `tenant_policy` (WIP method options, deposit item ids, thresholds)
+**Configuration**: `division`, `cost_category`, `account_map(gl_account → division, cost_category, in_job_cost bool)`, `burden_rate(effective-dated)`, `equipment_rate` (later), `tenant_policy` (WIP method options, deposit item ids, thresholds, per-pool eligibility and driver per D-30)
 **Spine**: `customer`, `job`, `job_alias`, `estimate`, `estimate_cost(estimate, cost_category, hours, amount)`, `job_estimate(job, estimate, role)`, `eac_revision`
 **Billing**: `billing` (invoice/credit memo/sales receipt, header), `billing_line`, `payment`, `payment_application(payment → billing, amount)`, `retainage` fields on billing
-**Cost**: `ledger_line` (normalized GL-side line: date, account, vendor, amount, job_id nullable, source txn ref), `labor_entry`, `allocation` (later: equipment, fuel), and a **view** `job_cost_line` that unions them with a `basis` column: `gl_direct`, `labor_computed`, `allocated`
+**Cost**: `ledger_line` (normalized GL-side line: date, account, vendor, amount, job_id nullable, source txn ref), `labor_entry`, `allocation` (first use: supplies pools, D-30; later owned equipment and fuel), and a **view** `job_cost_line` that unions them with a `basis` column: `gl_direct`, `labor_computed`, `allocated` (first used by pool allocation, D-30)
 **Period close**: `period(tenant, month, status: open|in_review|approved)`, `wip_snapshot`, `wip_line` (every column of the schedule, frozen), `journal_export`, `tieout_result`
 **Work queue**: `exception(type, severity, entity_ref, status, assigned_to, resolution_note)`
 
@@ -190,7 +191,7 @@ Rye Beach mapping is mechanical from your slot scheme: x10→Labor, x20→Labor 
 This section is the contract between you and the code. Claude Code implements exactly this; any change here is a changelog-worthy decision.
 
 ### 8.1 Scope
-A job is on the schedule for period P if `revenue_method = fixed_price` and it has a contract and **any** billing or cost through the end of P, until the period after it is closed. Sold jobs with no activity appear on the **backlog** report, not the WIP.
+A job is on the schedule for period P if `revenue_method = fixed_price` and it has a contract and **any** billing or cost through the end of P, until the period after it is closed. Sold jobs with no activity appear on the **backlog** report, not the WIP. Pool jobs (D-30) are never on the schedule or the backlog.
 
 ### 8.2 Columns
 
@@ -216,7 +217,7 @@ Loss jobs: when column 6 is negative, the full projected loss is recognized now 
 Supporting memo columns: collected to date, open A/R, retainage held, deposit received, last cost date, last billing date, EAC last reviewed date and by whom.
 
 ### 8.3 What counts as "cost" (WIP basis)
-Controlled by `account_map.in_job_cost` and tenant policy. Both the numerator (cost to date) and denominator (EAC) must use the **same** categories. See Decision D-04 for owned equipment. Default recommendation: burdened labor + materials + supplies + subs + rentals + disposal + permits; owned equipment and fuel excluded from the WIP fraction and shown as memo on the profitability report.
+Controlled by `account_map.in_job_cost` and tenant policy. Both the numerator (cost to date) and denominator (EAC) must use the **same** categories. See Decision D-04 for owned equipment. Default recommendation: burdened labor + materials + supplies + subs + rentals + disposal + permits; owned equipment and fuel excluded from the WIP fraction and shown as memo on the profitability report. Pooled supplies reach jobs by month-end allocation per D-30 and are in the WIP basis on both sides.
 
 ### 8.4 The journal entry
 One entry per period, per division, auto-reversing on day 1 of the next period:
@@ -239,6 +240,7 @@ A period cannot move to `approved` unless each of these passes or is explicitly 
 4. **A/R**: open balances by job + unassigned = GL 1200.
 5. **Roll-forward**: prior approved snapshot + period activity = current snapshot, per job.
 6. **Ratio checks** (warnings): payroll tax % by division, materials % of revenue by division versus trailing average. This would have caught the SNOW payroll-tax anomaly.
+7. **Pool balances** (D-30): every pool job balance is 0.00 at period end, or waived with a note.
 
 ### 8.6 Deposits (Decision D-02)
 Recommended: deposits are invoiced like any other billing and hit income; the WIP entry defers them, and a job with a deposit and no cost correctly shows as ~100% overbilled. This keeps LMN/QBO invoicing habits unchanged. The Sold Jobs Board still identifies deposits (by configured deposit item, or first invoice before first cost) so you can answer "who has paid a deposit?" The alternative (a 2420 Customer Deposits liability with reclass at job start) is supported by the model but adds a manual step every client will forget.
@@ -350,7 +352,7 @@ This is the work that makes the tool possible, and it is valuable even if the to
 - [ ] Are crews clocking to **jobs** in LMN Crew, or just clocking in/out? If not to jobs, labor job costing has no source, and fixing that is an operations project, not a software one.
 
 ### 13.2 One QBO project per sold job
-- [ ] Naming convention with the LMN id in it: `6366990 Turley - E Dunbarton Rd`. Deterministic matching forever.
+- [ ] Naming convention with the LMN id in it: `6366990 Turley - E Dunbarton Rd`. Deterministic matching forever. Exception (D-30): a supplies pool is named `Pool – <group>` (for example `Pool – Hydroseed`) under a customer of the same name, since it has no estimate.
 - [ ] Create projects for the 16 sold estimates. Decide Turley (one job or two) and DeVellis/Mukherjee (attach the $998.71 as a change order when sold).
 - [ ] Re-tag this year's invoices, payments, bills, and expenses for those jobs to their project. This is the backfill that gives the tool history.
 
