@@ -8,8 +8,9 @@ most one due task. One transaction never holds two tenant contexts:
 
 ``LISTEN`` on ``NOTIFY_CHANNEL`` (payload: a tenant id) wakes an idle loop early;
 polling every ``WORKER_POLL_SECONDS`` is the fallback. The listener is a separate
-autocommit connection with TCP keepalives; when it fails it is dropped and the next
-idle wait opens a new one, so a dropped socket costs at most one poll interval. Log
+autocommit connection with TCP keepalives, opened before the first pass (``listening``
+is set once ``LISTEN`` is registered); when it fails it is dropped and the next idle
+wait opens a new one, so a dropped socket costs at most one poll interval. Log
 lines carry task id, kind, tenant id, attempt and outcome; never a payload, a filename
 or a token.
 """
@@ -77,6 +78,9 @@ class Worker:
         self.lease_seconds = s.worker_lease_seconds if lease_seconds is None else lease_seconds
         self.listen = listen
         self.stop_event = threading.Event()
+        # Set once ``LISTEN`` is registered (cleared when the listener is dropped): a
+        # NOTIFY sent after this is delivered, so a test may enqueue only after waiting on it.
+        self.listening = threading.Event()
         self._listener = None
 
     # --- one pass over every tenant ------------------------------------------------
@@ -165,6 +169,14 @@ class Worker:
             self.lease_seconds,
         )
         try:
+            # LISTEN before the first pass: a task enqueued while a pass runs is then
+            # already buffered on the listener and the next wait returns at once,
+            # rather than waiting a whole poll interval for it.
+            if self.listen:
+                try:
+                    self._listener_conn()
+                except Exception as exc:  # noqa: BLE001 - polling covers it; _wait retries
+                    log.warning("listener not opened (%s); polling only", type(exc).__name__)
             while not self.stop_event.is_set():
                 try:
                     ran = self.run_once()
@@ -217,9 +229,11 @@ class Worker:
             )
             conn.execute(f"LISTEN {queue.NOTIFY_CHANNEL}")
             self._listener = conn
+            self.listening.set()
         return self._listener
 
     def _close_listener(self) -> None:
+        self.listening.clear()
         if self._listener is not None:
             try:
                 self._listener.close()

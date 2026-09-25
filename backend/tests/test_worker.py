@@ -365,7 +365,9 @@ def test_notify_wakes_an_idle_worker_in_under_a_second(
     t = threading.Thread(target=w.run_forever, daemon=True)
     t.start()
     try:
-        time.sleep(0.8)  # the first pass found nothing; the loop is now waiting on LISTEN
+        # LISTEN is registered before the first pass; a NOTIFY sent before it would never
+        # be delivered (CI #33), so wait for the readiness signal, never for a guessed time.
+        assert w.listening.wait(10), "the worker never registered LISTEN"
         key = uuid.uuid4().hex
         started = time.monotonic()
         _enqueue(rw_engine, seed.tenant_a, "_test.record", {"key": key})
@@ -377,6 +379,7 @@ def test_notify_wakes_an_idle_worker_in_under_a_second(
         t.join(5)
     assert key in RESULTS and elapsed < 1.0, elapsed
     assert not t.is_alive()
+    assert not w.listening.is_set()  # cleared with the listener on stop
 
 
 def test_listener_whose_socket_is_closed_under_it_is_replaced_on_the_next_wait(
