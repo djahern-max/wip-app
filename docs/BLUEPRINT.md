@@ -382,8 +382,12 @@ This is the work that makes the tool possible, and it is valuable even if the to
 For the 16 sold jobs, from QBO: first invoice date/amount, payments applied, total billed, open balance. One spreadsheet, maybe two hours. It answers the owner's question now, **and it becomes the acceptance test for Feature F08**: the tool must reproduce your spreadsheet.
 
 ### 13.7 Developer setup
-- [ ] Intuit developer account, app, sandbox company. Note the production-key questionnaire early.
-- [ ] Spike S-01 (half a day, throwaway script): connect to the real company read-only, confirm projects appear as customers with a project flag, confirm line-level customer refs on Ramp-synced expenses, confirm CDC returns deletes.
+- [x] Intuit developer account, app, sandbox company. Note the production-key questionnaire early. (Done: sandbox in F05; questionnaire submitted and production keys in place in F05.1, before the 2026-09-23 tie-out.)
+- [x] Spike S-01 (half a day, throwaway script): connect to the real company read-only, confirm projects appear as customers with a project flag, confirm line-level customer refs on Ramp-synced expenses, confirm CDC returns deletes. Answers (`docs/spikes/S-01.md`, sandbox 2026-09-20; F05.1 on the real company):
+  - Real company read-only: Rye Beach connected in F05.1 with scope `com.intuit.quickbooks.accounting` only; 13 months of billing totals equal QuickBooks' reports to the cent (tie-out 2026-09-23).
+  - Projects as customers: a project is a `Customer` row with `IsProject = true`; `Job = true` alone means sub-customer. `ProjectRef` is a Projects-API id and is not used; the link is `CustomerRef` → the project's `Customer.Id`.
+  - CDC deletes: returned inside the entity list as a stub (`Id`, `MetaData.LastUpdatedTime`, `status = "Deleted"`), no payload.
+  - Line-level customer refs on Ramp-synced expenses: in the sandbox, `Purchase` lines carry `AccountBasedExpenseLineDetail.CustomerRef` and the header carries none. **On the real company: pending** three Ramp-synced Purchase or Bill ids that John assigned a Customer/Job to in Ramp; the owner supplies the ids and the answer is recorded here (ids only, no amounts).
 
 ---
 

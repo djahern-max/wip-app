@@ -746,10 +746,30 @@ the same way at the next poll. Our own **Disconnect** button revokes at Intuit f
 clears the tokens (F05); the privacy page promises exactly that.
 
 ### Rye Beach connection record (F05.1)
-_To be filled at connection: date, realm id (not a secret), backfill duration, the tie-out
-(report name, months compared, "equal" or the named difference; amounts stay in the owner's
-workpaper), the account-number check (attached count against the F04 chart, differences by
-number), and the S-01 question 4 answer (record ids only; BLUEPRINT §13.7)._
+- **Connected** by the owner to tenant `rye-beach` with the production keys, read-only, scope
+  `com.intuit.quickbooks.accounting` only (the stored scope is asserted), before the
+  2026-09-23 tie-out; backfill complete; the Connections page shows Connected with month
+  totals. The connection day, the realm id (not a secret) and the backfill duration were not
+  copied into the repo: they are on the `connection` row and its `connection_connected`
+  audit row, and may be added here.
+- **Tie-out, 2026-09-23 (owner)**: 13 months (Aug 2025–Aug 2026) × 4 types (invoices,
+  credit memos, sales receipts, payments) against QuickBooks' own reports, equal to the cent.
+  Three first-pass differences were QuickBooks export errors (a wrong date range; one report
+  not run), re-exported and equal; no platform cause. Amounts and report names stay in the
+  owner's workpaper. Findings for F08 / D-02 (zero-amount invoices and payments, the
+  unidentified-deposits sales receipt, deleted deposit accounts, the July 2025 credit memos)
+  are under Discovered in `docs/briefs/F05.1.md`; none is a tie-out difference.
+- **Webhooks on production, 2026-09-25 (owner pass)**: a memo edit on one invoice was visible
+  on the platform within five minutes with no Sync now; the Connections page shows "Last
+  webhook received" and the 24-hour count. (The sandbox proof on jobcost.dev never ran: the
+  production keys were installed first, so `qbo-sandbox` could no longer reach Intuit.)
+- **Disconnect, live, 2026-09-25 (owner)**: Disconnect, then Reconnect, then one poll; the
+  `connection_disconnected` audit row carries `revoked_at_source`; month totals unchanged
+  after the reconnect.
+- **Open**: the account-number check (attached count against the F04 chart, differences by
+  number) waits for the owner's Chart of Accounts export; S-01 question 4 waits for three
+  Ramp-synced Purchase/Bill ids (answer to BLUEPRINT §13.7, ids only); the owner ticks the
+  phone pass in `docs/briefs/F05.1.md`.
 
 ### Recording the test fixtures
 `cd backend && .venv/bin/python scripts/qbo_record_fixtures.py --tenant qbo-sandbox` writes
@@ -816,8 +836,11 @@ Afterwards run `prod_check.py`; "append-only triggers present and enabled" must 
 The audit row survives because it is firm-level: `SELECT occurred_at, detail FROM
 firm_audit_log WHERE action = 'tenant_deleted' ORDER BY occurred_at DESC;` as `app_owner`.
 
-**First use, `qbo-sandbox` on production (F05.1, step 3)**: _to be recorded: date, counts, the
-`prod_check.py` line._
+**First use, `qbo-sandbox` on production (F05.1, step 3)**: done by the owner after the
+production keys were installed: `qbo-sandbox` removed, the `tenant_deleted` row is in
+`firm_audit_log`, and `prod_check.py` passed afterwards ("append-only triggers present and
+enabled" `ok`). The day and the per-table counts were not copied into the repo; the row's
+`occurred_at` and `detail` hold them.
 
 ### Server layout, and who may read what
 
