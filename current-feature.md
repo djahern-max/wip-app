@@ -12,10 +12,9 @@ and proven on production, `qbo-sandbox` was removed from production with `delete
 **Still open in `docs/briefs/F05.1.md`** (when the last one closes: tick it, flip ROADMAP F05.1
 to ☑, one-line "F05.1 · close-out" CHANGELOG entry, one commit):
 - Account numbers: attached 169 of 169 on production (its chart is the 169-account file of
-  2026-09-23; no reload). Remaining: the 114 active QuickBooks accounts without a number,
-  explained by group from `scripts/accounts_without_number.py` run on the droplet (OPERATIONS.md
-  connection record); then the owner's one-time chart file and oracle update (2630 and the ten
-  new numbers; the owner says when).
+  2026-09-23; no reload). The 114 unnumbered accounts are listed by group (OPERATIONS.md
+  connection record); remaining: the owner's explanation by group, then the one-time chart
+  file and oracle update (2630 and the ten new numbers in, 2725 out; the owner says when).
 - S-01 question 4: answered yes 2026-09-25 (BLUEPRINT §13.7; ROADMAP S-01 ☑). Purchases are
   checked in F10 when Ramp card transactions begin.
 - The owner's phone pass line: the memo-edit and Disconnect/Reconnect checks are done
@@ -38,6 +37,7 @@ minutes stays on beside webhooks; on dev, polling runs only while `make worker` 
 ## Discovered
 F05.1 (2026-09-22 to 2026-09-25; details in `docs/briefs/F05.1.md`, Discovered):
 - For F08 / D-02, from the Rye Beach tie-out (owner, 2026-09-25; none is a tie-out difference): 34 non-voided invoices at 0.00 (29 dated 2025-12-01); 13 zero-amount payments "Created by QB Online to link credits to charges"; sales receipt INV-2984 (2026-01-22, "Cleanup – Unidentified Deposits", deposit account deleted, income 4100), evidence for D-02; payments deposit to five accounts, two deleted; July 2025 credit memos of 257,994.17, one month before the tie-out window; credit memo INV-2464 (2025-12-10).
+- 12 active Cost of Goods Sold and 11 active Income accounts in QuickBooks carry no number (ids in OPERATIONS.md connection record): postings to them are outside `account_map` and the §8.5 tie-outs until numbered or inactive (F10, F13). An unnumbered Customer Deposits liability (QuickBooks id 1150040036) exists: D-02 / P0-3 evidence (F08). Bank account 219 beside 1010 may be a duplicate.
 - The API service logs only uvicorn's access lines; the `app.*` INFO lines never reach journald because only the worker calls `basicConfig` (F23 or a patch).
 - A webhook that arrives while a poll is running enqueues nothing; the change lands on the next scheduled poll. A "one more after this" follow-up would shorten that to seconds.
 - `Merge` is a webhook operation on Customer, Account, Item, Vendor, Class, Department, Employee and PaymentMethod; what CDC returns after a customer merge needs checking in F07 before `job_alias` links are trusted across a merge.

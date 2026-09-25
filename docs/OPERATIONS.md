@@ -798,9 +798,22 @@ clears the tokens (F05); the privacy page promises exactly that.
   (read-only; one group per `AccountType` with the QuickBooks id, `FullyQualifiedName` and
   `AccountSubType` of each account; no balances). "Deposit lines not linked to a document:
   1603 lines" is the F05 state of deposits (stored raw, normalized under D-02 in F08).
-- **Open**: the 114 unnumbered accounts explained by group (the script above); the owner's
-  phone pass line in `docs/briefs/F05.1.md` (the memo-edit and Disconnect/Reconnect checks
-  are done). S-01 question 4 is answered ("Spike S-01").
+  **Run 2026-09-25 (owner, after deploying 753b691)**: 114 of 282 active accounts (the page
+  said 283 earlier that day; one account went inactive in between). By `AccountType`:
+  Expense 70, Cost of Goods Sold 12, Income 11, Other Current Liability 7, Other Expense 6,
+  Other Income 3, Long Term Liability 2, Bank 1, Fixed Asset 1, Other Current Asset 1. Names
+  stay out of the repo; the owner explains each group in the brief. Three of them matter to
+  the platform beyond the attach count (QuickBooks ids only): the 12 unnumbered Cost of Goods
+  Sold accounts (317, 411, 413, 386, 387, 477, 264, 321, 359, 86, 354, 266) and the 11 unnumbered
+  Income accounts (236, 336, 1150040021, 467, 1150040004, 199, 316, 469, 158, 200, 198) are
+  outside `account_map`, so any current-year posting to them is invisible to the §8.5 cost and
+  revenue tie-outs until they are numbered or made inactive (F10, F13); an unnumbered Customer
+  Deposits liability exists (1150040036, `DeferredRevenue`), evidence for D-02 and P0-3 (F08);
+  an unnumbered Bank account (219) sits beside the numbered operating account 1010 and looks
+  like a duplicate for the owner to confirm.
+- **Open**: the owner's explanation of the 114 by group (above) and the phone pass line in
+  `docs/briefs/F05.1.md` (the memo-edit and Disconnect/Reconnect checks are done). S-01
+  question 4 is answered ("Spike S-01").
 
 ### Recording the test fixtures
 `cd backend && .venv/bin/python scripts/qbo_record_fixtures.py --tenant qbo-sandbox` writes
