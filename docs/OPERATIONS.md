@@ -811,9 +811,13 @@ clears the tokens (F05); the privacy page promises exactly that.
   Deposits liability exists (1150040036, `DeferredRevenue`), evidence for D-02 and P0-3 (F08);
   an unnumbered Bank account (219) sits beside the numbered operating account 1010 and looks
   like a duplicate for the owner to confirm.
-- **Open**: the owner's explanation of the 114 by group (above) and the phone pass line in
-  `docs/briefs/F05.1.md` (the memo-edit and Disconnect/Reconnect checks are done). S-01
-  question 4 is answered ("Spike S-01").
+  The owner's explanation by group (2026-09-25) is in `docs/briefs/F05.1.md` under the
+  account-number criterion: legacy overhead hierarchy, system accounts and placeholders;
+  twelve legacy COGS and five legacy income lines to be numbered or deactivated before F10
+  and F13; the Customer Deposits liability held for D-02; the two loans get 27xx numbers in
+  the chart update; bank account 219 to be merged with or deactivated beside 1010.
+- **Open**: the owner's phone pass line in `docs/briefs/F05.1.md` (the memo-edit and
+  Disconnect/Reconnect checks are done). S-01 question 4 is answered ("Spike S-01").
 
 ### Recording the test fixtures
 `cd backend && .venv/bin/python scripts/qbo_record_fixtures.py --tenant qbo-sandbox` writes

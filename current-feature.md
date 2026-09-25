@@ -11,10 +11,9 @@ and proven on production, `qbo-sandbox` was removed from production with `delete
 
 **Still open in `docs/briefs/F05.1.md`** (when the last one closes: tick it, flip ROADMAP F05.1
 to ☑, one-line "F05.1 · close-out" CHANGELOG entry, one commit):
-- Account numbers: attached 169 of 169 on production (its chart is the 169-account file of
-  2026-09-23; no reload). The 114 unnumbered accounts are listed by group (OPERATIONS.md
-  connection record); remaining: the owner's explanation by group, then the one-time chart
-  file and oracle update (2630 and the ten new numbers in, 2725 out; the owner says when).
+- Account numbers: done (169 of 169 attached; the 114 unnumbered accounts explained by group in
+  the brief, 2026-09-25). The owner's one-time chart file and oracle update (2630 and the ten
+  new numbers in, 2725 out, 27xx for the two loans) follows when the owner says.
 - S-01 question 4: answered yes 2026-09-25 (BLUEPRINT §13.7; ROADMAP S-01 ☑). Purchases are
   checked in F10 when Ramp card transactions begin.
 - The owner's phone pass line: the memo-edit and Disconnect/Reconnect checks are done
