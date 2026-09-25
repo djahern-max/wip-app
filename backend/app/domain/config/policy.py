@@ -40,6 +40,10 @@ class PolicyKey:
     description: str
 
 
+# Key names other modules may import (tests/test_policy.py: a key name is a string
+# literal only in this file).
+WIP_BASIS = "wip_basis"
+
 # The registry. Deliberately no ``default`` field: see the module docstring and the
 # static test in tests/test_policy.py.
 POLICY_KEYS: dict[str, PolicyKey] = {
@@ -55,7 +59,7 @@ POLICY_KEYS: dict[str, PolicyKey] = {
             "1 = January … 12 = December.",
         ),
         PolicyKey(
-            "wip_basis",
+            WIP_BASIS,
             "WIP basis",
             "category_slots",
             "Cost categories counted in both cost to date and EAC (BLUEPRINT §8.3).",

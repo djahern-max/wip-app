@@ -63,9 +63,9 @@ The platform live at jobcost.dev, with the privacy policy and terms pages Intuit
 Intuit's production questionnaire and keys, Rye Beach connected read-only, monthly totals tied to Rye Beach's own QuickBooks reports, webhooks turned on (D-25). S-01's fourth question, whether Ramp-synced expenses carry the job on the line, is answered here against the real company. The Phase B gate applies.
 **Accept**: Rye Beach read-only: invoice and payment totals by month equal QBO reports; webhooks turned on; Intuit production assessment submitted.
 
-### F06 · Estimate import  ☐
-`EstimateSource` protocol; LMN export parser; closing-report PDF parser (prices only) as fallback; generic CSV template. Dirty rows load and raise exceptions.
-**Accept**: both closing reports parse to 80 estimates (34 Hess, 46 Sanford incl. the id-less Mijal row) with totals matching the report footers to the cent ($936,660.47 and $1,599,103.55 across statuses); Mijal raises `EST_NO_ID`; $0 rows raise `EST_ZERO_SOLD` only when Sold.
+### F06 · Estimate import  ◐ (built 2026-09-25; the owner's production pass and the 80-row fixture criteria are open, see `docs/briefs/F06.md`)
+`EstimateSource` protocol with one implementation, the platform's estimate template (D-32: sheets Estimates, Work areas, Estimate costs; xlsx or one csv per sheet); estimates, work areas (D-01) and cost lines by cost code (D-23) into the spine; versions with the D-01 baseline; dirty rows load and raise exceptions. No vendor parser and no PDF fallback.
+**Accept**: the template fixture for EST6115758 loads 21 work areas and 60 cost lines with kept prices 475,129.68, cost 315,832.69 and EAC in the D-04 basis 286,634.20; the EST6120638 fixture loads 32 work areas, seven omitted, kept 366,889.80; the 80-row Estimates workbook loads 79 estimates with the closing reports' per-status totals to the cent and the id-less Mijal row raises `EST_NO_ID`; 0.00 rows raise `EST_ZERO_SOLD` only when Sold; the same file again changes nothing.
 
 ### F07 · Job spine & crosswalk  ☐
 `job`, `job_alias`, `job_estimate` with roles; "sold estimate → new job or attach as change order" review screen; link job ↔ QBO project with fuzzy suggestions (id-in-name first, then customer + address similarity); customer merge suggestions.

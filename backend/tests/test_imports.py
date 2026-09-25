@@ -587,7 +587,7 @@ def test_the_test_csv_kind_never_exists_in_a_normally_started_app() -> None:
         ),
     )
     assert proc.returncode == 0, proc.stderr
-    assert proc.stdout.strip() == "['chart_of_accounts', 'unparsed_file']"
+    assert proc.stdout.strip() == "['chart_of_accounts', 'estimate_template', 'unparsed_file']"
 
 
 def test_a_fresh_worker_process_sees_exactly_the_production_source_kinds() -> None:
@@ -605,7 +605,7 @@ def test_a_fresh_worker_process_sees_exactly_the_production_source_kinds() -> No
         ),
     )
     assert proc.returncode == 0, proc.stderr
-    assert proc.stdout.strip() == "['chart_of_accounts', 'unparsed_file']"
+    assert proc.stdout.strip() == "['chart_of_accounts', 'estimate_template', 'unparsed_file']"
 
 
 def test_every_module_that_registers_a_source_kind_is_in_the_shared_list() -> None:

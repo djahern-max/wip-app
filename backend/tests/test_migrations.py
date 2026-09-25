@@ -45,7 +45,13 @@ EXPECTED_TABLES = {
     "payment_application",
     # F05.1 (0009): tenant-less, append-only (D-29)
     "webhook_event",
+    # F06 (0010)
+    "estimate",
+    "estimate_version",
+    "estimate_work_area",
+    "estimate_cost",
 }
+F06_TABLES = {"estimate", "estimate_version", "estimate_work_area", "estimate_cost"}
 F03_TABLES = {"connection", "sync_run", "import_batch", "raw_record", "task"}
 F05_TABLES = {"customer", "billing", "billing_line", "payment", "payment_application"}
 F04_TABLES = {
@@ -157,6 +163,24 @@ def test_upgrade_head_then_downgrade_base(scratch_db_url: str) -> None:
     command.upgrade(cfg, "0002")
     assert F02_ONLY_USER_COLUMNS <= _user_columns(scratch_db_url)
     assert "firm_membership" not in _public_tables(scratch_db_url)
+    # 0010 alone is reversible (F06): the four estimate tables, import_batch.issues
+    # and the ``unchanged`` follow-up outcome come and go.
+    command.upgrade(cfg, "head")
+    assert F06_TABLES <= _public_tables(scratch_db_url)
+    assert "issues" in _columns(scratch_db_url, "import_batch")
+    assert "unchanged" in _check_sql(scratch_db_url, "ck_import_batch_followup_outcome")
+    assert _query(
+        scratch_db_url,
+        "SELECT indexdef FROM pg_indexes WHERE indexname = 'uq_estimate_version_baseline'",
+    ) == {
+        "CREATE UNIQUE INDEX uq_estimate_version_baseline ON public.estimate_version "
+        "USING btree (tenant_id, estimate_id) WHERE is_baseline"
+    }
+    command.downgrade(cfg, "0009")
+    assert F06_TABLES.isdisjoint(_public_tables(scratch_db_url))
+    assert "issues" not in _columns(scratch_db_url, "import_batch")
+    assert "unchanged" not in _check_sql(scratch_db_url, "ck_import_batch_followup_outcome")
+    assert "superseded" in _check_sql(scratch_db_url, "ck_import_batch_followup_outcome")
     # 0008 alone is reversible (F05): the five billing tables come and go, with their
     # RLS and the total identity CHECK.
     command.upgrade(cfg, "head")

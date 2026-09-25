@@ -135,6 +135,7 @@ export default function Imports({ me }) {
                 <strong>{b.status_label}</strong> · {rowsText(b)}
               </div>
               {b.message && <div className={messageClass(b)}>{b.message}</div>}
+              <Issues items={b.issues} />
               <div className="hint">{b.uploaded_by_email || "unknown user"}</div>
               <a href={`/api/imports/${b.id}/download`}>Download</a>
             </div>
@@ -170,6 +171,7 @@ export default function Imports({ me }) {
                   <td>
                     {b.status_label}
                     {b.message && <div className={messageClass(b)}>{b.message}</div>}
+                    <Issues items={b.issues} />
                   </td>
                   <td className="num">{b.rows_loaded}</td>
                   <td className="num">{b.rows_rejected}</td>
@@ -185,6 +187,19 @@ export default function Imports({ me }) {
         </div>
       )}
     </div>
+  );
+}
+
+// F06: rows the file could not load and file-level facts, one sentence each (the
+// EST_* code travels in the API for OPERATIONS and is never shown).
+function Issues({ items }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <ul className="issues">
+      {items.map((i, n) => (
+        <li key={n}>{i.message}</li>
+      ))}
+    </ul>
   );
 }
 

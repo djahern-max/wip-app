@@ -362,3 +362,37 @@ h2 {
   margin: 0.5rem 0;
   font-size: 14px;
 }
+
+/* --- F06 estimates ------------------------------------------------------------------------ */
+
+/* Sentences for a person: what happened and what to do next (D-22). */
+.issues {
+  margin: 0.25rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 13px;
+}
+
+.issues li {
+  margin: 0.15rem 0;
+}
+
+/* Header fields of one record, label then value, wrapping on a phone. */
+.kv {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 1rem;
+  margin: 0 0 1rem;
+  font-size: 14px;
+}
+
+.kv dt {
+  color: var(--muted);
+}
+
+.kv dd {
+  margin: 0;
+}
+
+.kv dd.num {
+  font-variant-numeric: tabular-nums;
+}

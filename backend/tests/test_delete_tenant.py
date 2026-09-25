@@ -26,6 +26,7 @@ from app.tenancy.models import RlsProbe, Tenant, UserSession
 from scripts import delete_tenant
 from tests.config_helpers import load_rye_beach_rules, run_until_quiet, upload_chart
 from tests.conftest import CSRF, Seed
+from tests.estimate_helpers import ELM, upload_template
 from tests.qbo_helpers import FakeIntuit, FixtureCompany, connect_directly, installed
 from tests.test_qbo_tasks import _drain
 
@@ -50,7 +51,8 @@ def _fill_every_tenant_table(
     sync_run, raw_record, task, customer, billing, billing_line, payment,
     payment_application, audit_log), a chart and rules (gl_account, account_map,
     account_suggest_rule, import_batch, cost_category), a division, a policy, a burden
-    rate, a probe row; membership rows come with the tenant."""
+    rate, a probe row, an estimate with a version, work areas and cost lines (F06);
+    membership rows come with the tenant."""
     fake = FakeIntuit()
     FixtureCompany().serve(fake)
     with installed(fake):
@@ -65,6 +67,8 @@ def _fill_every_tenant_table(
     load_rye_beach_rules(rw_engine, tenant_id)
     chart = "account_no,name,type\n5100,Labor,Expense\n5410,Snow labor,Expense\n"
     upload_chart(admin, chart.encode(), "chart.csv")
+    run_until_quiet(rw_engine)
+    upload_template(admin, ELM.read_bytes(), "estimate_upload_EST6115758.xlsx")  # F06 tables
     run_until_quiet(rw_engine)
     r = admin.post(
         "/api/imports",
@@ -105,7 +109,7 @@ def test_the_owner_role_deletes_everything_once_the_slug_is_typed_back(
     before = _counts(owner_engine, fresh_tenant)
     empty = sorted(t for t, n in before.items() if n == 0)
     assert empty == [], f"the scratch tenant must hold rows in every tenant table: {empty}"
-    assert len(store.list_keys(fresh_tenant)) == 2
+    assert len(store.list_keys(fresh_tenant)) == 3
     # The admin's session points at the tenant; it must not block the delete.
     with rw_engine.connect() as conn:
         assert conn.execute(
@@ -115,7 +119,7 @@ def test_the_owner_role_deletes_everything_once_the_slug_is_typed_back(
     other_before = _counts(owner_engine, seed.tenant_a)
 
     p = delete_tenant.plan(owner_engine, store, settings, slug)
-    assert p.counts == before and len(p.object_keys) == 2
+    assert p.counts == before and len(p.object_keys) == 3
     assert p.order.index("raw_record") < p.order.index("import_batch")  # child first
     assert p.order.index("import_batch") < p.order.index("task")
     assert p.order.index("billing_line") < p.order.index("billing")
@@ -129,7 +133,7 @@ def test_the_owner_role_deletes_everything_once_the_slug_is_typed_back(
             owner_engine, store, settings, slug=slug, typed=slug, operator="tester"
         )
     assert out.revoked is True and fake.revoked  # the refresh token went to Intuit
-    assert out.objects_deleted == 2 and store.list_keys(fresh_tenant) == []
+    assert out.objects_deleted == 3 and store.list_keys(fresh_tenant) == []
     assert out.rows_deleted == before
     assert all(n == 0 for n in _counts(owner_engine, fresh_tenant).values())
     with untenanted_session(owner_engine) as db:
@@ -143,7 +147,7 @@ def test_the_owner_role_deletes_everything_once_the_slug_is_typed_back(
         ).one()
     assert row[0] == seed.firm_id
     detail = json.loads(row[1])
-    assert (detail["slug"], detail["operator"], detail["objects"]) == (slug, "tester", 2)
+    assert (detail["slug"], detail["operator"], detail["objects"]) == (slug, "tester", 3)
     assert detail["rows"] == before
     with owner_engine.connect() as conn:  # the triggers are back on, prod_check-style
         assert catalog.append_only_failures(conn) == []

@@ -27,6 +27,7 @@ from sqlalchemy import create_engine, make_url, pool
 import app.audit.models  # noqa: F401
 import app.domain.billing.models  # noqa: F401
 import app.domain.config.models  # noqa: F401
+import app.domain.estimates.models  # noqa: F401
 import app.ingest.models  # noqa: F401
 import app.worker.models  # noqa: F401
 from app.core.config import get_migration_settings

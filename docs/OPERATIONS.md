@@ -516,6 +516,82 @@ assuming a value. Every change is audited `policy_set` with before and after.
   are refused; the rate in force on a date is the division's own, else the whole-company
   rate.
 
+## Estimates (F06, D-32)
+
+### The estimate template
+The platform's own template is the one estimate source. The blank file is
+`docs/templates/estimate_template.xlsx` (regenerate it with
+`cd backend && .venv/bin/python scripts/make_estimate_template.py`; the Read me text
+lives in that script). Three data sheets, found by name; a *Read me* sheet is ignored:
+
+| Sheet | Columns (header names are the contract; extra columns are ignored) |
+|---|---|
+| Estimates | `estimate_id, estimator, client, jobsite, name, status, price, estimate_date` |
+| Work areas | `estimate_id, order, kept, name, price, notes` |
+| Estimate costs | `estimate_id, order, cost_code, hours, amount, notes` |
+
+- `estimate_id` is the estimating system's id (LMN: EST…), matched and updated by id,
+  never by name. `status` is Pending, Sold or Lost. `price` is the control total: the
+  kept work areas must sum to it. `kept` is Y or N (N = omitted; in LMN a ticked
+  Keep/Omit box). `order` is the work area's number, its identity across versions and
+  the "#n" on invoice lines (D-26): never renumber. `cost_code` is the tenant's code
+  (division digit + slot, D-23: 210 = EX Labor); two rows with the same code under one
+  work area are summed. Money to the cent; a numeric cell is read exactly and rounded
+  half up.
+- Copying from LMN: on the estimate's Workareas + Pricing tab, select the rows and
+  paste name and price into *Work areas*; type `estimate_id`, `order` and `kept` (a
+  ticked box does not copy). Cost lines come from the item detail, one line per code.
+- The same three sheets may be uploaded as three `.csv` files, one per sheet (the header
+  says which), in any order: rows for an estimate that has no Estimates row yet are
+  held raw and applied when it arrives.
+
+### Uploading and what happens
+- Imports page, source "Estimate template" (`POST /api/imports`,
+  `source_kind=estimate_template`; roles `firm_admin`, `firm_staff`, `client_admin`).
+  The pipeline stores the file (raw first), parses it into one raw record per estimate
+  and sheet (`raw_record.source = template`; entities `estimate`, `work_areas`,
+  `cost_lines`; a changed sheet is a new raw version, D-20), then the follow-on task
+  `estimates.normalize` writes `estimate`, `estimate_version`, `estimate_work_area` and
+  `estimate_cost`. Every accepted upload that changes anything is a new version (a full
+  snapshot); earlier versions are kept.
+- Re-uploading the same bytes is the F03 duplicate; a re-export with the same contents
+  ends "Loaded. Nothing changed: this file was already loaded." (`followup_outcome =
+  unchanged`). An estimate absent from a newer file is left as it was.
+- Rows the file could not load are listed under the batch on the Imports page, one
+  sentence each (`import_batch.issues`; the API's `issues`), and the rest of the file
+  loads. Fix the file and upload it again; the corrected rows update by id.
+- Baseline (D-01): the first version with work areas received while the estimate is
+  Sold; when a later upload marks it Sold, the latest version with work areas at that
+  moment. Later versions are compared to it by `order`.
+- Audit: `estimate_created`, `estimate_updated` (changed fields, version), and
+  `estimate_version_created`, one row per estimate touched.
+
+### The Estimates page
+Every role reads it (`GET /api/estimates`, `GET /api/estimates/{id}`). The list shows
+price, versions and what needs attention; the detail shows the latest version's work
+areas with their cost (the sum of their lines), cost by cost category with the D-04
+treatment from the `wip_basis` policy ("Not decided" until a `firm_admin` sets it), the
+EAC in the basis, the version list, and the attention sentences.
+
+### What each message means
+| Code (in the API; never shown alone) | The sentence says | What to do |
+|---|---|---|
+| `EST_NO_ID` | A row has no estimate id and was not loaded (its cells are kept with the batch). | Give it the id in the estimating system; upload again. |
+| `EST_UNKNOWN_STATUS` | The status word is not Pending, Sold or Lost; loaded without a status. | Correct the word; upload again. |
+| `EST_ZERO_SOLD` | Sold at 0.00. | Give it its price, or mark it Lost. |
+| `EST_PRICE_MISMATCH` | Kept work-area prices do not sum to the estimate price. | Check the kept flags and prices. |
+| `EST_UNIT_PRICED` | A kept work area reads as a rate (per day / hour / load). | D-24: a time-and-materials job, or a fixed price. |
+| `EST_NO_CATEGORY_SPLIT` | A kept, priced work area has no cost lines; the sold estimate stays off the WIP schedule (D-04). | Add the cost lines on *Estimate costs*. |
+| `EST_UNKNOWN_COST_CODE` | A cost code is not on the company's grid; the line is loaded without a category. | Correct the code (Configuration → Cost codes). |
+| `EST_COST_LINE_ON_OMITTED` | Cost lines under an omitted or 0.00 work area; left out of every total. | Remove them, or keep the work area. |
+| `EST_DEDUCTIVE_CHANGE` | A baseline original work area is now omitted (D-01). | Confirm the deduction, or restore the work area. |
+| `EST_WORK_AREA_RENUMBERED` | The name at an order number differs from the baseline. | Check the order column; work areas keep their numbers. |
+| (no code) | A row was not loaded: kept not Y/N, a value not a number, a duplicate, a cost line for a work area not in the file, an id not yet on any Estimates sheet. | Fix the row; upload again. |
+
+The per-estimate sentences are computed when the estimate is read (pure generators in
+`app/domain/estimates/exceptions.py`); F09 persists them. File-level ones live on the
+batch.
+
 ## QuickBooks connection (F05)
 
 Built against the Intuit **sandbox** only (D-25). The sandbox company is connected to its own

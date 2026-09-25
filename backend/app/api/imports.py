@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Resp
 from fastapi.responses import RedirectResponse, StreamingResponse
 from sqlalchemy import select
 
-from app.api.schemas import ImportBatchOut, ImportUploadOut, SourceKindOut
+from app.api.schemas import ImportBatchOut, ImportIssueOut, ImportUploadOut, SourceKindOut
 from app.core.audit import request_meta
 from app.core.auth import Principal, TenantSession
 from app.core.authz import can_manage_imports
@@ -85,6 +85,15 @@ def _out(
         processed_at=b.processed_at.isoformat() if b.processed_at else None,
         followup_status=followup_status,
         followup_label=FOLLOWUP_LABELS.get(followup_status or ""),
+        issues=[
+            ImportIssueOut(
+                code=i.get("code"),
+                message=str(i.get("message") or ""),
+                row_number=i.get("row_number"),
+            )
+            for i in (b.issues or [])
+            if isinstance(i, dict) and i.get("message")
+        ],
     )
 
 

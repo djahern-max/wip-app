@@ -43,7 +43,7 @@ from app.core.jsoncodec import JSONEncodeError
 from app.core.storage import ObjectStore
 from app.ingest.models import ImportBatch
 from app.ingest.raw import RawOrigin, store_raw
-from app.integrations.base import SOURCE_KINDS, RawItem, get_source_kind
+from app.integrations.base import SOURCE_KINDS, RawItem, RejectedItem, get_source_kind
 from app.tenancy.models import Role
 from app.worker.queue import PermanentTaskError, describe_error, enqueue, open_task
 from app.worker.registry import task
@@ -114,6 +114,7 @@ FOLLOWUP_LABELS: dict[str, str] = {
     "running": "Updating",
     "succeeded": "Updated",
     "superseded": "Not applied",
+    "unchanged": "Nothing changed",
     "failed": "Not updated",
 }
 
@@ -122,8 +123,8 @@ def followup_state(task_status: str | None, outcome: str | None) -> str | None:
     """The follow-up status a person is told about: the task's status, except that a
     task which finished without applying the batch (``followup_outcome`` =
     ``superseded``: a newer file had already been uploaded) is not "Updated"."""
-    if task_status == "succeeded" and outcome == "superseded":
-        return "superseded"
+    if task_status == "succeeded" and outcome in ("superseded", "unchanged"):
+        return outcome
     return task_status
 
 
@@ -138,6 +139,8 @@ def followup_message(
             f"{subject.capitalize()} not updated, because a newer {file_label} was "
             "uploaded after this file."
         )
+    if followup_status == "unchanged":
+        return "Nothing changed: this file was already loaded."
     if followup_status in ("queued", "running"):
         return f"Updating {subject}…"
     if followup_status == "succeeded":
@@ -384,6 +387,7 @@ def process_batch_now(
         batch.error = None
         source_kind, key = batch.source_kind, relative_key(batch)
     counts = _Counts()
+    issues: list[dict] = []  # F06: sentences for rows not loaded (RejectedItem.message)
     outcome: str | None = None  # None = loaded; "failed" = permanent; "retry" = transient
     error: str | None = None
     try:
@@ -396,6 +400,15 @@ def process_batch_now(
             for item in _parse_items(kind, stream):
                 if not isinstance(item, RawItem):
                     counts.rejected += 1  # RejectedItem, or something the source should not yield
+                    if isinstance(item, RejectedItem) and item.message:
+                        issues.append(
+                            {
+                                "code": item.code,
+                                "message": item.message,
+                                "row_number": item.row_number,
+                                "detail": item.detail,
+                            }
+                        )
                     continue
                 try:
                     with s.begin_nested():
@@ -438,6 +451,7 @@ def process_batch_now(
                         batch.status = "nothing_loaded"  # an end state, not a failure
                     else:
                         batch.status = "loaded_with_issues" if counts.rejected else "loaded"
+                    batch.issues = issues
                     if kind.after_load and counts.loaded > 0:
                         # Never for a batch with no loaded row: a follow-on that reads
                         # "the file holds nothing" as "everything was removed" would

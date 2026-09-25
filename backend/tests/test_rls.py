@@ -19,6 +19,7 @@ from app.domain.config.models import (
     GlAccount,
     TenantPolicy,
 )
+from app.domain.estimates.models import Estimate, EstimateCost, EstimateVersion, EstimateWorkArea
 from app.ingest.models import Connection, ImportBatch, RawRecord, SyncRun
 from app.tenancy import catalog
 from app.tenancy.models import Membership, RlsProbe, Role
@@ -37,6 +38,7 @@ def _tenant_tables(engine: Engine) -> list[str]:
 
 F03_TABLES = ("connection", "sync_run", "import_batch", "raw_record", "task")
 F05_TABLES = ("customer", "billing", "billing_line", "payment", "payment_application")
+F06_TABLES = ("estimate", "estimate_version", "estimate_work_area", "estimate_cost")
 F04_TABLES = (
     "division",
     "cost_category",
@@ -57,6 +59,7 @@ def test_every_tenant_table_is_enumerated(migrated_db: None, owner_engine: Engin
         *F03_TABLES,
         *F04_TABLES,
         *F05_TABLES,
+        *F06_TABLES,
     }
 
 
@@ -333,6 +336,85 @@ def test_f05_tables_read_zero_rows_of_another_tenant(
         "billing_line": BillingLine,
         "payment": Payment,
         "payment_application": PaymentApplication,
+    }[table]
+    with tenant_session(rw_engine, seed.tenant_a) as s:
+        orm_tenants = {r.tenant_id for r in s.execute(select(model)).scalars()}
+        raw = s.execute(
+            text(f'SELECT count(*) FROM "{table}" WHERE tenant_id = :b'), {"b": seed.tenant_b}
+        ).scalar_one()
+    assert seed.tenant_b not in orm_tenants and raw == 0
+    with tenant_session(rw_engine, seed.tenant_b) as s:
+        assert s.execute(text(f'SELECT count(*) FROM "{table}"')).scalar_one() >= 1
+
+
+def _seed_f06_rows(owner_engine: Engine, tenant_id: uuid.UUID, marker: str) -> None:
+    """One row per F06 table in ``tenant_id`` (as the owner, with context)."""
+    with tenant_session(owner_engine, tenant_id) as s:
+        batch = ImportBatch(
+            tenant_id=tenant_id,
+            source_kind="estimate_template",
+            sha256=uuid.uuid4().hex * 2,
+            byte_size=1,
+            original_filename=f"{marker}.xlsx",
+            object_key=f"tenant/{tenant_id}/imports/{marker}.xlsx",
+            status="loaded",
+        )
+        s.add(batch)
+        s.flush()
+        est = Estimate(
+            tenant_id=tenant_id,
+            source="template",
+            external_id=marker,
+            name=marker,
+            status="Sold",
+            status_norm="sold",
+            price=Decimal("10.00"),
+        )
+        s.add(est)
+        s.flush()
+        version = EstimateVersion(
+            tenant_id=tenant_id,
+            estimate_id=est.id,
+            version_no=1,
+            import_batch_id=batch.id,
+            status_norm="sold",
+            kept_total=Decimal("10.00"),
+            is_baseline=True,
+        )
+        s.add(version)
+        s.flush()
+        area = EstimateWorkArea(
+            tenant_id=tenant_id,
+            estimate_version_id=version.id,
+            order_no=1,
+            name="One",
+            kept=True,
+            change_order_suggested=False,
+            price=Decimal("10.00"),
+        )
+        s.add(area)
+        s.flush()
+        s.add(
+            EstimateCost(
+                tenant_id=tenant_id,
+                estimate_work_area_id=area.id,
+                cost_code="110",
+                amount=Decimal("4.00"),
+            )
+        )
+
+
+@pytest.mark.parametrize("table", F06_TABLES)
+def test_f06_tables_read_zero_rows_of_another_tenant(
+    seed: Seed, owner_engine: Engine, rw_engine: Engine, table: str
+) -> None:
+    marker = uuid.uuid4().hex[:12]
+    _seed_f06_rows(owner_engine, seed.tenant_b, marker)
+    model = {
+        "estimate": Estimate,
+        "estimate_version": EstimateVersion,
+        "estimate_work_area": EstimateWorkArea,
+        "estimate_cost": EstimateCost,
     }[table]
     with tenant_session(rw_engine, seed.tenant_a) as s:
         orm_tenants = {r.tenant_id for r in s.execute(select(model)).scalars()}

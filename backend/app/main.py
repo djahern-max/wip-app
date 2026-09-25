@@ -11,6 +11,7 @@ from app.api.admin import router as admin_router
 from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
 from app.api.config import router as config_router
+from app.api.estimates import router as estimates_router
 from app.api.health import router as health_router
 from app.api.imports import router as imports_router
 from app.api.qbo import install_access_log_filter
@@ -119,6 +120,7 @@ def create_app() -> FastAPI:
         imports_router,
         config_router,
         qbo_router,
+        estimates_router,
     ):
         app.include_router(router, prefix="/api")
     return app

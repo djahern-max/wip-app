@@ -63,10 +63,12 @@ IMPORT_STATUS_CHECK_SQL = (
 )
 # What the batch's follow-on task did with it (0006): applied, or superseded because a
 # newer file of the same kind had already been uploaded. NULL = no follow-on, or not run.
-FOLLOWUP_OUTCOMES: tuple[str, ...] = ("applied", "superseded")
+# F06 (0010) adds ``unchanged``: the follow-on found every record of the file already
+# applied (a re-export of a file that was loaded before).
+FOLLOWUP_OUTCOMES: tuple[str, ...] = ("applied", "superseded", "unchanged")
 FOLLOWUP_OUTCOME_CHECK = "ck_import_batch_followup_outcome"
 FOLLOWUP_OUTCOME_CHECK_SQL = (
-    "followup_outcome IS NULL OR followup_outcome IN ('applied','superseded')"
+    "followup_outcome IS NULL OR followup_outcome IN ('applied','superseded','unchanged')"
 )
 
 RAW_ORIGIN_CHECK = "ck_raw_record_one_origin"
@@ -202,6 +204,11 @@ class ImportBatch(Base):
     )
     # What that task did with the batch (FOLLOWUP_OUTCOMES); written by the task.
     followup_outcome: Mapped[str | None] = mapped_column(String(20))
+    # F06 (0010): rows the file could not load and file-level facts, each
+    # ``{code, message, row_number, detail}`` with a sentence for the person (D-22);
+    # written by the pipeline, appended to by the follow-on task. Small values only
+    # (ids, order numbers, amounts as strings, the cells of a row with no id).
+    issues: Mapped[list | None] = mapped_column(JSONB)
 
 
 class RawRecord(Base):

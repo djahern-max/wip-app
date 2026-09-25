@@ -104,6 +104,10 @@ class TenantEvent(enum.StrEnum):
     policy_set = "policy_set"
     burden_rate_added = "burden_rate_added"
     burden_rate_deactivated = "burden_rate_deactivated"
+    # F06 (estimates; one row per estimate touched, never one per file)
+    estimate_created = "estimate_created"
+    estimate_updated = "estimate_updated"
+    estimate_version_created = "estimate_version_created"
 
 
 @dataclass(frozen=True)

@@ -154,10 +154,8 @@ Rules:
 
 ### 6.3 Estimates (LMN first)
 
-- Interface: `EstimateSource.parse(file) -> list[EstimateDTO]`. DTO: external id, status, customer, jobsite, name, estimator, dates, price, and **estimated cost by category** (labor hours, labor $, equipment $, materials $, subs $, other $).
-- Implementation 1: LMN report export (CSV/XLSX). Which report to standardize on is Phase 0 task §13.5; you need the one with cost-by-category, not the closing report.
-- Implementation 2: generic CSV template for non-LMN clients.
-- Implementation 3 (fallback): the Estimator Closing Report PDF, prices only. Useful for day one at Rye Beach since it is what you have; it cannot feed the WIP because it has no estimated cost.
+- Interface: `EstimateSource.parse(file) -> list[EstimateDTO]`. DTO: external id, status, customer, jobsite, name, estimator, dates, price, its work areas (order number, kept or omitted, name, price; D-01) and, under each work area, its **cost lines** (cost code, hours, amount; D-32). Estimated cost by cost category is the sum of the cost lines over kept work areas.
+- The one implementation (D-32, 2026-09-25): the platform's own **estimate template**, a workbook with the sheets *Estimates*, *Work areas* and *Estimate costs* (or one CSV per sheet), filled by the estimator on the tenant's cost codes (D-23). Estimators code estimates to the grid directly; the platform never infers a code from a name or a vendor's item type. The vendor-export and closing-report-PDF implementations of the first draft are struck: a parser for a vendor's screen layout would tie the platform to it and still not yield a category split. The blank template is `docs/templates/estimate_template.xlsx`; F06 built it.
 
 ### 6.4 Labor
 
@@ -175,7 +173,7 @@ All tables carry `tenant_id` except `firm`, `user`, and reference enums.
 **Tenancy & access**: `firm`, `tenant`, `user`, `membership(user, tenant, role)`, `audit_log`
 **Integration**: `connection`, `sync_run`, `import_batch`, `raw_record`
 **Configuration**: `division`, `cost_category`, `account_map(gl_account → division, cost_category, in_job_cost bool)`, `burden_rate(effective-dated)`, `equipment_rate` (later), `tenant_policy` (WIP method options, deposit item ids, thresholds, per-pool eligibility and driver per D-30)
-**Spine**: `customer`, `job`, `job_alias`, `estimate`, `estimate_cost(estimate, cost_category, hours, amount)`, `job_estimate(job, estimate, role)`, `eac_revision`
+**Spine**: `customer`, `job`, `job_alias`, `estimate`, `estimate_version` (one per accepted upload; the D-01 baseline), `estimate_work_area` (per version; identity `order_no`), `estimate_cost(estimate_work_area, cost_category, division, cost_code, hours, amount)` (D-32: keyed to the work area, not the estimate), `job_estimate(job, estimate, role)`, `eac_revision`
 **Billing**: `billing` (invoice/credit memo/sales receipt, header), `billing_line`, `payment`, `payment_application(payment → billing, amount)`, `retainage` fields on billing
 **Cost**: `ledger_line` (normalized GL-side line: date, account, vendor, amount, job_id nullable, source txn ref), `labor_entry`, `allocation` (first use: supplies pools, D-30; later owned equipment and fuel), and a **view** `job_cost_line` that unions them with a `basis` column: `gl_direct`, `labor_computed`, `allocated` (first used by pool allocation, D-30)
 **Period close**: `period(tenant, month, status: open|in_review|approved)`, `wip_snapshot`, `wip_line` (every column of the schedule, frozen), `journal_export`, `tieout_result`
@@ -374,7 +372,7 @@ This is the work that makes the tool possible, and it is valuable even if the to
 | 4290 | WIP Adjustment - EX | Income |
 
 ### 13.5 Collect sample files (these become test fixtures)
-- [ ] LMN: the estimate export that includes **cost by category and labor hours** for sold estimates; the timesheet/job-cost export by job and employee; the contact export (it carries LMN's internal ids).
+- [x] ~~LMN: the estimate export that includes **cost by category and labor hours** for sold estimates~~ — no longer needed (D-32): estimates come in on the platform's template with cost lines by cost code; the two template fixtures (EST6115758, EST6120638) are in `tests/fixtures/rye_beach/estimates/`. Still wanted: the timesheet/job-cost export by job and employee (F11); the contact export (it carries LMN's internal ids).
 - [ ] isolved: payroll register by employee for two pay periods.
 - [ ] QBO: Transaction Detail by Customer YTD; A/R aging detail; Invoice and Received Payments list.
 

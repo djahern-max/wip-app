@@ -124,6 +124,16 @@ def _routes() -> list[Route]:
         Route("POST", "/api/qbo/disconnect", frozenset({FA})),
         Route("POST", "/api/qbo/sync", frozenset({FA}), also_ok=frozenset({409})),
         Route("POST", "/api/qbo/backfill", frozenset({FA}), also_ok=frozenset({409})),
+        # F06: estimates are read by every role; the detail of an id that does not
+        # exist in tenant A is 404 for a role the guard let through.
+        Route("GET", "/api/estimates", ALL),
+        Route("GET", "/api/estimates?status=sold", ALL),
+        Route(
+            "GET",
+            f"/api/estimates/{uuid.uuid4()}",
+            ALL,
+            also_ok=frozenset({404}),
+        ),
         Route("GET", "/api/admin/users", frozenset({FA})),
         Route(
             "POST",

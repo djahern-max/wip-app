@@ -89,6 +89,7 @@ The owner is a CPA and the domain expert. When accounting treatment is unclear, 
 - **Billing request**: operations' statement of cumulative percent complete per work area; the platform computes the amount to bill.
 - **Work area number**: the work area's order in the estimate; invoice lines begin with #n.
 - **Pool**: a job with `revenue_method = pool` that holds shared supplies until month-end allocation (D-30, D-31); never on the WIP schedule.
+- **Cost line**: one cost code, hours and amount under a work area; a work area's estimated cost is the sum of its cost lines (D-32).
 
 ## When to stop and ask
 - Any change to BLUEPRINT §8 behavior or to golden files.

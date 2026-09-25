@@ -37,6 +37,13 @@ class RejectedItem:
 
     reason: str
     row_number: int | None = None
+    # F06: a sentence for the person and a small JSON detail (ids, order numbers,
+    # amounts as strings; the row's cells for ``EST_NO_ID``). The pipeline keeps items
+    # that carry a message in ``import_batch.issues``; ``code`` is an ``EST_*`` code
+    # when one applies, otherwise None (a plain "row not loaded" sentence).
+    code: str | None = None
+    message: str | None = None
+    detail: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -91,7 +98,10 @@ def get_source_kind(name: str) -> SourceKind:
 # and the worker (``app.worker.runner``) both call ``load_source_kinds()`` and nothing
 # else imports these modules for their side effect: a new source (F06, F11) adds its
 # module here and is known to both processes.
-SOURCE_KIND_MODULES: tuple[str, ...] = ("app.integrations.chart_of_accounts",)
+SOURCE_KIND_MODULES: tuple[str, ...] = (
+    "app.integrations.chart_of_accounts",
+    "app.integrations.estimate_template",
+)
 
 
 def load_source_kinds() -> None:

@@ -124,6 +124,14 @@ class ImportBatchOut(_Out):
     # F04 (owner amendment C): the after_load task's state; machine status and label.
     followup_status: str | None
     followup_label: str | None
+    # F06: rows the file could not load and file-level facts, one sentence each.
+    issues: list["ImportIssueOut"]
+
+
+class ImportIssueOut(_Out):
+    code: str | None  # an EST_* code when one applies; the machine value
+    message: str  # the sentence a person reads (D-22)
+    row_number: int | None
 
 
 class ImportUploadOut(_Out):
@@ -347,3 +355,95 @@ class QboSyncRequestOut(_Out):
 
     created: bool
     message: str
+
+
+# --- F06 estimates: money as strings with cents (D-22) ------------------------------------------
+
+
+class EstimateIssueOut(_Out):
+    code: str  # machine value; never shown without its sentence
+    message: str
+
+
+class EstimateRowOut(_Out):
+    id: str
+    external_id: str
+    estimator: str | None
+    client_name: str | None
+    jobsite: str | None
+    name: str
+    status: str  # as received
+    status_norm: str | None  # machine value
+    status_label: str  # what a person sees
+    price: str
+    estimate_date: str | None
+    versions: int
+    attention: list[EstimateIssueOut]
+
+
+class EstimatesOut(_Out):
+    estimates: list[EstimateRowOut]
+    estimators: list[str]
+    total: int
+
+
+class EstimateCostLineOut(_Out):
+    cost_code: str
+    category_name: str | None  # None: the code is not on the grid
+    division_code: str | None
+    hours: str | None
+    amount: str
+    notes: str | None
+
+
+class EstimateWorkAreaOut(_Out):
+    order_no: int
+    name: str
+    kept: bool
+    kept_label: str
+    change_order_suggested: bool
+    hours: str
+    cost: str
+    price: str
+    notes: str | None
+    lines: list[EstimateCostLineOut]
+
+
+class EstimateVersionOut(_Out):
+    id: str
+    version_no: int
+    received_at: str
+    is_baseline: bool
+    has_work_areas: bool
+    kept_total: str | None
+    status_label: str
+    import_batch_id: str
+    original_filename: str | None
+
+
+class EstimateCategoryTotalOut(_Out):
+    slot: str | None  # None: the "Unknown cost code" row
+    name: str
+    amount: str
+    hours: str
+    in_basis: str  # yes | no | not_decided (machine value)
+    in_basis_label: str
+
+
+class EstimateTotalsOut(_Out):
+    kept_original: str
+    kept_change_orders: str
+    kept_total: str
+    omitted: str
+    kept_hours: str
+    kept_cost: str
+    eac_in_basis: str | None  # None while the WIP basis is not decided
+    basis_decided: bool
+    by_category: list[EstimateCategoryTotalOut]
+
+
+class EstimateDetailOut(EstimateRowOut):
+    versions_list: list[EstimateVersionOut]
+    baseline_version_no: int | None
+    work_areas: list[EstimateWorkAreaOut]
+    totals: EstimateTotalsOut

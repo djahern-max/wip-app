@@ -3,10 +3,12 @@ import { api } from "../api.js";
 import { PRODUCT_NAME, SUPPORT_EMAIL } from "../product.js";
 import Config from "./Config.jsx";
 import Connections from "./Connections.jsx";
+import Estimates from "./Estimates.jsx";
 import Imports from "./Imports.jsx";
 
 // Roles with can_manage_imports and can_view_tenant_config (app/core/authz.py). The
-// server enforces them; this only decides whether to show the links.
+// server enforces them; this only decides whether to show the links. Estimates (F06)
+// are read by every role, so that link needs only an active company.
 const IMPORT_ROLES = ["firm_admin", "firm_staff", "client_admin"];
 const CONFIG_ROLES = ["firm_admin", "firm_staff", "client_admin"];
 const CONNECTION_ROLES = ["firm_admin", "firm_staff", "client_admin"]; // can_view_connections
@@ -76,10 +78,13 @@ export default function Shell({ me, onChanged, onLogout }) {
             ))}
           </select>
         </label>
-        {(canImport || canConfig || canConnections) && (
+        {active && (
           <nav className="header-nav">
             <button type="button" className="link-button" onClick={() => go("home")}>
               Home
+            </button>
+            <button type="button" className="link-button" onClick={() => go("estimates")}>
+              Estimates
             </button>
             {canImport && (
               <button type="button" className="link-button" onClick={() => go("imports")}>
@@ -106,7 +111,9 @@ export default function Shell({ me, onChanged, onLogout }) {
       </header>
       <main className="main">
         {error && <p className="error">{error}</p>}
-        {active && view === "imports" && canImport ? (
+        {active && view === "estimates" ? (
+          <Estimates me={me} canUpload={canImport} onUpload={() => go("imports")} />
+        ) : active && view === "imports" && canImport ? (
           <Imports me={me} />
         ) : active && view === "config" && canConfig ? (
           <Config me={me} />

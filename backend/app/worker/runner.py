@@ -38,6 +38,7 @@ log = logging.getLogger("app.worker")
 TASK_MODULES: tuple[str, ...] = (
     "app.ingest.imports",
     "app.domain.config.chart",
+    "app.domain.estimates.normalize",
     "app.integrations.qbo.tasks",
 )
 # Called once per tenant at start-up, each inside its own ``tenant_session``
