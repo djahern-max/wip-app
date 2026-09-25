@@ -352,7 +352,7 @@ This is the work that makes the tool possible, and it is valuable even if the to
 - [ ] Are crews clocking to **jobs** in LMN Crew, or just clocking in/out? If not to jobs, labor job costing has no source, and fixing that is an operations project, not a software one.
 
 ### 13.2 One QBO project per sold job
-- [ ] Naming convention with the LMN id in it: `6366990 Turley - E Dunbarton Rd`. Deterministic matching forever. Exception (D-30): a supplies pool is named `Pool – <group>` (for example `Pool – Hydroseed`) under a customer of the same name, since it has no estimate.
+- [ ] Naming convention with the LMN id in it: `6366990 Turley - E Dunbarton Rd`. Deterministic matching forever. Exception (D-30): a supplies pool is named `Pool - <group>` (as spelled in QuickBooks, with a hyphen: `Pool - Hydroseed`; D-30 wrote an en dash, and matching is by id) under a customer of the same name, since it has no estimate.
 - [ ] Create projects for the 16 sold estimates. Decide Turley (one job or two) and DeVellis/Mukherjee (attach the $998.71 as a change order when sold).
 - [ ] Re-tag this year's invoices, payments, bills, and expenses for those jobs to their project. This is the backfill that gives the tool history.
 
@@ -387,7 +387,7 @@ For the 16 sold jobs, from QBO: first invoice date/amount, payments applied, tot
   - Real company read-only: Rye Beach connected in F05.1 with scope `com.intuit.quickbooks.accounting` only; 13 months of billing totals equal QuickBooks' reports to the cent (tie-out 2026-09-23).
   - Projects as customers: a project is a `Customer` row with `IsProject = true`; `Job = true` alone means sub-customer. `ProjectRef` is a Projects-API id and is not used; the link is `CustomerRef` → the project's `Customer.Id`.
   - CDC deletes: returned inside the entity list as a stub (`Id`, `MetaData.LastUpdatedTime`, `status = "Deleted"`), no payload.
-  - Line-level customer refs on Ramp-synced expenses: in the sandbox, `Purchase` lines carry `AccountBasedExpenseLineDetail.CustomerRef` and the header carries none. **On the real company: pending** three Ramp-synced Purchase or Bill ids that John assigned a Customer/Job to in Ramp; the owner supplies the ids and the answer is recorded here (ids only, no amounts).
+  - Line-level customer refs on Ramp-synced expenses: **yes** (owner, 2026-09-25, `scripts/s01_q4.py` on the real company). Three Ramp-synced Bills with a Customer/Job coded per line in Ramp, QuickBooks Bill Ids 98892, 98908 and 98890: every line carries `AccountBasedExpenseLineDetail.CustomerRef`; the `CustomerRef` ids are 100000091, 6087 and 6415, and the `name` arrives as the customer's `FullyQualifiedName` (`Parent:Project`), so matching stays by id. The sandbox showed the same shape on `Purchase` lines, with nothing on the header. Purchases on the real company are checked when Ramp card transactions begin (F10). The QuickBooks pool project (D-30) is spelled `Pool - Hydroseed` with a hyphen; D-30's en dash stands because matching is by id.
 
 ---
 

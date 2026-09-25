@@ -777,9 +777,30 @@ clears the tokens (F05); the privacy page promises exactly that.
   attached 159 of 160, chart-only 2725, the ten above as numbered-not-in-chart, no account
   without a number; the owner confirms the figure from the page. The fixture stays as it is
   (2630 is in QuickBooks and in the production chart, not in the fixture; F04 Discovered).
-- **Open**: the attached figure from the page (above); S-01 question 4 ("Spike S-01" below:
-  run `scripts/s01_q4.py` on the droplet, ids into BLUEPRINT §13.7); the owner's phone pass
-  line in `docs/briefs/F05.1.md` (the memo-edit and Disconnect/Reconnect checks are done).
+  **Page, 2026-09-25 (owner)**: "Attached to QuickBooks: 169 of 169 chart accounts". The page
+  counts the tenant's *active* `gl_account` rows and how many hold a QuickBooks id, so
+  production's chart is the 169-account file of 2026-09-23, not the 160-account F04 workbook
+  (which would read 159 of 160 with 2725 chart-only); the newest chart batch is the one
+  applied, it matches QuickBooks one for one, and the ten new numbers all sit outside
+  4000–5999, so the F04 rules map none of them to a division or job cost. No reload. If 6040
+  is made inactive in QuickBooks the line becomes 168 of 169 with 6040 chart-only until the
+  chart file marks it inactive. Owner's notes for the next chart file and oracle update (with
+  2630): 2200–2230 new payroll liabilities; 2825 an older loan; 3001 Opening Balance Equity;
+  6040 inactive, stays out; 7020 legal fees. "Accounts without a number: 114 of 283 active
+  accounts": 283 active QuickBooks accounts, 114 with no `AcctNum` (they are not on the chart
+  and attach to nothing); to explain them by group run, on the droplet:
+
+  ```sh
+  cd /opt/wip/backend && sudo -u wip ENV_FILE=/etc/wip/app.env .venv/bin/python \
+    scripts/accounts_without_number.py --tenant rye-beach
+  ```
+
+  (read-only; one group per `AccountType` with the QuickBooks id, `FullyQualifiedName` and
+  `AccountSubType` of each account; no balances). "Deposit lines not linked to a document:
+  1603 lines" is the F05 state of deposits (stored raw, normalized under D-02 in F08).
+- **Open**: the 114 unnumbered accounts explained by group (the script above); the owner's
+  phone pass line in `docs/briefs/F05.1.md` (the memo-edit and Disconnect/Reconnect checks
+  are done). S-01 question 4 is answered ("Spike S-01").
 
 ### Recording the test fixtures
 `cd backend && .venv/bin/python scripts/qbo_record_fixtures.py --tenant qbo-sandbox` writes
@@ -810,6 +831,11 @@ per line): J&R Concrete Foundations LLC #202698 (2026-09-15, 1 line, 5240); Cut 
 per line, whether `AccountBasedExpenseLineDetail.CustomerRef` is present with its value and
 name. A bill reported `NOT IN raw_record` means the poll has not fetched it yet: press
 **Sync now** once, wait for the poll, run again. Only the ids go into BLUEPRINT §13.7.
+
+Answered 2026-09-25 (owner, on production after deploying 5e16391): **yes**. Bill Ids 98892,
+98908, 98890; every line carries `CustomerRef` (ids 100000091, 6087, 6415); the name arrives as
+`FullyQualifiedName` (`Parent:Project`). The pool project is spelled `Pool - Hydroseed` in
+QuickBooks (hyphen). Purchases are checked when Ramp card transactions begin (F10).
 
 ## Production (jobcost.dev) (F05.0, D-27)
 

@@ -10,13 +10,14 @@ and proven on production, `qbo-sandbox` was removed from production with `delete
 "Intuit-side disconnect", "Rye Beach connection record", "Environments" and "Deleting a tenant".
 
 **Still open in `docs/briefs/F05.1.md`** (when the last one closes: tick it, flip ROADMAP F05.1
-and S-01 to ☑, one-line "F05.1 · close-out" CHANGELOG entry, one commit):
-- Account numbers: the export check is done (OPERATIONS.md connection record); the owner
-  confirms the "attached n of m" figure and the Needs attention list on the production
-  Connections page (expected 159 of 160; 2725 chart-only; ten numbered-not-in-chart).
-- S-01 question 4: after the next deploy, the owner runs `scripts/s01_q4.py` on the droplet
-  (command in OPERATIONS.md "Spike S-01") for the three named bills; the Bill ids and the
-  per-line `CustomerRef` finding go into BLUEPRINT §13.7 (ids only).
+to ☑, one-line "F05.1 · close-out" CHANGELOG entry, one commit):
+- Account numbers: attached 169 of 169 on production (its chart is the 169-account file of
+  2026-09-23; no reload). Remaining: the 114 active QuickBooks accounts without a number,
+  explained by group from `scripts/accounts_without_number.py` run on the droplet (OPERATIONS.md
+  connection record); then the owner's one-time chart file and oracle update (2630 and the ten
+  new numbers; the owner says when).
+- S-01 question 4: answered yes 2026-09-25 (BLUEPRINT §13.7; ROADMAP S-01 ☑). Purchases are
+  checked in F10 when Ramp card transactions begin.
 - The owner's phone pass line: the memo-edit and Disconnect/Reconnect checks are done
   (2026-09-25); the August 2026 total from the phone is not yet confirmed.
 
