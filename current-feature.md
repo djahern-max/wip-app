@@ -1,20 +1,24 @@
 # current-feature.md
 
-_No feature in flight (2026-09-25)._ **F05.1 · QBO production connection is closed**: Rye Beach's
-own QuickBooks company is connected read-only to tenant `rye-beach` on jobcost.dev with Intuit
-production keys, 13 months of billing totals tie to QuickBooks' reports to the cent (owner,
-2026-09-23), webhooks are on and proven on production, `qbo-sandbox` was removed from
-production with `delete_tenant.py` (D-28), and `webhook_event` is the one tenant-less ingestion
-table (D-29). Its brief is `docs/briefs/F05.1.md`; the runbooks are OPERATIONS.md "Intuit
-production keys", "Webhooks", "Intuit-side disconnect", "Rye Beach connection record",
-"Environments" and "Deleting a tenant".
+_No feature in flight (2026-09-25)._ **F05.1 · QBO production connection is built and in
+close-out (ROADMAP ◐)**: Rye Beach's own QuickBooks company is connected read-only to tenant
+`rye-beach` on jobcost.dev with Intuit production keys (2026-09-22, realm 722764240), 13 months
+of billing totals tie to QuickBooks' reports to the cent (owner, 2026-09-23), webhooks are on
+and proven on production, `qbo-sandbox` was removed from production with `delete_tenant.py`
+(D-28), and `webhook_event` is the one tenant-less ingestion table (D-29). Its brief is
+`docs/briefs/F05.1.md`; the runbooks are OPERATIONS.md "Intuit production keys", "Webhooks",
+"Intuit-side disconnect", "Rye Beach connection record", "Environments" and "Deleting a tenant".
 
-**Left open for the owner in `docs/briefs/F05.1.md`** (tick there when done):
-- Account numbers: the Rye Beach Chart of Accounts export, then the attached count against the
-  F04 chart and the differences by number (OPERATIONS.md connection record).
-- S-01 question 4: three Ramp-synced Purchase or Bill ids that John assigned a Customer/Job to
-  in Ramp; the answer goes in BLUEPRINT §13.7 (ids only).
-- The owner's phone pass line.
+**Still open in `docs/briefs/F05.1.md`** (when the last one closes: tick it, flip ROADMAP F05.1
+and S-01 to ☑, one-line "F05.1 · close-out" CHANGELOG entry, one commit):
+- Account numbers: the export check is done (OPERATIONS.md connection record); the owner
+  confirms the "attached n of m" figure and the Needs attention list on the production
+  Connections page (expected 159 of 160; 2725 chart-only; ten numbered-not-in-chart).
+- S-01 question 4: after the next deploy, the owner runs `scripts/s01_q4.py` on the droplet
+  (command in OPERATIONS.md "Spike S-01") for the three named bills; the Bill ids and the
+  per-line `CustomerRef` finding go into BLUEPRINT §13.7 (ids only).
+- The owner's phone pass line: the memo-edit and Disconnect/Reconnect checks are done
+  (2026-09-25); the August 2026 total from the phone is not yet confirmed.
 
 Next per ROADMAP: **F06 · Estimate import**: the `EstimateSource` protocol, the LMN export
 parser, the closing-report PDF parser (prices only) as fallback, a generic CSV template; dirty

@@ -746,12 +746,14 @@ the same way at the next poll. Our own **Disconnect** button revokes at Intuit f
 clears the tokens (F05); the privacy page promises exactly that.
 
 ### Rye Beach connection record (F05.1)
-- **Connected** by the owner to tenant `rye-beach` with the production keys, read-only, scope
-  `com.intuit.quickbooks.accounting` only (the stored scope is asserted), before the
-  2026-09-23 tie-out; backfill complete; the Connections page shows Connected with month
-  totals. The connection day, the realm id (not a secret) and the backfill duration were not
-  copied into the repo: they are on the `connection` row and its `connection_connected`
-  audit row, and may be added here.
+- **Connected** by the owner to tenant `rye-beach` on 2026-09-22 (local; times UTC): the
+  production keys went into `app.env` that evening (bounded by the `qbo-sandbox` deletion at
+  23:48:02Z and the first connect attempt at 23:49:54Z); connect attempts 23:49:54Z and
+  23:51:06Z; tokens set and `connection_completed` at 23:51:29Z; environment `production`,
+  realm `722764240` (not a secret), scope `com.intuit.quickbooks.accounting` only (the stored
+  scope is asserted). First backfill 23:51:29Z to 2026-09-23 00:18:22Z (26 min 53 s), 93,529
+  records fetched and 93,529 stored, `succeeded`. CDC polls every 15 minutes from 00:30Z; the
+  first found 4 and stored 1. The Connections page shows Connected with month totals.
 - **Tie-out, 2026-09-23 (owner)**: 13 months (Aug 2025–Aug 2026) × 4 types (invoices,
   credit memos, sales receipts, payments) against QuickBooks' own reports, equal to the cent.
   Three first-pass differences were QuickBooks export errors (a wrong date range; one report
@@ -766,10 +768,18 @@ clears the tokens (F05); the privacy page promises exactly that.
 - **Disconnect, live, 2026-09-25 (owner)**: Disconnect, then Reconnect, then one poll; the
   `connection_disconnected` audit row carries `revoked_at_source`; month totals unchanged
   after the reconnect.
-- **Open**: the account-number check (attached count against the F04 chart, differences by
-  number) waits for the owner's Chart of Accounts export; S-01 question 4 waits for three
-  Ramp-synced Purchase/Bill ids (answer to BLUEPRINT §13.7, ids only); the owner ticks the
-  phone pass in `docs/briefs/F05.1.md`.
+- **Account numbers (export check 2026-09-25)**: the owner's QuickBooks Chart of Accounts
+  export of 2026-09-23 (kept outside the repo) holds 169 accounts, every one numbered, no
+  duplicate numbers. Against the F04 chart on production (160 accounts): 159 in both; in
+  QuickBooks but not in the chart: 2200, 2210, 2215, 2220, 2225, 2230, 2825, 3001, 6040, 7020;
+  in the chart but not in QuickBooks: 2725. Every account the F04 rules map to a division or
+  to job cost is in QuickBooks, so all of them attach. Expected on the Connections page:
+  attached 159 of 160, chart-only 2725, the ten above as numbered-not-in-chart, no account
+  without a number; the owner confirms the figure from the page. The fixture stays as it is
+  (2630 is in QuickBooks and in the production chart, not in the fixture; F04 Discovered).
+- **Open**: the attached figure from the page (above); S-01 question 4 ("Spike S-01" below:
+  run `scripts/s01_q4.py` on the droplet, ids into BLUEPRINT §13.7); the owner's phone pass
+  line in `docs/briefs/F05.1.md` (the memo-edit and Disconnect/Reconnect checks are done).
 
 ### Recording the test fixtures
 `cd backend && .venv/bin/python scripts/qbo_record_fixtures.py --tenant qbo-sandbox` writes
@@ -781,6 +791,25 @@ again. The hand-made fixtures and the oracle are described in that folder's READ
 `cd backend && .venv/bin/python scripts/s01_spike.py --tenant qbo-sandbox` prints field names
 and shapes from the connected sandbox company, never values. Findings are written up in
 `docs/spikes/S-01.md`. It is a throwaway and makes a few dozen metered reads per run.
+
+**Question 4 (F05.1, the real company)**: whether a Ramp-synced Bill carries the Customer/Job
+on the line. Read-only from the tenant's stored raw records, no Intuit call, no amounts
+printed; run on the droplet as `wip` (the application role, tenant context set by the
+script):
+
+```sh
+cd /opt/wip/backend && sudo -u wip ENV_FILE=/etc/wip/app.env .venv/bin/python \
+  scripts/s01_q4.py --tenant rye-beach \
+  --bill "J&R Concrete:202698" --bill "Cut To Fit:1171" --bill "East Coast:3919"
+```
+
+The three bills (owner, 2026-09-25; all "Bill synced to the ERP" in Ramp, Customer/Job coded
+per line): J&R Concrete Foundations LLC #202698 (2026-09-15, 1 line, 5240); Cut To Fit Co LLC
+#1171 (2026-09-20, 4 lines, 5240); East Coast Landscape Supply #3919 (2026-09-18, 7 lines,
+5135, the D-30 pool). For each the script prints the QuickBooks Bill `Id`, the line count and,
+per line, whether `AccountBasedExpenseLineDetail.CustomerRef` is present with its value and
+name. A bill reported `NOT IN raw_record` means the poll has not fetched it yet: press
+**Sync now** once, wait for the poll, run again. Only the ids go into BLUEPRINT §13.7.
 
 ## Production (jobcost.dev) (F05.0, D-27)
 
@@ -836,11 +865,13 @@ Afterwards run `prod_check.py`; "append-only triggers present and enabled" must 
 The audit row survives because it is firm-level: `SELECT occurred_at, detail FROM
 firm_audit_log WHERE action = 'tenant_deleted' ORDER BY occurred_at DESC;` as `app_owner`.
 
-**First use, `qbo-sandbox` on production (F05.1, step 3)**: done by the owner after the
-production keys were installed: `qbo-sandbox` removed, the `tenant_deleted` row is in
-`firm_audit_log`, and `prod_check.py` passed afterwards ("append-only triggers present and
-enabled" `ok`). The day and the per-table counts were not copied into the repo; the row's
-`occurred_at` and `detail` hold them.
+**First use, `qbo-sandbox` on production (F05.1, step 3)**: 2026-09-22 23:48:02Z, by the
+owner from the CLI as root (`firm_audit_log` `tenant_deleted`), just before the production
+keys went in. Rows removed: `raw_record` 286, `billing_line` 63, `task` 55, `billing` 35,
+`customer` 30, `sync_run` 28, `payment` 22, `payment_application` 22, `cost_category` 14,
+`audit_log` 13, `connection` 1, `membership` 1, `import_batch` 1; every other tenant table 0;
+1 Space object. `prod_check.py` passed afterwards ("append-only triggers present and
+enabled" `ok`).
 
 ### Server layout, and who may read what
 
