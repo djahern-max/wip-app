@@ -832,8 +832,10 @@ per line, whether `AccountBasedExpenseLineDetail.CustomerRef` is present with it
 name. A bill reported `NOT IN raw_record` means the poll has not fetched it yet: press
 **Sync now** once, wait for the poll, run again. Only the ids go into BLUEPRINT §13.7.
 
-Answered 2026-09-25 (owner, on production after deploying 5e16391): **yes**. Bill Ids 98892,
-98908, 98890; every line carries `CustomerRef` (ids 100000091, 6087, 6415); the name arrives as
+Answered 2026-09-25 (owner, on production after deploying 5e16391): **yes**, every line
+`AccountBasedExpenseLineDetail` with `CustomerRef`: #202698 → Bill Id 98892, CustomerRef
+100000091, 1 of 1 lines; #1171 → Bill Id 98908, CustomerRef 6087, 4 of 4; #3919 → Bill Id
+98890, CustomerRef 6415 (`Pool:Pool - Hydroseed`), 7 of 7. The name arrives as
 `FullyQualifiedName` (`Parent:Project`). The pool project is spelled `Pool - Hydroseed` in
 QuickBooks (hyphen). Purchases are checked when Ramp card transactions begin (F10).
 
