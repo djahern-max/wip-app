@@ -59,7 +59,7 @@ Against the Intuit sandbox only (D-25). OAuth2 connect/reconnect, token refresh,
 The platform live at jobcost.dev, with the privacy policy and terms pages Intuit requires for production keys (D-25). One droplet, Managed Postgres, a private Space, manual deploys over ssh (D-27).
 **Accept**: as in `docs/briefs/F05.0.md`: valid certificate and headers, the three static pages without sign-in, `deploy.sh` migrates before it restarts and stops on a failed migration (proven on a scratch database), services as `wip` with the owner URL held by root only, `prod_check.py` passes, the database port closed to the internet, the real client IP in the audit log, the env-template test, CI without the droplet, the owner's phone pass.
 
-### F05.1 · QBO production connection  ◐ (built 2026-09-22; Rye Beach connected 2026-09-22, tie-out 2026-09-23; open: owner phone pass)
+### F05.1 · QBO production connection  ☑ (2026-09-25; Rye Beach connected 2026-09-22, tie-out 2026-09-23, owner pass from a phone 2026-09-25)
 Intuit's production questionnaire and keys, Rye Beach connected read-only, monthly totals tied to Rye Beach's own QuickBooks reports, webhooks turned on (D-25). S-01's fourth question, whether Ramp-synced expenses carry the job on the line, is answered here against the real company. The Phase B gate applies.
 **Accept**: Rye Beach read-only: invoice and payment totals by month equal QBO reports; webhooks turned on; Intuit production assessment submitted.
 

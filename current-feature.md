@@ -1,7 +1,7 @@
 # current-feature.md
 
-_No feature in flight (2026-09-25)._ **F05.1 · QBO production connection is built and in
-close-out (ROADMAP ◐)**: Rye Beach's own QuickBooks company is connected read-only to tenant
+_No feature in flight (2026-09-25)._ **F05.1 · QBO production connection is closed** (owner's
+phone pass 2026-09-25; ROADMAP ☑): Rye Beach's own QuickBooks company is connected read-only to tenant
 `rye-beach` on jobcost.dev with Intuit production keys (2026-09-22, realm 722764240), 13 months
 of billing totals tie to QuickBooks' reports to the cent (owner, 2026-09-23), webhooks are on
 and proven on production, `qbo-sandbox` was removed from production with `delete_tenant.py`
@@ -9,15 +9,14 @@ and proven on production, `qbo-sandbox` was removed from production with `delete
 `docs/briefs/F05.1.md`; the runbooks are OPERATIONS.md "Intuit production keys", "Webhooks",
 "Intuit-side disconnect", "Rye Beach connection record", "Environments" and "Deleting a tenant".
 
-**Still open in `docs/briefs/F05.1.md`** (when the last one closes: tick it, flip ROADMAP F05.1
-to ☑, one-line "F05.1 · close-out" CHANGELOG entry, one commit):
-- Account numbers: done (169 of 169 attached; the 114 unnumbered accounts explained by group in
-  the brief, 2026-09-25). The owner's one-time chart file and oracle update (2630 and the ten
-  new numbers in, 2725 out, 27xx for the two loans) follows when the owner says.
-- S-01 question 4: answered yes 2026-09-25 (BLUEPRINT §13.7; ROADMAP S-01 ☑). Purchases are
-  checked in F10 when Ramp card transactions begin.
-- The owner's phone pass line: the memo-edit and Disconnect/Reconnect checks are done
-  (2026-09-25); the August 2026 total from the phone is not yet confirmed.
+**Owner work that follows from F05.1, outside any feature** (the owner says when):
+- The one-time chart file and oracle update: 2630 and the ten new numbers in (2200–2230
+  payroll liabilities, 2825 loan, 3001 Opening Balance Equity, 6040 inactive, 7020 legal
+  fees), 2725 out (never existed in QuickBooks), 27xx numbers for the two unnumbered loans.
+- Before F10 and F13: the twelve legacy COGS lines and five legacy income lines numbered into
+  the slot scheme or deactivated; the six job-cost-named expense accounts renumbered or
+  reclassed; bank account 219 merged with or deactivated beside 1010 (ids in OPERATIONS.md).
+- S-01 question 4 on Purchases: checked in F10 when Ramp card transactions begin.
 
 Next per ROADMAP: **F06 · Estimate import**: the `EstimateSource` protocol, the LMN export
 parser, the closing-report PDF parser (prices only) as fallback, a generic CSV template; dirty
