@@ -47,12 +47,12 @@ SECRETS = {
 }
 PRODUCTION_VALUES = {
     "ENV_FILE": "/etc/wip/app.env",
-    "APP_BASE_URL": "https://jobcost.dev",
+    "APP_BASE_URL": f"https://{DOMAIN}",
     "SESSION_COOKIE_SECURE": "true",
     "TRUSTED_PROXY_COUNT": "1",
     "OBJECT_STORE": "s3",
     "QBO_ENVIRONMENT": "sandbox",
-    "QBO_REDIRECT_URI": "https://jobcost.dev/api/qbo/callback",
+    "QBO_REDIRECT_URI": f"https://{DOMAIN}/api/qbo/callback",
     "CRYPTO_ACTIVE_KEY_ID": "prod1",
     "MAX_UPLOAD_BYTES": "26214400",
     "PROTECTED_TENANT_SLUGS": "rye-beach",  # F05.1 (D-28)
@@ -171,8 +171,8 @@ def test_static_page_is_plain_html_with_the_entity_line_address_and_date(page: s
     assert re.search(r"Last updated \d{4}-\d{2}-\d{2}\.", html)
     # The domain is named once (the entity line); the address is not a second naming.
     assert len(re.findall(rf"(?<!@){re.escape(DOMAIN)}", html)) == 1
-    # No bare product name: D-09's rename stays one edit per page (the entity line).
-    assert BARE_PRODUCT_NAME.search(html) is None
+    # The entity line is the page's one naming of the product (D-33); a rename is one edit per page.
+    assert len(BARE_PRODUCT_NAME.findall(html)) == 1
 
 
 def test_privacy_page_carries_every_required_statement() -> None:
@@ -258,7 +258,7 @@ def test_security_headers_snippet_carries_the_exact_csp_and_the_other_headers() 
 def test_site_config_serves_the_pages_proxies_the_api_and_sets_no_header_outside_the_include() -> (
     None
 ):
-    conf = _no_comments((DEPLOY / "nginx" / "jobcost.dev.conf").read_text())
+    conf = _no_comments((DEPLOY / "nginx" / f"{DOMAIN}.conf").read_text())
     assert "client_max_body_size 25m;" in conf
     assert conf.count("server_tokens off;") == 3
     assert "location = /privacy {\n        try_files /privacy.html =404;" in conf
@@ -268,10 +268,10 @@ def test_site_config_serves_the_pages_proxies_the_api_and_sets_no_header_outside
     assert "proxy_set_header X-Forwarded-For $remote_addr;" in conf
     assert "proxy_set_header X-Forwarded-Proto https;" in conf
     assert "$proxy_add_x_forwarded_for" not in conf  # set, never appended
-    assert "return 301 https://jobcost.dev$request_uri;" in conf
+    assert f"return 301 https://{DOMAIN}$request_uri;" in conf
     assert "try_files $uri /index.html;" in conf
     assert "root /opt/wip/frontend/dist;" in conf
-    assert "/etc/letsencrypt/live/jobcost.dev/" in conf
+    assert f"/etc/letsencrypt/live/{DOMAIN}/" in conf
     # The only add_header lines outside the snippet are Cache-Control, and every
     # location that has one includes the snippet again.
     extra = [ln.strip() for ln in conf.splitlines() if "add_header" in ln]
@@ -332,7 +332,7 @@ def test_scripts_parse_and_are_strict(script: str) -> None:
     assert text.startswith("#!/usr/bin/env bash\n")
     assert "set -euo pipefail" in text
     assert path.stat().st_mode & 0o111, f"{script} is not executable"
-    # No secret and no hostname other than jobcost.dev (and github.com / NodeSource).
+    # No secret and no hostname other than the platform's own (and github.com / NodeSource).
     for host in re.findall(r"\b[a-z0-9-]+\.(?:com|net|org|io|dev)\b", text):
         assert host in {DOMAIN, "github.com", "nodesource.com"}, host
 

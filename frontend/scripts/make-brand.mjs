@@ -139,11 +139,14 @@ export function ico(entries) {
   return Buffer.concat([header, dir, ...entries.map((e) => e.png)]);
 }
 
-/** The string value of `export const NAME = "..."` in a source file. */
-export function readConstant(source, name) {
-  const m = new RegExp(`export\\s+const\\s+${name}\\s*=\\s*"([^"]+)"`).exec(source);
+/** The string value of `export const NAME = "..."` in a source file, following one
+ *  reference (`export const NAME = OTHER;`, as SITE_HOST = PRODUCT_NAME since D-33). */
+export function readConstant(source, name, depth = 0) {
+  const m = new RegExp(`export\\s+const\\s+${name}\\s*=\\s*(?:"([^"]+)"|([A-Z_][A-Z0-9_]*))\\s*;`).exec(source);
   if (!m) throw new Error(`${name} is not exported as a string constant`);
-  return m[1];
+  if (m[1] !== undefined) return m[1];
+  if (depth > 0) throw new Error(`${name} refers to ${m[2]}, which is not a string constant`);
+  return readConstant(source, m[2], depth + 1);
 }
 
 export function webmanifest(host, brand) {

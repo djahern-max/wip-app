@@ -401,7 +401,7 @@ For the 16 sold jobs, from QBO: first invoice date/amount, payments applied, tot
 | D-06 | Labor rate: actual employee rate, or crew average? | Actual, with division average as fallback when a rate is missing. |
 | D-07 | Who approves EAC changes at the client, and how often? | Client admin monthly, before you close. Without this the WIP is arithmetic on stale guesses. |
 | D-08 | Small-job threshold: do jobs under $X skip the WIP and recognize on billing? | Yes, tenant-configurable (e.g., < $5K and < 30 days). Cuts noise sharply: 4 of the 16 sold estimates are under $5K, and a fifth is $5,001.93. |
-| D-09 | Product name. | Defer. CLAUDE.md requires the name live in one config constant. |
+| D-09 | Product name. | Closed by D-33 (2026-09-26): `jobcost.dev`, one string with the hostname (D-27), in one constant per side. |
 
 ---
 

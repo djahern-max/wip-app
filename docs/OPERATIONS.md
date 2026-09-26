@@ -1296,8 +1296,9 @@ black). Beside it: `logo-mark.svg`, the logo's outer outline filled, used for th
 32 px favicons only because the line art does not read at 16 px; and `brand.json`
 (`background` `#fff`, `foreground` `#000`, `padding` 0.15), hand-copied from
 `styles.css` and not following it (`--accent` is never used in the brand assets). The
-wordmark and the manifest name come from `SITE_HOST` in `frontend/src/product.js`; the
-product name is D-09 and is not changed here.
+wordmark and the manifest name come from `SITE_HOST` in `frontend/src/product.js`, which
+since D-33 is `PRODUCT_NAME` itself: the product is named `jobcost.dev`, one string with
+the hostname (D-09 closed).
 
 `npm run brand` (in `frontend/`; `scripts/make-brand.mjs`, rasterised by the `sharp`
 devDependency) writes into `frontend/public/`: `favicon.svg`, `favicon-16.png`,
@@ -1321,6 +1322,9 @@ Swapping the logo:
 3. `npm test`, commit the sources and the outputs together, and deploy as usual
    (`deploy.sh` builds `dist/` from the committed files).
 
-Changing a colour or the padding is the same procedure starting from `brand.json`; changing
-the hostname starts from `SITE_HOST` and also means editing the literal values in
-`frontend/index.html` (`<title>` and the `og:` set), which `tests/brand.test.js` checks.
+Changing a colour or the padding is the same procedure starting from `brand.json`. Changing
+the name starts from `PRODUCT_NAME` (both sides); `SITE_HOST` follows it, and
+`frontend/index.html` reads both through `%PRODUCT_NAME%` and `%SITE_HOST%`, filled by
+`vite.config.js` in dev and in the build, so there is nothing to edit there. If the name and
+the hostname ever diverge, `SITE_HOST` gets its own string and `tests/test_product_name.py`
+its own rule.

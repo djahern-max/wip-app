@@ -5,7 +5,9 @@ contractors, operated by a CPA practice. Design: [docs/BLUEPRINT.md](docs/BLUEPR
 Build order: [ROADMAP.md](ROADMAP.md). Standing rules for contributors and for Claude
 Code: [CLAUDE.md](CLAUDE.md). Runbooks: [docs/OPERATIONS.md](docs/OPERATIONS.md);
 production (jobcost.dev: the droplet, `deploy/setup.sh`, `deploy/deploy.sh`, `prod_check.py`)
-is its "Production (jobcost.dev)" section.
+is its "Production (jobcost.dev)" section. The product is named `jobcost.dev`, one string
+with its hostname (D-33), held in one constant per side (`app/core/product.py`,
+`frontend/src/product.js`) and nowhere else.
 
 ## Layout
 

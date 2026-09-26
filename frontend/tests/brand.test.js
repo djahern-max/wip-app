@@ -10,6 +10,8 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { PRODUCT_NAME, SITE_HOST } from "../src/product.js";
+import { fillProduct } from "../scripts/product-html.mjs";
 import {
   OG_HEIGHT,
   OG_WIDTH,
@@ -29,7 +31,8 @@ const text = (rel) => read(rel).toString("utf8");
 const squash = (s) => s.split(/\s+/).join(" ");
 const sha256 = (buf) => createHash("sha256").update(buf).digest("hex");
 
-const HOST = "jobcost.dev";
+// D-33: the name and the hostname are one string, taken from the constants, never typed here.
+const HOST = SITE_HOST;
 const brand = JSON.parse(text("public/brand/brand.json"));
 
 const ICON_LINKS = [
@@ -42,8 +45,8 @@ const ICON_LINKS = [
 const PREVIEW = [
   `<meta name="theme-color" content="${brand.background}" />`,
   '<meta property="og:type" content="website" />',
-  `<meta property="og:site_name" content="${HOST}" />`,
-  `<meta property="og:title" content="${HOST}" />`,
+  `<meta property="og:site_name" content="${PRODUCT_NAME}" />`,
+  `<meta property="og:title" content="${PRODUCT_NAME}" />`,
   '<meta property="og:description" content="Job cost and WIP reporting for contractors, operated by a CPA practice." />',
   `<meta property="og:url" content="https://${HOST}/" />`,
   `<meta property="og:image" content="https://${HOST}/og-image.png" />`,
@@ -81,9 +84,13 @@ test("Logo.jsx shows /brand/logo.svg and no .jsx file inlines an <svg>", () => {
 
 // --- index.html ----------------------------------------------------------------------
 
-test("index.html carries the title, the icon links and the preview set, literally", () => {
-  const html = squash(text("index.html"));
-  assert.ok(html.includes(`<title>${HOST}</title>`));
+test("index.html, with its placeholders filled, carries the title, the icon links and the preview set", () => {
+  const source = text("index.html");
+  assert.ok(source.includes("%PRODUCT_NAME%") && source.includes("%SITE_HOST%"), "the placeholders (D-33)");
+  assert.ok(!source.includes(PRODUCT_NAME), "the name is not typed in index.html (D-33)");
+  const html = squash(fillProduct(source));
+  assert.ok(!/%[A-Z_]+%/.test(html), "every placeholder filled");
+  assert.ok(html.includes(`<title>${PRODUCT_NAME}</title>`));
   for (const tag of [...ICON_LINKS, ...PREVIEW]) assert.ok(html.includes(tag), tag);
 });
 

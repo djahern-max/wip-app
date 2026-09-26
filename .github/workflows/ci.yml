@@ -106,6 +106,9 @@ jobs:
           if bad:
               print("::error::inline script or style in dist/index.html:", bad)
               sys.exit(1)
+          if re.search(r"%[A-Z_]+%", html):
+              print("::error::a product placeholder was not filled in dist/index.html (vite.config.js, D-33)")
+              sys.exit(1)
           for f in ("privacy.html", "terms.html", "qbo-disconnected.html", "pages.css"):
               try:
                   open("dist/" + f).close()

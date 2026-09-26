@@ -1,5 +1,5 @@
 """The product name lives here and nowhere else in the backend (CLAUDE.md).
 
-The name is not final (BLUEPRINT D-09)."""
+The name is the hostname, one string (D-33; D-09 closed)."""
 
-PRODUCT_NAME = "jobcost"
+PRODUCT_NAME = "jobcost.dev"

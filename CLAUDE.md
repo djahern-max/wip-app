@@ -66,7 +66,7 @@ The owner is a CPA and the domain expert. When accounting treatment is unclear, 
 - Python 3.12, FastAPI, SQLAlchemy 2.0 typed ORM, Alembic, Postgres 16. React 18 + Vite, plain JavaScript.
 - Domain logic lives in `app/domain/` and `app/wip/`, not in routers or normalizers.
 - Every Alembic migration is reversible or says why not in its docstring.
-- The product name appears in exactly one backend constant and one frontend constant. The name is not final.
+- The product name appears in exactly one backend constant and one frontend constant. The name is `jobcost.dev`, one string with the hostname (D-33; D-09 closed); the constants are the only literals, and `tests/test_product_name.py` lists the one allowed mention (the static pages' entity line).
 - Dates: accounting dates are `date`, not `datetime`. Period boundaries are tenant-local calendar months. Timestamps are UTC.
 
 ### Interface conventions
