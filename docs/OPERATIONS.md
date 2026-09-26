@@ -1287,3 +1287,40 @@ from anywhere, nothing else. The Managed Postgres cluster's only trusted source 
 droplet, so port 25060 is unreachable from the internet. uvicorn binds `127.0.0.1:8000`
 only. Check from the Mac: `nc -vz -w 5 174.138.33.185 443` succeeds, `… 8000` and
 `… 5432` fail, and `nc -vz -w 5 <public db hostname> 25060` fails.
+
+## Brand (F05.2)
+
+One image is the brand. `frontend/public/brand/logo.svg` is the only hand-made picture in
+the repo (the owner's hammer, committed as supplied; it carries no colour and renders
+black). Beside it: `logo-mark.svg`, the logo's outer outline filled, used for the 16 and
+32 px favicons only because the line art does not read at 16 px; and `brand.json`
+(`background` `#fff`, `foreground` `#000`, `padding` 0.15), hand-copied from
+`styles.css` and not following it (`--accent` is never used in the brand assets). The
+wordmark and the manifest name come from `SITE_HOST` in `frontend/src/product.js`; the
+product name is D-09 and is not changed here.
+
+`npm run brand` (in `frontend/`; `scripts/make-brand.mjs`, rasterised by the `sharp`
+devDependency) writes into `frontend/public/`: `favicon.svg`, `favicon-16.png`,
+`favicon-32.png`, `favicon-48.png`, `favicon.ico`, `apple-touch-icon.png`, `icon-192.png`,
+`icon-512.png`, `icon-512-maskable.png`, `site.webmanifest`, `og-image.png` and
+`brand-manifest.json` (the SHA-256 of each input and the file list). All of them are
+committed; CI and `deploy.sh` never run the script. CI's frontend job and
+`frontend/tests/brand.test.js` both fail when an input changed and the outputs were not
+regenerated, naming `brand-manifest.json`. The OG wordmark is set in the font the
+generating Mac resolves for `"Helvetica Neue", Helvetica, Arial, sans-serif`; the committed
+PNG shows that rendering.
+
+Swapping the logo:
+
+1. Overwrite `frontend/public/brand/logo.svg` (an SVG with a `viewBox`; nothing else is
+   required). Overwrite `logo-mark.svg` with a matching simplified mark, or delete it: without
+   it the 16 and 32 px favicons fall back to the line art of `logo.svg`, and the script says
+   so when it runs.
+2. `cd frontend && npm run brand`, then look at `public/og-image.png` and
+   `public/favicon-16.png`.
+3. `npm test`, commit the sources and the outputs together, and deploy as usual
+   (`deploy.sh` builds `dist/` from the committed files).
+
+Changing a colour or the padding is the same procedure starting from `brand.json`; changing
+the hostname starts from `SITE_HOST` and also means editing the literal values in
+`frontend/index.html` (`<title>` and the `og:` set), which `tests/brand.test.js` checks.

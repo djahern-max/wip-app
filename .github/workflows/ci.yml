@@ -89,11 +89,14 @@ jobs:
         run: npm test
       - working-directory: frontend
         run: npm run build
-      - name: The build satisfies the Content-Security-Policy (F05.0, plan question 3)
+      - name: The build satisfies the Content-Security-Policy (F05.0) and carries the brand assets (F05.2)
         working-directory: frontend
         # No inline script and no <style> block or style= attribute in the built
         # index.html: the CSP in deploy/nginx/security-headers.conf is script-src 'self';
         # style-src 'self'. The three static pages and their stylesheet must be in dist/.
+        # F05.2: the generated brand assets are committed, so dist/ must carry them, and
+        # dist/brand-manifest.json must record the SHA-256 of the logo (and mark) as built:
+        # a swapped logo committed without `npm run brand` fails here.
         run: |
           python3 - <<'PY'
           import re, sys
@@ -109,5 +112,24 @@ jobs:
               except OSError:
                   print("::error::missing from the build: " + f)
                   sys.exit(1)
-          print("dist/index.html has no inline script or style; the three pages are present")
+          import hashlib, json
+          for f in ("favicon.ico", "favicon.svg", "apple-touch-icon.png", "icon-192.png", "icon-512.png",
+                    "site.webmanifest", "og-image.png", "brand/logo.svg", "brand-manifest.json"):
+              try:
+                  open("dist/" + f).close()
+              except OSError:
+                  print("::error::missing from the build: " + f + " (run `npm run brand` in frontend/ and commit)")
+                  sys.exit(1)
+          recorded = json.load(open("dist/brand-manifest.json"))["sources"]
+          for src, built in (("public/brand/logo.svg", "dist/brand/logo.svg"),
+                             ("public/brand/logo-mark.svg", "dist/brand/logo-mark.svg")):
+              try:
+                  actual = hashlib.sha256(open(built, "rb").read()).hexdigest()
+              except OSError:
+                  actual = None
+              if recorded.get(src) != actual:
+                  print("::error::" + src + " does not match the SHA-256 in brand-manifest.json: "
+                        "the brand assets were not regenerated. Run `npm run brand` in frontend/ and commit the outputs.")
+                  sys.exit(1)
+          print("dist/index.html has no inline script or style; the three pages and the brand assets are present")
           PY

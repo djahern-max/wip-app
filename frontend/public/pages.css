@@ -38,3 +38,8 @@ footer {
   color: var(--muted);
   font-size: 0.9rem;
 }
+/* The logo above the heading (F05.2): public/brand/logo.svg, the one image on these pages. */
+.logo {
+  display: block;
+  margin-bottom: 0.75rem;
+}

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api } from "../api.js";
 import { PRODUCT_NAME } from "../product.js";
+import Logo from "../Logo.jsx";
 
 export default function Login({ onLoggedIn }) {
   const [email, setEmail] = useState("");
@@ -26,6 +27,7 @@ export default function Login({ onLoggedIn }) {
   return (
     <main className="page">
       <form onSubmit={submit} className="card">
+        <Logo size={48} />
         <h1>{PRODUCT_NAME}</h1>
         <p>Sign in</p>
         <label className="label">

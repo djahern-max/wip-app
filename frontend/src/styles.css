@@ -130,6 +130,23 @@ h2 {
   text-decoration: underline;
 }
 
+/* --- the logo (F05.2) --------------------------------------------------------------- */
+
+/* public/brand/logo.svg through src/Logo.jsx, inline with the text that names the product
+   (Shell header at 24 px, sign-in card at 48 px). */
+.logo {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+/* Logo and product name sit together in the header; the header's own gap separates the
+   pair from the switcher, nav and user. */
+.header-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 /* --- signed-in frame --------------------------------------------------------------- */
 
 .header {

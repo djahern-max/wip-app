@@ -1,0 +1,22 @@
+{
+  "sources": {
+    "public/brand/logo.svg": "2be08bb590b23b3bfba84bdcaea13e2ee6281723fed7dffdf46a5fbf30113f64",
+    "public/brand/logo-mark.svg": "69f087a0c48d5b87d5e558e85c949338a2592c4772b8a9b88f077ece7289d148",
+    "public/brand/brand.json": "140e65b51415d57bb738f20a5cb4d47f3f36f99314b9c7ec167f78cae999dc8a",
+    "src/product.js": "734f883455999733bbbdc5f1803d3ff445e460d3978946a4ad9e66ad32666eae"
+  },
+  "files": [
+    "favicon.svg",
+    "favicon-16.png",
+    "favicon-32.png",
+    "favicon-48.png",
+    "favicon.ico",
+    "apple-touch-icon.png",
+    "icon-192.png",
+    "icon-512.png",
+    "icon-512-maskable.png",
+    "site.webmanifest",
+    "og-image.png",
+    "brand-manifest.json"
+  ]
+}

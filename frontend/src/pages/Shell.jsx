@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { PRODUCT_NAME, SUPPORT_EMAIL } from "../product.js";
+import Logo from "../Logo.jsx";
 import Config from "./Config.jsx";
 import Connections from "./Connections.jsx";
 import Estimates from "./Estimates.jsx";
@@ -62,7 +63,10 @@ export default function Shell({ me, onChanged, onLogout }) {
   return (
     <div>
       <header className="header">
-        <strong>{PRODUCT_NAME}</strong>
+        <span className="header-brand">
+          <Logo size={24} />
+          <strong>{PRODUCT_NAME}</strong>
+        </span>
         <label className="small">
           Company{" "}
           <select
