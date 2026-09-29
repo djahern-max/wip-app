@@ -15,3 +15,5 @@ frontend/dist.prev/
 *.egg-info/
 # F03: local object store (development); never tracked
 .object-store/
+# Excel lock files, left beside a workbook while it is open
+~$*

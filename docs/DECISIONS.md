@@ -179,3 +179,66 @@ At month end each pool is allocated to the jobs that consumed from it. Eligibili
 **Reasoning**: The name was deferred (D-09) so a rename would never be rushed. The brand work (F05.2) settled it in practice: the Open Graph image, the manifest and the home-screen label already read `jobcost.dev`, and the domain is what a client will type and remember. A separate marketing name on top of the domain would be a second thing to protect and explain for no gain at this size. Choosing the hostname as the name means a client sees one string everywhere: the URL, the tab, the sign-in card, the header, the link preview, and later the invoice and the certificate footer.
 
 **Affected**: `backend/app/core/product.py`, `frontend/src/product.js` (the two constants). `backend/tests/test_product_name.py` (exclusion removed; static pages listed as the allowed mention). `frontend/index.html` `<title>` and any `document.title` (already `jobcost.dev` or becomes it). OPERATIONS.md and README wherever the bare name `jobcost` appears in prose. CLAUDE.md "product name is not final" line struck. BLUEPRINT D-09 marked closed by D-33. D-27 unchanged (the hostname is still a fact of where the platform runs; it happens to equal the name). F05.2 unchanged. No migration, no data.
+
+## D-05 · 2026-09-27 · Labor burden is one effective-dated rate per division, computed from a worksheet and applied to both sides
+
+**Decision**: Labor Burden (slot 20) is in the WIP basis. The burden rate is a fraction
+of wages, one per division, effective-dated in `burden_rate` (F04), and the same rate is
+applied on both sides of percent complete: cost to date = hours × pay rate × (1 + rate in
+force on the entry date), quantized `ROUND_HALF_UP` to the cent per `labor_entry` (F11);
+EAC = Σ Labor (slot 10) cost lines on kept work areas × (1 + rate in force on the estimate
+date), quantized per work area (F06). Estimators code labor at wages; the estimate template
+never carries a slot-20 line, and one that arrives loads raw, is excluded from EAC and
+raises `EST_BURDEN_LINE`. The rate covers: employer FICA, FUTA, state unemployment and
+state payroll surcharges, workers' compensation at the class code assigned to the
+employee at the policy's effective rate, and the employer share of health, dental, vision,
+life and disability premiums. It excludes paid time off, holiday, stipends and allowances
+(these are wages, post to 5n10, and appear in the F11 tie-out as labor not on any job),
+bonuses, and 401(k) (none today; add by a new decision). Overtime wages carry the rate like
+straight time. The rate is derived from a per-employee worksheet: annual straight-time
+wages, each tax at its rate and wage base, WC at the class rate per $100, benefit premium
+less employee deduction; division rate = Σ employer burden ÷ Σ wages over employees whose
+hours reach jobs; office, sales, mechanic and owner are outside every rate. Until F11
+builds the worksheet upload (`burden_inputs`, one source kind, employee id as the key), the
+worksheet is a spreadsheet and the controller records its result on Configuration → Burden
+rates with the worksheet named in `basis_note`. The rate is reviewed each quarter alongside
+the workers' comp wage tie-out to the 941: computed burden by division for the quarter is
+compared to 5n20 plus the field share of the 6xxx accounts where the carriers' bills post,
+and the platform formats a reclass entry (DR 5n20 by division / CR 6xxx workers' comp,
+health, dental, vision, life and disability, for the field share) that the controller
+posts, the way §8.4 v1 formats the WIP entry; the platform writes nothing to QuickBooks.
+A new audit, renewal, or benefit bill is a new effective-dated row, never an edit. First
+rates for Rye Beach from the 2026-09-27 worksheet, effective 2026-01-01: LS 0.2136, EX
+0.1959, GC 0.2207, SNOW 0.1713 (field crew at class 9402).
+
+**Reasoning**: A cost category is in both cost to date and EAC or in neither (CLAUDE.md;
+D-04). Burden can be on both sides only if EAC gets it from the same rate as cost to date,
+which rules out estimators keying burden lines: their assumption and the controller's rate
+would drift, and Rye Beach's estimating tool prices a loaded crew rate that nobody unloads
+by hand. Computing it from wages makes burden automatic and separate from wages, which is
+what the owner asked for. Per division rather than one company rate because workers' comp
+is the largest component after FICA (9.95 per $100 for landscape, 9.21 excavation, 6.07
+snow) and differs by class, and the classes follow the divisions. Per division rather than
+per employee because an estimator cannot know who will do the work; the actual per-employee
+burden is tie-out detail, not the basis. The worksheet on the 9/25/2026 register puts LS at
+21.36% (taxes and WC 17.69%, benefits 3.67%), inside the 15–26% BLUEPRINT §2.1 estimated
+from the P&L. The reclass is needed because isolved posts only payroll taxes to 5n20; WC
+(79.5K) and health, dental, life (106.7K) sit in 6xxx (§2.1), so without it job cost would
+carry burden the COGS section does not, and the WIP schedule would not tie to the income
+statement, which is the owner's stated priority (D-04). The quarterly review rides on the
+WC-to-941 tie-out the owner already runs after the 2025–26 audit. Building the upload in
+F11 keeps pay rates in the encrypted, restricted `employee_rate` store (§6) rather than in
+a configuration file.
+
+**Affected**: `tenant_policy.wip_basis` for Rye Beach gains slot 20 (F04). F06 (EAC gains
+computed burden on slot-10 lines; `EST_BURDEN_LINE`; the 67 Elm Street acceptance figure
+286,634.20 is re-stated once a rate exists for LS). F11 (burden application per
+`labor_entry`; `burden_inputs` source kind and the on-screen worksheet; Rye Beach fixture
+and oracle from the 2026-09-27 spreadsheet, anonymized). F13 (§8.5 gains the burden
+tie-out and the formatted reclass). F14 (EAC and cost to date both burdened). BLUEPRINT §6
+(labor cost formula unchanged; burden derivation added), §8.3 (default recommendation
+becomes this decision), §14 (D-05 closed). D-04 unchanged (its "if D-05 puts it on both
+sides" is now satisfied). D-32 unchanged (estimators still code to the grid; slot 20 is
+the one slot they never use). CLAUDE.md Vocabulary: "**burden rate**: fraction of wages
+per division, effective-dated, applied to labor on both sides of percent complete".
+OPERATIONS.md "Burden rates": the worksheet, what each input is, the quarterly review.
