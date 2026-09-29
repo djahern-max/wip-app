@@ -1,9 +1,12 @@
 """Burden rates (F04): effective-dated fractions (``NUMERIC(7,4)``, Decimal end to
 end), optionally per division; no overlapping periods for the same division; one
-function answers "the rate in force on this date"."""
+rule answers "the rate in force on this date" (``pick_rate``, pure, also used by the
+estimate burden of F06.1 over rows loaded once)."""
 
+from collections.abc import Iterable
 from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_UP, Decimal
+from typing import Protocol
 from uuid import UUID
 
 from sqlalchemy import select
@@ -94,23 +97,47 @@ def deactivate_burden_rate(db: Session, tenant_id: UUID, rate_id: UUID, actor: A
     return row
 
 
+class RateLike(Protocol):
+    """What ``pick_rate`` reads from a row: a ``BurdenRate`` or anything shaped like one."""
+
+    division_id: UUID | None
+    effective_from: date
+    effective_to: date | None
+    rate: Decimal
+    basis_note: str | None
+
+
+def pick_rate[R: RateLike](rows: Iterable[R], day: date, division_id: UUID | None) -> R | None:
+    """The row in force on ``day`` among active ``rows``: the division's own row if one
+    covers the day, else the tenant-wide row (no division), else ``None``. Periods are
+    half-open ``[effective_from, effective_to)``. Pure; active rows never overlap for
+    one division (``add_burden_rate``), so at most one row of each kind covers a day."""
+    covering = [
+        r
+        for r in rows
+        if r.effective_from <= day and (r.effective_to is None or day < r.effective_to)
+    ]
+    own = [r for r in covering if division_id is not None and r.division_id == division_id]
+    if own:
+        return max(own, key=lambda r: r.effective_from)
+    company = [r for r in covering if r.division_id is None]
+    return max(company, key=lambda r: r.effective_from) if company else None
+
+
+def active_burden_rates(db: Session) -> list[BurdenRate]:
+    """The tenant's active rows (requires tenant context)."""
+    return list(
+        db.execute(
+            select(BurdenRate).where(BurdenRate.active).order_by(BurdenRate.effective_from)
+        ).scalars()
+    )
+
+
 def burden_rate_on(db: Session, day: date, division_id: UUID | None = None) -> Decimal | None:
-    """The rate in force on ``day``: the division's own rate if one covers the day,
-    else the tenant-wide rate (no division), else ``None``. Requires tenant context."""
-    rows = db.execute(
-        select(BurdenRate)
-        .where(BurdenRate.active, BurdenRate.effective_from <= day)
-        .order_by(BurdenRate.effective_from.desc())
-    ).scalars()
-    fallback: Decimal | None = None
-    for row in rows:
-        if row.effective_to is not None and day >= row.effective_to:
-            continue
-        if row.division_id == division_id and division_id is not None:
-            return row.rate
-        if row.division_id is None and fallback is None:
-            fallback = row.rate
-    return fallback
+    """The rate in force on ``day`` (``pick_rate`` over the active rows), or ``None``.
+    Requires tenant context."""
+    row = pick_rate(active_burden_rates(db), day, division_id)
+    return None if row is None else row.rate
 
 
 def _plain(row: BurdenRate) -> dict:

@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api.js";
+import { emptyMessage, inactiveCount, visibleRows } from "../../inactive.js";
 import { formatRate } from "../../rates.js";
+import ShowInactive from "./ShowInactive.jsx";
 
 const LOAD_FAILED = "The burden rates could not be loaded. Refresh the page.";
 
 export default function BurdenRates({ me, canManage }) {
   const [rows, setRows] = useState(null);
+  const [showInactive, setShowInactive] = useState(false); // F06.1: page state only
   const [divisions, setDivisions] = useState([]);
   const [form, setForm] = useState({ division_id: "", effective_from: "", effective_to: "", rate: "", basis_note: "" });
   const [busy, setBusy] = useState(false);
@@ -87,6 +90,11 @@ export default function BurdenRates({ me, canManage }) {
         </form>
       )}
       {error && <p className="error">{error}</p>}
+      <ShowInactive
+        count={inactiveCount(rows)}
+        showing={showInactive}
+        onToggle={() => setShowInactive((v) => !v)}
+      />
       <div className="table-wrap">
         <table className="table">
           <thead>
@@ -101,12 +109,12 @@ export default function BurdenRates({ me, canManage }) {
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 && (
+            {visibleRows(rows, showInactive).length === 0 && (
               <tr>
-                <td colSpan={canManage ? 7 : 6}>No burden rates yet.</td>
+                <td colSpan={canManage ? 7 : 6}>{emptyMessage(rows, "burden rates")}</td>
               </tr>
             )}
-            {rows.map((r) => (
+            {visibleRows(rows, showInactive).map((r) => (
               <tr key={r.id}>
                 <td>{r.division_code || "Whole company"}</td>
                 <td>{r.effective_from}</td>

@@ -5,16 +5,20 @@ Every function requires ``app.tenant_id`` on the session (RLS)."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.domain.config.burden import active_burden_rates
 from app.domain.config.categories import ensure_cost_categories
 from app.domain.config.models import CostCategory, Division
-from app.domain.config.policy import WIP_BASIS, get_policy
-from app.domain.estimates.exceptions import EstimateState, Issue, issues_for
+from app.domain.config.policy import TIMEZONE, WIP_BASIS, get_policy
+from app.domain.estimates.burden import BurdenResult, compute_burden
+from app.domain.estimates.exceptions import EstimateState, Issue, burden_issues, issues_for
 from app.domain.estimates.models import (
     STATUS_LABELS,
     Estimate,
@@ -85,7 +89,14 @@ class WorkAreaView:
             self.row.price,
             self.row.change_order_suggested,
             tuple(
-                CostLineIn(lv.line.cost_code, lv.slot, lv.line.hours, lv.line.amount)
+                CostLineIn(
+                    lv.line.cost_code,
+                    lv.slot,
+                    lv.line.hours,
+                    lv.line.amount,
+                    lv.line.division_id if lv.division_code else None,
+                    lv.division_code,
+                )
                 for lv in self.lines
             ),
         )
@@ -99,6 +110,7 @@ class EstimateView:
     baseline: tuple[WorkAreaRow, ...] | None
     latest_is_baseline: bool
     version_count: int
+    areas_version: EstimateVersion | None = None  # the version whose work areas are shown
 
     def state(self) -> EstimateState:
         return EstimateState(
@@ -206,6 +218,7 @@ def load_views(db: Session, estimates: Sequence[Estimate], grid: Grid) -> list[E
                 baseline=baseline_rows,
                 latest_is_baseline=bool(with_areas and baseline and with_areas.id == baseline.id),
                 version_count=len(vs),
+                areas_version=with_areas,
             )
         )
     return views
@@ -257,3 +270,36 @@ def estimate_detail(
         ).all()
     )
     return view, [VersionView(v, name) for v, name in versions], grid
+
+
+# --- labor burden (F06.1; D-05, D-34): computed on read, never written ----------------
+
+
+@dataclass(frozen=True)
+class BurdenView:
+    result: BurdenResult
+    day_source: str  # estimate_date | received | none
+    issues: list[Issue]
+
+
+def pricing_day(db: Session, view: EstimateView) -> tuple[date | None, str]:
+    """The date the burden rate is read at: the estimate date; when it is blank, the
+    received date of the version whose work areas are shown, in the tenant's time zone
+    (owner's answer 1). No time zone set, or no such version: no date."""
+    if view.estimate.estimate_date is not None:
+        return view.estimate.estimate_date, "estimate_date"
+    if view.areas_version is None:
+        return None, "none"
+    tz = get_policy(db, TIMEZONE)
+    if tz is None:
+        return None, "none"
+    return view.areas_version.received_at.astimezone(ZoneInfo(str(tz.value))).date(), "received"
+
+
+def estimate_burden(db: Session, view: EstimateView, grid: Grid) -> BurdenView:
+    """Reads the active burden rates and the time zone; writes nothing."""
+    day, source = pricing_day(db, view)
+    result = compute_burden(
+        tuple(w.as_in() for w in view.work_areas or ()), active_burden_rates(db), day
+    )
+    return BurdenView(result, source, burden_issues(result, grid.basis))

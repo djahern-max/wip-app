@@ -15,6 +15,11 @@ import { formatMoney } from "../money.js";
 //
 // Tables use the container-scroll pattern (.table-wrap, first column held) so the
 // page never scrolls sideways on a phone.
+//
+// Labor burden (F06.1, D-05, D-34) is computed by the API when the estimate is read and
+// never stored: the detail shows estimated cost as estimated and with burden side by
+// side, and EAC in the WIP basis is the burdened figure with the as-estimated one beside
+// it. A missing rate or date reads "Not computed" in words, never a dash.
 const STATUSES = [
   ["", "All statuses"],
   ["pending", "Pending"],
@@ -169,6 +174,33 @@ function Attention({ items }) {
   );
 }
 
+function burdenMoney(value) {
+  return value === null || value === undefined ? "Not computed" : formatMoney(value);
+}
+
+// "EX 19.59% from 2026-01-01", one per division; the percent comes from the API as a
+// string, so nothing here does arithmetic.
+function rateNotes(t) {
+  return t.burden_by_division.map((r) =>
+    r.rate === null
+      ? `${r.division_code}: no burden rate on ${t.burden_date || "no date"}`
+      : `${r.division_code} ${r.rate_percent}% from ${r.rate_effective_from}`,
+  );
+}
+
+function burdenDateSentence(t) {
+  if (t.burden_date_source === "estimate_date") return `Burden rates as of ${t.burden_date}, the estimate date.`;
+  if (t.burden_date_source === "received")
+    return `Burden rates as of ${t.burden_date}, the date this version was received (the estimate has no date).`;
+  return "Burden rates: no date to read them at (the estimate has no date and the company's time zone is not set).";
+}
+
+function eacWithBurden(t) {
+  if (!t.basis_decided) return "Not decided";
+  if (t.eac_not_computed) return "Not computed";
+  return formatMoney(t.eac_in_basis);
+}
+
 function Detail({ d }) {
   const t = d.totals;
   return (
@@ -210,6 +242,7 @@ function Detail({ d }) {
                 <th>Change order?</th>
                 <th className="num">Hrs</th>
                 <th className="num">Cost</th>
+                <th className="num">Burden</th>
                 <th className="num">Price</th>
               </tr>
             </thead>
@@ -222,17 +255,18 @@ function Detail({ d }) {
                   <td>{w.change_order_suggested ? "Suggested" : "No"}</td>
                   <td className="num">{formatMoney(w.hours)}</td>
                   <td className="num">{formatMoney(w.cost)}</td>
+                  <td className="num">{burdenMoney(w.burden)}</td>
                   <td className="num">{formatMoney(w.price)}</td>
                 </tr>
               ))}
               <tr className="totals">
                 <td>Kept original</td>
-                <td colSpan={5}></td>
+                <td colSpan={6}></td>
                 <td className="num">{formatMoney(t.kept_original)}</td>
               </tr>
               <tr className="totals">
                 <td>Kept change orders</td>
-                <td colSpan={5}></td>
+                <td colSpan={6}></td>
                 <td className="num">{formatMoney(t.kept_change_orders)}</td>
               </tr>
               <tr className="totals">
@@ -240,11 +274,12 @@ function Detail({ d }) {
                 <td colSpan={3}></td>
                 <td className="num">{formatMoney(t.kept_hours)}</td>
                 <td className="num">{formatMoney(t.kept_cost)}</td>
+                <td className="num">{burdenMoney(t.burden_total)}</td>
                 <td className="num">{formatMoney(t.kept_total)}</td>
               </tr>
               <tr className="totals">
                 <td>Omitted</td>
-                <td colSpan={5}></td>
+                <td colSpan={6}></td>
                 <td className="num">{formatMoney(t.omitted)}</td>
               </tr>
             </tbody>
@@ -253,6 +288,7 @@ function Detail({ d }) {
       )}
 
       <h3>Estimated cost by cost category (kept work areas)</h3>
+      <p className="hint">{burdenDateSentence(t)}</p>
       <div className="table-wrap">
         <table className="table">
           <thead>
@@ -260,17 +296,27 @@ function Detail({ d }) {
               <th>Cost category</th>
               <th>Slot</th>
               <th className="num">Hrs</th>
-              <th className="num">Amount</th>
+              <th className="num">As estimated</th>
+              <th className="num">With burden</th>
               <th>In WIP basis (D-04)</th>
             </tr>
           </thead>
           <tbody>
             {t.by_category.map((c) => (
               <tr key={c.slot || "unknown"}>
-                <td>{c.name}</td>
+                <td>
+                  {c.name}
+                  {c.slot === "20" &&
+                    rateNotes(t).map((note) => (
+                      <div key={note} className="hint">
+                        {note}
+                      </div>
+                    ))}
+                </td>
                 <td>{c.slot || ""}</td>
                 <td className="num">{formatMoney(c.hours)}</td>
                 <td className="num">{formatMoney(c.amount)}</td>
+                <td className="num">{burdenMoney(c.amount_with_burden)}</td>
                 <td>{c.in_basis_label}</td>
               </tr>
             ))}
@@ -278,15 +324,25 @@ function Detail({ d }) {
               <td>Total estimated cost</td>
               <td></td>
               <td className="num">{formatMoney(t.kept_hours)}</td>
-              <td className="num">{formatMoney(t.kept_cost)}</td>
+              <td className="num">{formatMoney(t.cost_total_as_estimated)}</td>
+              <td className="num">{burdenMoney(t.cost_total_with_burden)}</td>
               <td></td>
             </tr>
             <tr className="totals">
               <td>EAC in the WIP basis</td>
               <td></td>
               <td></td>
-              <td className="num">{t.basis_decided ? formatMoney(t.eac_in_basis) : "Not decided"}</td>
-              <td>{t.basis_decided ? "" : "The WIP basis policy has not been set for this company."}</td>
+              <td className="num">
+                {t.basis_decided && <span className="hint">{formatMoney(t.eac_in_basis_as_estimated)}</span>}
+              </td>
+              <td className="num">{eacWithBurden(t)}</td>
+              <td>
+                {!t.basis_decided
+                  ? "The WIP basis policy has not been set for this company."
+                  : t.eac_not_computed
+                    ? "Labor burden is in the basis and is not computed; see Attention."
+                    : ""}
+              </td>
             </tr>
           </tbody>
         </table>

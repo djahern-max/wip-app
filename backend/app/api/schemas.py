@@ -207,6 +207,7 @@ class GlAccountOut(_Out):
 
 class AccountsOut(_Out):
     total_active: int
+    inactive_count: int  # F06.1: rows returned only with include_inactive=true
     unmapped_count: int
     suggested_count: int
     confirmed_count: int
@@ -406,6 +407,7 @@ class EstimateWorkAreaOut(_Out):
     cost: str
     price: str
     notes: str | None
+    burden: str | None  # F06.1: computed on read; 0.00 when none applies; None = not computed
     lines: list[EstimateCostLineOut]
 
 
@@ -424,10 +426,23 @@ class EstimateVersionOut(_Out):
 class EstimateCategoryTotalOut(_Out):
     slot: str | None  # None: the "Unknown cost code" row
     name: str
-    amount: str
+    amount: str  # as estimated: the cost lines exactly as loaded
+    amount_with_burden: str | None  # F06.1; differs only on Labor Burden; None = not computed
     hours: str
     in_basis: str  # yes | no | not_decided (machine value)
     in_basis_label: str
+
+
+class EstimateBurdenDivisionOut(_Out):
+    """F06.1: one division's labor and burden, with the rate row that produced it."""
+
+    division_code: str
+    labor_amount: str
+    rate: str | None  # the stored fraction, e.g. "0.1959"; None = no rate in force
+    rate_percent: str | None  # "19.59"
+    rate_effective_from: str | None
+    basis_note: str | None
+    burden: str | None
 
 
 class EstimateTotalsOut(_Out):
@@ -437,9 +452,19 @@ class EstimateTotalsOut(_Out):
     omitted: str
     kept_hours: str
     kept_cost: str
-    eac_in_basis: str | None  # None while the WIP basis is not decided
+    eac_in_basis: str | None  # with burden (F06.1); None: basis not decided, or not computed
     basis_decided: bool
     by_category: list[EstimateCategoryTotalOut]
+    # F06.1 (D-05, D-34): burden is computed on read and never stored.
+    eac_in_basis_as_estimated: str | None
+    eac_not_computed: bool  # Labor Burden is in the basis and burden is not computed
+    cost_total_as_estimated: str
+    cost_total_with_burden: str | None
+    burden_total: str | None
+    burden_computed: bool
+    burden_date: str | None  # the date the rates were read at
+    burden_date_source: str  # estimate_date | received | none
+    burden_by_division: list[EstimateBurdenDivisionOut]
 
 
 class EstimateDetailOut(EstimateRowOut):

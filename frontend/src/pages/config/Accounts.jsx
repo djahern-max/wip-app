@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api.js";
+import { visibleRows } from "../../inactive.js";
+import ShowInactive from "./ShowInactive.jsx";
 
 const LOAD_FAILED = "The accounts could not be loaded. Refresh the page.";
 
@@ -10,6 +12,7 @@ const LOAD_FAILED = "The accounts could not be loaded. Refresh the page.";
 export default function Accounts({ me, canManage }) {
   const [data, setData] = useState(null);
   const [filter, setFilter] = useState("all");
+  const [showInactive, setShowInactive] = useState(false); // F06.1: page state only
   const [lists, setLists] = useState({ divisions: [], categories: [] });
   const [editing, setEditing] = useState(null); // account id
   const [confirming, setConfirming] = useState(false);
@@ -18,13 +21,13 @@ export default function Accounts({ me, canManage }) {
   const [notice, setNotice] = useState(null);
 
   function load(f = filter) {
-    return api("GET", `/api/config/accounts?filter=${f}`)
+    return api("GET", `/api/config/accounts?filter=${f}&include_inactive=true`)
       .then(setData)
       .catch(() => setError(LOAD_FAILED));
   }
 
   useEffect(() => {
-    api("GET", `/api/config/accounts?filter=${filter}`)
+    api("GET", `/api/config/accounts?filter=${filter}&include_inactive=true`)
       .then(setData)
       .catch(() => setError(LOAD_FAILED));
   }, [me.active_tenant_id, filter]);
@@ -123,6 +126,11 @@ export default function Accounts({ me, canManage }) {
       )}
       {notice && <p className="hint">{notice}</p>}
       {error && <p className="error">{error}</p>}
+      <ShowInactive
+        count={data.inactive_count}
+        showing={showInactive}
+        onToggle={() => setShowInactive((v) => !v)}
+      />
       <div className="table-wrap">
         <table className="table">
           <thead>
@@ -138,12 +146,12 @@ export default function Accounts({ me, canManage }) {
             </tr>
           </thead>
           <tbody>
-            {data.accounts.length === 0 && (
+            {visibleRows(data.accounts, showInactive).length === 0 && (
               <tr>
                 <td colSpan={canManage ? 8 : 7}>No accounts to show.</td>
               </tr>
             )}
-            {data.accounts.map((a) =>
+            {visibleRows(data.accounts, showInactive).map((a) =>
               editing === a.id ? (
                 <EditRow
                   key={a.id}
@@ -169,7 +177,7 @@ export default function Accounts({ me, canManage }) {
                   <td>{a.map ? (a.map.in_job_cost ? "Yes" : "No") : ""}</td>
                   <td className="num">{a.cost_code || ""}</td>
                   <td>
-                    {a.map_status_label}
+                    {a.active ? a.map_status_label : `Inactive · ${a.map_status_label}`}
                     {a.map && a.map.suggested_by_rule && a.map.status === "suggested" && (
                       <div className="hint">rule: {a.map.suggested_by_rule}</div>
                     )}

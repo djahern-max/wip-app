@@ -217,6 +217,8 @@ Supporting memo columns: collected to date, open A/R, retainage held, deposit re
 ### 8.3 What counts as "cost" (WIP basis)
 Controlled by `account_map.in_job_cost` and tenant policy. Both the numerator (cost to date) and denominator (EAC) must use the **same** categories. See Decision D-04 for owned equipment. Default recommendation: burdened labor + materials + supplies + subs + rentals + disposal + permits; owned equipment and fuel excluded from the WIP fraction and shown as memo on the profitability report. Pooled supplies reach jobs by month-end allocation per D-30 and are in the WIP basis on both sides.
 
+Labor burden (slot 20) is in the basis on both sides, as D-05 decides and D-34 applies: one effective-dated rate per division, a fraction of wages, applied to labor on both sides of percent complete. Cost to date carries it per `labor_entry` (F11); EAC carries it as Σ Labor (slot 10) cost lines on kept, priced work areas × the rate in force for the division on the estimate date (else the version's received date in the tenant's time zone), quantized `ROUND_HALF_UP` per work area and division. On an estimate burden is computed when it is read and never written: the cost lines stay as loaded and the detail shows cost as estimated and with burden side by side (D-34); a slot-20 line an estimator keys is shown as estimated, left out of EAC and raises `EST_BURDEN_LINE`; with no rate in force, EAC in the basis is not computed. Rye Beach's rates from 2026-01-01: LS 0.2136, EX 0.1959, GC 0.2207, SNOW 0.2061 (D-34 replaced D-05's 0.1713 for SNOW).
+
 ### 8.4 The journal entry
 One entry per period, per division, auto-reversing on day 1 of the next period:
 
@@ -397,11 +399,12 @@ For the 16 sold jobs, from QBO: first invoice date/amount, payments applied, tot
 | D-02 | Deposits: through income with WIP deferral, or a deposit liability? | Through income (§8.6). |
 | D-03 | Turley: one job or two? General rule for multi-estimate customers? | One job per distinct scope/site that management tracks as a unit; phases as change orders only if priced against the same budget. |
 | D-04 | Owned equipment and fuel in the WIP cost basis? | **Exclude from both sides in v1**; show as memo. Revisit once equipment hours by job are reliable, then include on both sides using internal rates. Never include on one side only. |
-| D-05 | Labor burden policy: which costs, one rate or per division, reviewed how often? | Taxes + workers' comp + field-share of benefits; one rate per division; reviewed quarterly against the GL. |
+| D-05 | Labor burden policy: which costs, one rate or per division, reviewed how often? | Closed by D-05 (2026-09-27): taxes + workers' comp at the assigned class + employer share of benefits; one effective-dated rate per division, applied to both sides; reviewed quarterly with the WC-to-941 tie-out. Applied on estimates by F06.1. |
 | D-06 | Labor rate: actual employee rate, or crew average? | Actual, with division average as fallback when a rate is missing. |
 | D-07 | Who approves EAC changes at the client, and how often? | Client admin monthly, before you close. Without this the WIP is arithmetic on stale guesses. |
 | D-08 | Small-job threshold: do jobs under $X skip the WIP and recognize on billing? | Yes, tenant-configurable (e.g., < $5K and < 30 days). Cuts noise sharply: 4 of the 16 sold estimates are under $5K, and a fifth is $5,001.93. |
 | D-09 | Product name. | Closed by D-33 (2026-09-26): `jobcost.dev`, one string with the hostname (D-27), in one constant per side. |
+| D-34 | SNOW burden rate; is burden stored on an estimate? | Closed by D-34 (2026-09-29): SNOW 0.2061 at each employee's assigned WC class; burden is shown beside estimated cost, never written into it. |
 
 ---
 

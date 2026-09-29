@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
 
+from app.domain.estimates.burden import BURDEN_SLOT, BurdenResult
 from app.domain.estimates.names import reads_as_unit_price
 from app.domain.estimates.totals import ZERO, WorkAreaIn, kept_total
 from app.domain.estimates.versions import WorkAreaRow, compare
@@ -51,6 +52,22 @@ SENTENCES: dict[str, str] = {
     "EST_COST_LINE_ON_OMITTED": (
         "Work area #{order} is {why} but has cost lines totalling {amount}. They are "
         "left out of every total; remove them or keep the work area."
+    ),
+    "EST_BURDEN_LINE": (
+        "Work area{s} {orders} carr{ies} Labor Burden lines (cost code n20). Burden is "
+        "computed from the division's rate and never keyed, so these lines are left out "
+        "of the with-burden figures and EAC; remove them from the file and upload again "
+        "(D-05)."
+    ),
+    "EST_NO_BURDEN_RATE": (
+        "No burden rate is in force for {divisions} on {day}, so labor burden and EAC in "
+        "the WIP basis are not computed; add the rate on Configuration, Burden rates "
+        "(D-05)."
+    ),
+    "EST_NO_BURDEN_DATE": (
+        "Labor burden is not computed: the estimate has no date and the company's time "
+        "zone is not set, so its received date cannot be read; fill estimate_date in the "
+        "file and upload again, or set the time zone on Configuration, Policy (D-05)."
     ),
     "EST_NO_ID": (
         'Row {row} on "{sheet}" has no estimate id and was not loaded. Give it the '
@@ -181,3 +198,39 @@ def rows_for_compare(work_areas: Sequence[WorkAreaIn]) -> tuple[WorkAreaRow, ...
         WorkAreaRow(w.order_no, w.name, w.kept, w.price, w.change_order_suggested)
         for w in work_areas
     )
+
+
+def burden_issues(result: BurdenResult, basis: frozenset[str] | None) -> list[Issue]:
+    """F06.1 (D-05, D-34). A slot-20 line on a counting work area is always reported.
+    A missing rate or pricing day is reported only when Labor Burden is in the tenant's
+    WIP basis (owner's answer 5): a tenant that has not adopted burden is not warned."""
+    out: list[Issue] = []
+    orders = result.burden_line_orders
+    if orders:
+        many = len(orders) != 1
+        out.append(
+            Issue(
+                "EST_BURDEN_LINE",
+                sentence(
+                    "EST_BURDEN_LINE",
+                    s="s" if many else "",
+                    ies="y" if many else "ies",
+                    orders=", ".join(f"#{o}" for o in orders),
+                ),
+                {"orders": list(orders)},
+            )
+        )
+    if result.missing and basis is not None and BURDEN_SLOT in basis:
+        if result.day is None:
+            out.append(Issue("EST_NO_BURDEN_DATE", sentence("EST_NO_BURDEN_DATE"), {}))
+        else:
+            divisions = ", ".join(result.missing)
+            day = result.day.isoformat()
+            out.append(
+                Issue(
+                    "EST_NO_BURDEN_RATE",
+                    sentence("EST_NO_BURDEN_RATE", divisions=divisions, day=day),
+                    {"divisions": list(result.missing), "date": day},
+                )
+            )
+    return out

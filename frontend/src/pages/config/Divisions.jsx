@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api.js";
+import { emptyMessage, inactiveCount, visibleRows } from "../../inactive.js";
+import ShowInactive from "./ShowInactive.jsx";
 
 const LOAD_FAILED = "The divisions could not be loaded. Refresh the page.";
 
 export default function Divisions({ me, canManage }) {
   const [rows, setRows] = useState(null);
+  const [showInactive, setShowInactive] = useState(false); // F06.1: page state only
   const [form, setForm] = useState({ code: "", name: "", code_digit: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -66,6 +69,11 @@ export default function Divisions({ me, canManage }) {
         </form>
       )}
       {error && <p className="error">{error}</p>}
+      <ShowInactive
+        count={inactiveCount(rows)}
+        showing={showInactive}
+        onToggle={() => setShowInactive((v) => !v)}
+      />
       <div className="table-wrap">
         <table className="table">
           <thead>
@@ -78,12 +86,12 @@ export default function Divisions({ me, canManage }) {
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 && (
+            {visibleRows(rows, showInactive).length === 0 && (
               <tr>
-                <td colSpan={canManage ? 5 : 4}>No divisions yet.</td>
+                <td colSpan={canManage ? 5 : 4}>{emptyMessage(rows, "divisions")}</td>
               </tr>
             )}
-            {rows.map((d) => (
+            {visibleRows(rows, showInactive).map((d) => (
               <DivisionRow key={d.id} d={d} canManage={canManage} busy={busy} run={run} />
             ))}
           </tbody>

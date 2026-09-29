@@ -3,12 +3,14 @@ goes through ``/api/imports`` with the ``estimate_template`` source kind. Money 
 strings with cents (D-22); ``status_label`` and the exception sentences are what a
 person sees, ``status_norm`` and the codes are the machine values."""
 
+from decimal import Decimal
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.schemas import (
+    EstimateBurdenDivisionOut,
     EstimateCategoryTotalOut,
     EstimateCostLineOut,
     EstimateDetailOut,
@@ -22,8 +24,17 @@ from app.api.schemas import (
 from app.core.auth import Principal, TenantSession
 from app.core.authz import can_view_estimates
 from app.domain.estimates import service
+from app.domain.estimates.burden import BURDEN_SLOT
 from app.domain.estimates.models import STATUS_LABELS
-from app.domain.estimates.service import IN_BASIS_LABELS, EstimateView, Grid, money, status_label
+from app.domain.estimates.service import (
+    IN_BASIS_LABELS,
+    BurdenView,
+    EstimateView,
+    Grid,
+    money,
+    status_label,
+)
+from app.domain.estimates.totals import with_burden
 
 router = APIRouter(prefix="/estimates", tags=["estimates"])
 
@@ -62,7 +73,7 @@ def list_estimates(
     return EstimatesOut(estimates=[_row(v) for v in views], estimators=estimators, total=len(views))
 
 
-def _work_area(w: service.WorkAreaView) -> EstimateWorkAreaOut:
+def _work_area(w: service.WorkAreaView, burden: BurdenView | None = None) -> EstimateWorkAreaOut:
     wa = w.as_in()
     return EstimateWorkAreaOut(
         order_no=w.row.order_no,
@@ -74,6 +85,7 @@ def _work_area(w: service.WorkAreaView) -> EstimateWorkAreaOut:
         cost=money(wa.cost),
         price=money(w.row.price),
         notes=w.row.notes,
+        burden=None if burden is None else money(burden.result.burden_for(w.row.order_no)),
         lines=[
             EstimateCostLineOut(
                 cost_code=lv.line.cost_code,
@@ -88,8 +100,14 @@ def _work_area(w: service.WorkAreaView) -> EstimateWorkAreaOut:
     )
 
 
-def _totals(view: EstimateView, grid: Grid) -> EstimateTotalsOut:
+def _percent(rate: Decimal) -> str:
+    return format((rate * 100).quantize(Decimal("0.01")), "f")
+
+
+def _totals(view: EstimateView, grid: Grid, burden: BurdenView) -> EstimateTotalsOut:
     t = view.totals(grid)
+    r = burden.result
+    wb = with_burden(t, grid.basis, r.total)
     return EstimateTotalsOut(
         kept_original=money(t.kept_original),
         kept_change_orders=money(t.kept_change_orders),
@@ -97,13 +115,36 @@ def _totals(view: EstimateView, grid: Grid) -> EstimateTotalsOut:
         omitted=money(t.omitted),
         kept_hours=money(t.kept_hours),
         kept_cost=money(t.kept_cost),
-        eac_in_basis=money(t.eac_in_basis),
+        eac_in_basis=money(wb.eac_in_basis),
         basis_decided=t.basis_decided,
+        eac_in_basis_as_estimated=money(t.eac_in_basis),
+        eac_not_computed=wb.eac_not_computed,
+        cost_total_as_estimated=money(t.kept_cost),
+        cost_total_with_burden=money(wb.kept_cost),
+        burden_total=money(r.total),
+        burden_computed=r.total is not None,
+        burden_date=r.day.isoformat() if r.day else None,
+        burden_date_source=burden.day_source,
+        burden_by_division=[
+            EstimateBurdenDivisionOut(
+                division_code=d.division_code,
+                labor_amount=money(d.labor),
+                rate=None if d.rate is None else format(d.rate.rate, "f"),
+                rate_percent=None if d.rate is None else _percent(d.rate.rate),
+                rate_effective_from=None if d.rate is None else d.rate.effective_from.isoformat(),
+                basis_note=None if d.rate is None else d.rate.basis_note,
+                burden=money(d.burden),
+            )
+            for d in r.by_division
+        ],
         by_category=[
             EstimateCategoryTotalOut(
                 slot=c.slot,
                 name=c.name,
                 amount=money(c.amount),
+                amount_with_burden=money(wb.labor_burden)
+                if c.slot == BURDEN_SLOT
+                else money(c.amount),
                 hours=money(c.hours),
                 in_basis=c.in_basis,
                 in_basis_label=IN_BASIS_LABELS[c.in_basis],
@@ -119,9 +160,12 @@ def get_estimate(viewer: Viewer, db: TenantSession, estimate_id: UUID):
     if found is None:
         raise HTTPException(status_code=404, detail="estimate not found")
     view, versions, grid = found
+    burden = service.estimate_burden(db, view, grid)
     baseline = next((vv.version.version_no for vv in versions if vv.version.is_baseline), None)
+    row = _row(view).model_dump()
+    row["attention"] += [EstimateIssueOut(code=i.code, message=i.message) for i in burden.issues]
     return EstimateDetailOut(
-        **_row(view).model_dump(),
+        **row,
         versions_list=[
             EstimateVersionOut(
                 id=str(vv.version.id),
@@ -137,6 +181,6 @@ def get_estimate(viewer: Viewer, db: TenantSession, estimate_id: UUID):
             for vv in versions
         ],
         baseline_version_no=baseline,
-        work_areas=[_work_area(w) for w in view.work_areas or ()],
-        totals=_totals(view, grid),
+        work_areas=[_work_area(w, burden) for w in view.work_areas or ()],
+        totals=_totals(view, grid, burden),
     )

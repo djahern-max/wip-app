@@ -12,7 +12,9 @@ import { chooseSource, rememberSource, rememberedSource, sessionStore } from "..
 // are for OPERATIONS and never shown (D-22).
 //
 // The Source stays as chosen after an upload, after opening another screen and after
-// a page refresh (sourceChoice.js: per company, for the browser session).
+// a page refresh (sourceChoice.js: per company, for the browser session). The first
+// visit per company per session opens on "Choose a source" and Upload waits for a
+// choice (F06.1).
 //
 // Layout: a table with .num columns on a laptop; below 640 px this admin screen
 // stacks to cards. Reports (F08+) must NOT do that: they use the container-scroll
@@ -55,7 +57,7 @@ export default function Imports({ me }) {
 
   async function submit(e) {
     e.preventDefault();
-    if (!file || busy) return;
+    if (!file || !kind || busy) return;
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -92,6 +94,7 @@ export default function Imports({ me }) {
         <label className="label">
           Source
           <select className="input" value={kind} onChange={(e) => chooseKind(e.target.value)} disabled={busy}>
+            <option value="">Choose a source</option>
             {kinds.map((k) => (
               <option key={k.name} value={k.name}>
                 {k.label}
@@ -110,7 +113,7 @@ export default function Imports({ me }) {
             disabled={busy}
           />
         </label>
-        <button type="submit" className="button-primary" disabled={busy || !file}>
+        <button type="submit" className="button-primary" disabled={busy || !file || !kind}>
           {busy ? "Uploading…" : "Upload file"}
         </button>
         {notice && <p className="hint">{notice}</p>}

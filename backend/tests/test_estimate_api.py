@@ -13,7 +13,33 @@ from tests.conftest import Seed
 from tests.estimate_helpers import ELM, TURLEY, configure_tenant, upload_template
 
 MONEY = re.compile(r"^-?\d+\.\d\d$")
-MONEY_FIELDS = ("price", "hours", "cost", "amount", "kept_total")
+MONEY_FIELDS = (
+    "price",
+    "hours",
+    "cost",
+    "amount",
+    "kept_total",
+    # F06.1: burden, computed on read
+    "burden",
+    "burden_total",
+    "labor_amount",
+    "amount_with_burden",
+    "cost_total_as_estimated",
+    "cost_total_with_burden",
+    "eac_in_basis_as_estimated",
+)
+# F06.1: None means "not computed" (no rate or no pricing day) or "basis not decided".
+MAY_BE_NONE = (
+    ".eac_in_basis",
+    ".eac_in_basis_as_estimated",
+    ".hours",
+    ".kept_total",
+    ".burden",
+    ".burden_total",
+    ".amount_with_burden",
+    ".cost_total_with_burden",
+)
+RATE = re.compile(r"^\d+\.\d{4}$")
 
 
 @pytest.fixture
@@ -53,9 +79,11 @@ def test_money_is_strings_with_cents_and_sentences_carry_no_code(loaded: dict) -
     for body in (listing, detail):
         for where, value in _money_values(body):
             if value is None:
-                assert where.endswith((".eac_in_basis", ".hours", ".kept_total")), where
+                assert where.endswith(MAY_BE_NONE), where
                 continue
             assert isinstance(value, str) and MONEY.match(value), (where, value)
+    for row in detail["totals"]["burden_by_division"]:
+        assert row["rate"] is None or RATE.match(row["rate"]), row
     # The WIP basis is not decided in this tenant: no EAC figure, the column says so.
     t = detail["totals"]
     assert (t["basis_decided"], t["eac_in_basis"]) == (False, None)

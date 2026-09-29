@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api.js";
+import { emptyMessage, inactiveCount, visibleRows } from "../../inactive.js";
+import ShowInactive from "./ShowInactive.jsx";
 
 const LOAD_FAILED = "The cost categories could not be loaded. Refresh the page.";
 
@@ -7,6 +9,7 @@ const LOAD_FAILED = "The cost categories could not be loaded. Refresh the page."
 // deleted; adding one needs a decision, so there is no add form.
 export default function CostCategories({ me, canManage }) {
   const [rows, setRows] = useState(null);
+  const [showInactive, setShowInactive] = useState(false); // F06.1: page state only
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
@@ -35,6 +38,11 @@ export default function CostCategories({ me, canManage }) {
         can be renamed or deactivated here.
       </p>
       {error && <p className="error">{error}</p>}
+      <ShowInactive
+        count={inactiveCount(rows)}
+        showing={showInactive}
+        onToggle={() => setShowInactive((v) => !v)}
+      />
       <div className="table-wrap">
         <table className="table">
           <thead>
@@ -46,7 +54,12 @@ export default function CostCategories({ me, canManage }) {
             </tr>
           </thead>
           <tbody>
-            {rows.map((c) => (
+            {visibleRows(rows, showInactive).length === 0 && (
+              <tr>
+                <td colSpan={canManage ? 4 : 3}>{emptyMessage(rows, "cost categories")}</td>
+              </tr>
+            )}
+            {visibleRows(rows, showInactive).map((c) => (
               <CategoryRow key={c.id} c={c} canManage={canManage} busy={busy} run={run} />
             ))}
           </tbody>

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { chooseSource, rememberSource, rememberedSource } from "./sourceChoice.js";
+import { NO_SOURCE, chooseSource, rememberSource, rememberedSource } from "./sourceChoice.js";
 
 function memoryStore() {
   const m = new Map();
@@ -25,9 +25,20 @@ test("a remounted screen shows the remembered source, not the default", () => {
   assert.equal(chooseSource(KINDS, first, rememberedSource(s, "tenant-a")), "chart_of_accounts");
 });
 
-test("a source the server no longer offers falls back to the default", () => {
-  assert.equal(chooseSource(KINDS, "gone", "also_gone"), "unparsed_file");
-  assert.equal(chooseSource([{ name: "x" }], "gone", null), "x");
+test("a source the server no longer offers falls back to Choose a source", () => {
+  assert.equal(chooseSource(KINDS, "gone", "also_gone"), NO_SOURCE);
+  assert.equal(chooseSource([{ name: "x" }], "gone", null), NO_SOURCE);
+});
+
+test("the first visit per company per session opens on Choose a source", () => {
+  const s = memoryStore();
+  assert.equal(chooseSource([], rememberedSource(s, "tenant-a"), null), NO_SOURCE);
+  assert.equal(chooseSource(KINDS, NO_SOURCE, rememberedSource(s, "tenant-a")), NO_SOURCE);
+  rememberSource(s, "tenant-a", "chart_of_accounts");
+  assert.equal(chooseSource(KINDS, NO_SOURCE, rememberedSource(s, "tenant-a")), "chart_of_accounts");
+  assert.equal(chooseSource(KINDS, NO_SOURCE, rememberedSource(s, "tenant-b")), NO_SOURCE);
+  rememberSource(s, "tenant-a", NO_SOURCE); // choosing nothing is never remembered
+  assert.equal(rememberedSource(s, "tenant-a"), "chart_of_accounts");
 });
 
 test("storage that throws or is missing never breaks the page", () => {

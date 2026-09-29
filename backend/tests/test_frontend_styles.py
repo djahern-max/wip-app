@@ -162,3 +162,6 @@ def test_imports_keeps_the_chosen_source() -> None:
     assert 'useState("unparsed_file")' not in src
     assert "rememberedSource(" in src and "rememberSource(" in src
     assert "onChange={(e) => chooseKind(e.target.value)}" in src
+    # F06.1: no default source; the page opens on "Choose a source" and Upload waits.
+    assert '<option value="">Choose a source</option>' in src
+    assert "disabled={busy || !file || !kind}" in src

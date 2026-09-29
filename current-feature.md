@@ -1,6 +1,12 @@
 # current-feature.md
 
-_No feature in flight (2026-09-29)._ **F06 · Estimate import is closed** (2026-09-29): the
+_No feature in flight (2026-09-29)._ **F06.1 · Burden on estimates is built** (2026-09-29;
+ROADMAP ◐ until the owner's pass on jobcost.dev): labor burden computed on read per D-05 and
+D-34, the as-estimated and with-burden columns, EAC in the WIP basis burdened, the three
+`EST_*` burden sentences, "Show inactive" on the configuration lists and "Choose a source"
+on Imports. Its brief is `docs/briefs/F06.1.md`; the owner pass is its one open criterion.
+
+**F06 · Estimate import is closed** (2026-09-29): the
 owner's production pass on `rye-beach` and the 80-row fixture (`backend/tests/fixtures/
 rye_beach/estimates/estimates_2026-09-17.xlsx`, committed at close-out; the two tests that
 skipped without it now pass) closed its last criteria. Its brief is `docs/briefs/F06.md`.
@@ -19,6 +25,12 @@ similarity); customer merge suggestions. The Phase B gate applies. Not started; 
 supplies the brief. Copy it here, expand it, and restate the acceptance criteria before
 coding.
 
+Standing state from F06.1: burden is a pure computation over the estimate's cost lines and
+the active `burden_rate` rows (`app/domain/estimates/burden.py`, `pick_rate` in
+`app/domain/config/burden.py`); nothing stores it, so a rate change shows on every estimate
+at its next read. Policy key names are constants in `app/domain/config/policy.py`
+(`WIP_BASIS`, `TIMEZONE`); a literal elsewhere fails `test_policy.py`.
+
 Standing state from F06: the template is the only estimate source (no vendor parser,
 ever); `estimate_cost` hangs off `estimate_work_area` and keeps the cost code as text; the
 per-estimate exceptions are pure generators computed on read (F09 persists them); file-level
@@ -26,10 +38,15 @@ facts live in `import_batch.issues`; a test module that drives the worker must i
 task module it needs (`tests/estimate_helpers.py` does for `estimates.normalize`).
 
 ## Discovered
-F06 close-out (2026-09-29):
-- Excel leaves `~$…xlsx` owner files beside a workbook it has open; two sit in
-  `backend/tests/fixtures/rye_beach/estimates/` (not committed). A `~$*` line in
-  `.gitignore` would keep them out of every commit.
+F06.1 (2026-09-29):
+- The Estimates list's Attention column and the detail can differ by the burden sentences
+  (the list endpoint was left unchanged); F09, persisting issues per estimate, should
+  compute both sets in one place.
+- The estimate detail was not rendered in a browser at 390 px by Claude Code; the new
+  columns use the existing `.table-wrap` pattern (the owner pass checks it).
+- Thirteen sold estimates on `rye-beach` have no cost lines and sit off the WIP schedule by
+  D-04; the owner supplies their cost lines one at a time through the template (D-32). Not
+  a platform change.
 
 F06 (2026-09-25):
 - For F07: `estimate.client_name` and `jobsite` are text; the "sold estimate → job" review
@@ -37,9 +54,8 @@ F06 (2026-09-25):
   fixture carries no estimator, client or jobsite (blank on the Estimates sheet).
 - For F09: the generators in `app/domain/estimates/exceptions.py` return `Issue(code,
   message, detail)`; `EST_NO_ID` and the rows-not-loaded sentences are on the batch, not
-  per estimate; F09 reads both.
-- The Imports page still defaults to "Unparsed file" (F05 Discovered); with a third
-  production source kind the empty "Choose a source" option is worth doing.
+  per estimate; F09 reads both. `EST_BURDEN_LINE`, `EST_NO_BURDEN_RATE` and
+  `EST_NO_BURDEN_DATE` (F06.1) join the per-estimate set.
 - `followup_message` composes "Loaded. Nothing changed: this file was already loaded.":
   two sentences where one would do; a per-outcome sentence table in `batch_message` would
   read better (D-22).
@@ -60,7 +76,7 @@ F05.1 (2026-09-22 to 2026-09-25; details in `docs/briefs/F05.1.md`, Discovered):
 - `tests/test_rls.py::test_f04_tables_read_zero_rows_of_another_tenant` seeds a `cost_category` slot from `uuid.hex[:2]`, which can collide with a D-23 slot about once in a few hundred params; use a slot outside the D-23 range. One unreproduced setup ERROR in `test_migrations.py::test_0003_data_step…`.
 
 Carried from the stubs of 2026-09-21 and 2026-09-22 (F05, F04, F03, F02.1), still open:
-- F05 (2026-09-21): Imports defaulting to "Unparsed file" cost the owner one upload; an empty "Choose a source" option is the fix. The nightly drift check's `drift` outcome and the "fresh backfill needed" state are proven in tests only. A `billing` row for a document whose customer is a sub-customer (not a project) carries the sub-customer's id; F07 decides how sub-customers relate to jobs. `ProjectRef` (a Projects-API id, S-01 (b)) is in the raw payloads only; F07 may want it as a second `job_alias`. A mapping from QuickBooks `AccountType` to `gl_account.ledger_type` is not built (owner answer 10).
+- F05 (2026-09-21): The nightly drift check's `drift` outcome and the "fresh backfill needed" state are proven in tests only. A `billing` row for a document whose customer is a sub-customer (not a project) carries the sub-customer's id; F07 decides how sub-customers relate to jobs. `ProjectRef` (a Projects-API id, S-01 (b)) is in the raw payloads only; F07 may want it as a second `job_alias`. A mapping from QuickBooks `AccountType` to `gl_account.ledger_type` is not built (owner answer 10).
 - F04: no screen for suggestion rules (script / `PUT /api/config/suggest-rules`); a general "no money as a JSON number" response assertion is still per test; **for the owner**: the real Rye Beach chart has one account the fixture does not (2630); the owner supplies an updated fixture and oracle if it should be added.
 - F03: money in API responses must be strings (F08; `formatMoney` is ready); reports (F08+) use `.table-wrap` with the first column held.
 - F02.1: pending TOTP secret is per user, not per session (deferred; rule recorded there); no rendered-browser test dependency for now; a client user's optional enrol confirm records a second `login_success`.

@@ -100,26 +100,29 @@ def accounts(
     _v: Viewer,
     db: TenantSession,
     filter: Annotated[str, Query(pattern="^(all|unmapped|suggested|confirmed)$")] = "all",
+    include_inactive: bool = False,
 ):
     ensure_cost_categories(db, _v.active_tenant_id)
     divisions = {d.id: d for d in db.execute(select(Division)).scalars()}
     categories = {c.id: c for c in db.execute(select(CostCategory)).scalars()}
     maps = {m.gl_account_id: m for m in db.execute(select(AccountMap)).scalars()}
     emails = _emails(db, {m.confirmed_by for m in maps.values() if m.confirmed_by})
-    rows = list(
-        db.execute(
-            select(GlAccount).where(GlAccount.active).order_by(GlAccount.account_no)
-        ).scalars()
-    )
+    every = list(db.execute(select(GlAccount).order_by(GlAccount.account_no)).scalars())
+    rows = [a for a in every if a.active]
+    # F06.1: the Accounts page asks for inactive rows too and hides them on screen
+    # ("Show inactive"); the counts above the table stay counts of active accounts.
+    shown = every if include_inactive else rows
     out: list[GlAccountOut] = []
     counts = {"unmapped": 0, "suggested": 0, "confirmed": 0}
     for a in rows:
         m = maps.get(a.id)
-        state = "unmapped" if m is None else m.status
         if m is None or m.status != "confirmed":
             counts["unmapped"] += 1
         if m is not None:
             counts[m.status] += 1
+    for a in shown:
+        m = maps.get(a.id)
+        state = "unmapped" if m is None else m.status
         if (
             filter != "all"
             and state != filter
@@ -155,6 +158,7 @@ def accounts(
         )
     return AccountsOut(
         total_active=len(rows),
+        inactive_count=len(every) - len(rows),
         unmapped_count=counts["unmapped"],
         suggested_count=counts["suggested"],
         confirmed_count=counts["confirmed"],

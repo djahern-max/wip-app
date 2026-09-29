@@ -43,15 +43,14 @@ class PolicyKey:
 # Key names other modules may import (tests/test_policy.py: a key name is a string
 # literal only in this file).
 WIP_BASIS = "wip_basis"
+TIMEZONE = "timezone"
 
 # The registry. Deliberately no ``default`` field: see the module docstring and the
 # static test in tests/test_policy.py.
 POLICY_KEYS: dict[str, PolicyKey] = {
     k.key: k
     for k in (
-        PolicyKey(
-            "timezone", "Time zone", "timezone", "Period boundaries are tenant-local months."
-        ),
+        PolicyKey(TIMEZONE, "Time zone", "timezone", "Period boundaries are tenant-local months."),
         PolicyKey(
             "fiscal_year_start_month",
             "Fiscal year starts in",

@@ -514,7 +514,50 @@ assuming a value. Every change is audited `policy_set` with before and after.
 - Burden rates: a fraction (0.3250 = 32.50%), from a date, optionally to an exclusive
   end date, per division or whole company; overlapping periods for the same division
   are refused; the rate in force on a date is the division's own, else the whole-company
-  rate.
+  rate. See "Burden rates (F06.1, D-05, D-34)" below.
+- Every list here (Accounts, Divisions, Cost categories, Burden rates) hides inactive
+  rows by default. "Show inactive (n)" above the table shows them; the choice lasts
+  while the page is open and is not stored. Nothing is deleted: Deactivate keeps the
+  row and it drops out of the default view.
+
+### Burden rates (F06.1, D-05, D-34)
+
+What a row is: the labor burden rate for one division (or the whole company), as a
+fraction of wages with four decimals (0.1959 = 19.59%), in force from a date and, if
+given, up to an exclusive end date. It covers employer FICA, FUTA, state unemployment and
+payroll surcharges, workers' compensation at each employee's assigned class, and the
+employer share of health, dental, vision, life and disability (D-05). The controller
+works it out on the burden worksheet and names the worksheet in the Basis field. Rye
+Beach from 2026-01-01: LS 0.2136, EX 0.1959, GC 0.2207, SNOW 0.2061 (the SNOW row's
+Basis also carries the contingent 0.1713 at class 9402, used nowhere; D-34).
+
+Entering one: Configuration → Burden rates (firm roles), division, from date, rate as a
+fraction. A change (a new worksheet, an audit, a renewal, a benefit bill) is a **new
+row from its date, never an edit**. Rows cannot be edited, and two active rows for one
+division may not overlap, so to change a rate from a date:
+
+1. Deactivate the row in force.
+2. Add it again with the same rate, its original from date and an end date equal to the
+   new row's from date (the end date is exclusive).
+3. Add the new row from that date.
+
+Estimates dated before the change keep the old rate; later ones get the new rate. When an
+audit changes a class or refunds premium, the same steps apply from the settlement date
+(D-34).
+
+What the estimate shows: on the Estimates detail, a Burden column per work area and
+two cost columns, As estimated (the cost lines exactly as loaded; they tie to the
+estimating system) and With burden (Labor Burden computed from the rate). EAC in the
+WIP basis is the burdened figure, with the as-estimated EAC beside it in small text.
+Burden is computed each time the estimate is read and never stored. The rate is read on
+the estimate date; a blank date means the date the version was received, in the
+company's time zone (Configuration → Policy).
+
+"Not computed": Labor Burden and EAC in the WIP basis read "Not computed" when no rate
+covers a division's labor on that date (`EST_NO_BURDEN_RATE`: add the missing row), or
+when the estimate has no date and the company's time zone is not set
+(`EST_NO_BURDEN_DATE`: fill `estimate_date` in the file, or set the time zone). Both
+warnings appear only when Labor Burden (slot 20) is in the company's WIP basis.
 
 ## Estimates (F06, D-32)
 
@@ -584,6 +627,9 @@ EAC in the basis, the version list, and the attention sentences.
 | `EST_NO_CATEGORY_SPLIT` | A kept, priced work area has no cost lines; the sold estimate stays off the WIP schedule (D-04). | Add the cost lines on *Estimate costs*. |
 | `EST_UNKNOWN_COST_CODE` | A cost code is not on the company's grid; the line is loaded without a category. | Correct the code (Configuration → Cost codes). |
 | `EST_COST_LINE_ON_OMITTED` | Cost lines under an omitted or 0.00 work area; left out of every total. | Remove them, or keep the work area. |
+| `EST_BURDEN_LINE` | A Labor Burden line (cost code n20) on a kept work area: shown as estimated, left out of the with-burden figures and EAC (D-05). | Remove the line from the file; burden comes from the rate. |
+| `EST_NO_BURDEN_RATE` | No burden rate covers a division's labor on the estimate's date; burden and EAC in the basis are not computed. | Add the rate on Configuration → Burden rates. |
+| `EST_NO_BURDEN_DATE` | The estimate has no date and the company's time zone is not set, so the received date cannot be read. | Fill `estimate_date` and upload again, or set the time zone. |
 | `EST_DEDUCTIVE_CHANGE` | A baseline original work area is now omitted (D-01). | Confirm the deduction, or restore the work area. |
 | `EST_WORK_AREA_RENUMBERED` | The name at an order number differs from the baseline. | Check the order column; work areas keep their numbers. |
 | (no code) | A row was not loaded: kept not Y/N, a value not a number, a duplicate, a cost line for a work area not in the file, an id not yet on any Estimates sheet. | Fix the row; upload again. |
