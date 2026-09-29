@@ -15,6 +15,11 @@ Newest first. One entry per closed feature or decision. Format:
 
 ---
 
+## 2026-09-29 · F06 · close-out
+**What**: The owner added the 80-row fixture `backend/tests/fixtures/rye_beach/estimates/estimates_2026-09-17.xlsx` (Estimates sheet only, 80 rows; committed here) and reported the production pass on `rye-beach` done; the two tests that skipped without the file run and pass (652 backend, none skipped; 29 frontend). Last criteria ticked in `docs/briefs/F06.md`, ROADMAP F06 ☑, live `current-feature.md` points at F07. **Migrations**: none. **Decisions referenced / made**: none. **Dependencies added**: none.
+
+---
+
 ## 2026-09-26 · D-33 · Product name
 **What**: `PRODUCT_NAME` is `"jobcost.dev"` in `backend/app/core/product.py` and `frontend/src/product.js`: the hostname (D-27) and the name are one string, and D-09 is closed. `tests/test_product_name.py` keeps the rule "the name appears in exactly one constant per side" without the hostname exclusion: every occurrence of the string is a naming, except an e-mail address at the domain and the entity line on each of the three static pages, which the test lists (one each). What the test then forced: `frontend/index.html` names the product through `%PRODUCT_NAME%` and `%SITE_HOST%`, filled in dev and in the build by a `transformIndexHtml` hook in `vite.config.js` (`scripts/product-html.mjs`; CI fails if a placeholder survives in `dist/index.html`); `SITE_HOST` is defined as `PRODUCT_NAME` rather than a second literal (`make-brand.mjs` follows one reference); `tests/brand.test.js` and `backend/tests/test_deploy.py` take the string from the constants, and the deploy test's static-page check now expects the entity line as the one naming. `document.title` was already the constant. `npm run brand` re-run: only `brand-manifest.json` changed (the hash of `product.js`). Prose: CLAUDE.md, README, OPERATIONS "Brand", the F05.2 brief's status line; BLUEPRINT §14 D-09 marked closed.
 **Why**: D-33 (owner, 2026-09-26): the brand work settled the name in practice, and one string everywhere is one thing to protect and explain.

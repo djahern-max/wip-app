@@ -1,23 +1,16 @@
 # current-feature.md
 
-_No feature in flight (2026-09-25)._ **F06 · Estimate import is built** (2026-09-25; ROADMAP ◐
-until the owner's production pass and the 80-row fixture close): estimates, work areas and
-cost lines by cost code enter the spine from the platform's own estimate template (D-32),
-with versions, the D-01 baseline, the `EST_*` sentences, the Estimates page and the runbook.
-Its brief is `docs/briefs/F06.md` with two criteria open for the owner: the production pass
-(upload `estimates_2026-09-17.xlsx` and the two template fixtures on `rye-beach`; the
-Estimates page shows 80 estimates; the 67 Elm Street detail shows EAC in the basis
-286,634.20 once `wip_basis` is set for the tenant; re-uploading one file says nothing
-changed) and the 80-row workbook itself (`backend/tests/fixtures/rye_beach/estimates/
-estimates_2026-09-17.xlsx`, Estimates sheet only, anonymized client names, the Mijal row
-with a blank id; two tests skip until it exists). Migration 0010 is applied on dev `wip`;
-production is migrated by the owner's deploy.
+_No feature in flight (2026-09-29)._ **F06 · Estimate import is closed** (2026-09-29): the
+owner's production pass on `rye-beach` and the 80-row fixture (`backend/tests/fixtures/
+rye_beach/estimates/estimates_2026-09-17.xlsx`, committed at close-out; the two tests that
+skipped without it now pass) closed its last criteria. Its brief is `docs/briefs/F06.md`.
+**F05.2 · Brand assets** stays ◐ until the owner's browser pass on jobcost.dev and the swap
+test (`docs/briefs/F05.2.md`).
 
 **Owner work that follows from F06, outside any feature** (the owner says when):
-- Set the `wip_basis` policy on `rye-beach` (Configuration → Policy, `firm_admin`; D-04)
-  so the Estimates detail shows EAC in the basis rather than "Not decided".
 - The estimating change D-32 describes: the team estimates on the cost codes from spring
   2027; in-flight sold estimates get their cost lines from the item detail, one at a time.
+  (The `wip_basis` policy on `rye-beach` is set: the production pass showed EAC in the basis.)
 
 Next per ROADMAP: **F07 · Job spine & crosswalk**: `job`, `job_alias`, `job_estimate` with
 roles; the "sold estimate → new job or attach as change order" review screen; link job ↔
@@ -33,6 +26,11 @@ facts live in `import_batch.issues`; a test module that drives the worker must i
 task module it needs (`tests/estimate_helpers.py` does for `estimates.normalize`).
 
 ## Discovered
+F06 close-out (2026-09-29):
+- Excel leaves `~$…xlsx` owner files beside a workbook it has open; two sit in
+  `backend/tests/fixtures/rye_beach/estimates/` (not committed). A `~$*` line in
+  `.gitignore` would keep them out of every commit.
+
 F06 (2026-09-25):
 - For F07: `estimate.client_name` and `jobsite` are text; the "sold estimate → job" review
   needs `job_alias('lmn_estimate', external_id)` and the customer link by id. The 67 Elm
