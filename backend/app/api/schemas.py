@@ -467,8 +467,180 @@ class EstimateTotalsOut(_Out):
     burden_by_division: list[EstimateBurdenDivisionOut]
 
 
+class EstimateJobOut(_Out):
+    """F07: the job an estimate is on, for the detail's "Job:" line."""
+
+    id: str
+    name: str
+    role: str
+    role_label: str
+
+
 class EstimateDetailOut(EstimateRowOut):
     versions_list: list[EstimateVersionOut]
     baseline_version_no: int | None
     work_areas: list[EstimateWorkAreaOut]
     totals: EstimateTotalsOut
+    job: EstimateJobOut | None = None  # F07
+    to_review: bool = False  # F07: sold and on no job
+
+
+# --- F07 jobs and the crosswalk: money as strings with cents (D-22) --------------------------
+
+
+class DivisionChoiceOut(_Out):
+    id: str
+    code: str
+    name: str
+
+
+class ChoiceOut(_Out):
+    value: str  # machine value
+    label: str
+
+
+class JobEstimateOut(_Out):
+    estimate_id: str
+    external_id: str
+    name: str
+    status_label: str
+    role: str  # machine value
+    role_label: str
+    price: str
+    note: str | None
+    attached_at: str
+    attached_by: str | None
+    work_areas_loaded: bool
+    eac_in_basis: str | None  # None: not computed (or the estimate is ignored)
+
+
+class JobAliasOut(_Out):
+    id: str
+    system: str  # machine value
+    system_label: str
+    external_id: str
+    display_name: str | None  # the QuickBooks row's name; None for an estimate id
+    kind_label: str | None  # Project | Sub-customer | Customer
+    linked_at: str
+    linked_by: str | None
+
+
+class JobWorkAreaOut(_Out):
+    id: str
+    order_no: int
+    name: str
+    kept: bool
+    kept_label: str
+    price: str
+    kind: str | None  # confirmed kind (machine value); None = not confirmed
+    suggested_kind: str | None  # None for an omitted work area
+    kind_label: str  # "Original", "Change order (suggested)", "Omitted"…
+    confirmed: bool
+
+
+class JobRowOut(_Out):
+    id: str
+    name: str
+    customer_name: str | None
+    division_id: str | None
+    division_code: str | None
+    revenue_method: str  # machine value
+    revenue_method_label: str
+    status: str  # machine value
+    status_label: str
+    sold_on: str
+    sold_on_set_when_created: bool
+    revised_contract: str | None  # None: not shown (T&M, pool, no original)
+    revised_contract_note: str | None
+    unapproved_change_orders: str | None
+    eac_in_basis: str | None
+    eac_note: str | None
+    to_confirm: int
+    qbo_linked: bool
+    qbo_names: list[str]
+    attention: list[EstimateIssueOut]
+
+
+class JobsOut(_Out):
+    jobs: list[JobRowOut]
+    total: int
+    to_review: int
+    divisions: list[DivisionChoiceOut]
+    revenue_methods: list[ChoiceOut]
+    statuses: list[ChoiceOut]
+    ledger_items: list[EstimateIssueOut]
+
+
+class JobDetailOut(JobRowOut):
+    notes: str | None
+    created_at: str
+    created_by: str | None
+    estimates: list[JobEstimateOut]
+    aliases: list[JobAliasOut]
+    original_external_id: str | None
+    work_areas: list[JobWorkAreaOut]
+    work_areas_loaded: bool
+    divisions: list[DivisionChoiceOut]
+    revenue_methods: list[ChoiceOut]
+    statuses: list[ChoiceOut]
+
+
+class AttachCandidateOut(_Out):
+    job_id: str
+    job_name: str
+    reasons: list[str]
+    same_customer: bool
+
+
+class ReviewEntryOut(_Out):
+    estimate_id: str
+    external_id: str
+    estimator: str | None
+    client_name: str | None
+    jobsite: str | None
+    name: str
+    price: str
+    estimate_date: str | None
+    division_suggestion_id: str | None
+    division_suggestion_code: str | None
+    candidates: list[AttachCandidateOut]
+    attention: list[EstimateIssueOut]
+
+
+class ReviewOut(_Out):
+    entries: list[ReviewEntryOut]
+    total: int
+    divisions: list[DivisionChoiceOut]
+    roles: list[ChoiceOut]
+
+
+class QboRowOut(_Out):
+    customer_id: str
+    external_id: str
+    display_name: str
+    parent_name: str | None
+    kind_label: str
+    reason: str | None  # None in search results: a person chose it from the list
+
+
+class QboRowsOut(_Out):
+    rows: list[QboRowOut]
+
+
+class DuplicateSideOut(_Out):
+    customer_id: str
+    external_id: str
+    display_name: str
+    billing_count: int
+    payment_count: int
+
+
+class DuplicatePairOut(_Out):
+    code: str
+    message: str
+    a: DuplicateSideOut
+    b: DuplicateSideOut
+
+
+class DuplicatesOut(_Out):
+    pairs: list[DuplicatePairOut]

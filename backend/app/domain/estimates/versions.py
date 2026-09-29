@@ -32,6 +32,12 @@ def _norm(name: str) -> str:
     return " ".join((name or "").split()).casefold()
 
 
+def same_name(a: str, b: str) -> bool:
+    """The comparison ``EST_WORK_AREA_RENUMBERED`` uses (trimmed, whitespace
+    collapsed, case-folded); F07 carries a confirmed kind forward only when it holds."""
+    return _norm(a) == _norm(b)
+
+
 def compare(baseline: Sequence[WorkAreaRow], current: Sequence[WorkAreaRow]) -> Comparison:
     base = {r.order_no: r for r in baseline}
     now = {r.order_no: r for r in current}

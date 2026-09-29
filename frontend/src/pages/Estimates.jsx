@@ -28,7 +28,7 @@ const STATUSES = [
   ["unknown", "Unknown status"],
 ];
 
-export default function Estimates({ me, canUpload, onUpload }) {
+export default function Estimates({ me, canUpload, onUpload, target, onOpenJob, onReview }) {
   const [data, setData] = useState(null);
   const [status, setStatus] = useState("");
   const [estimator, setEstimator] = useState("");
@@ -62,6 +62,11 @@ export default function Estimates({ me, canUpload, onUpload }) {
     setSelected(null); // another company: its own list
   }, [me.active_tenant_id]);
 
+  // F07: a job's detail may open one of its estimates.
+  useEffect(() => {
+    if (target) setSelected(target);
+  }, [target]);
+
   if (selected) {
     return (
       <div>
@@ -71,7 +76,7 @@ export default function Estimates({ me, canUpload, onUpload }) {
           </button>
         </p>
         {error && <p className="error">{error}</p>}
-        {detail ? <Detail d={detail} /> : <p className="hint">Loading…</p>}
+        {detail ? <Detail d={detail} onOpenJob={onOpenJob} onReview={onReview} /> : <p className="hint">Loading…</p>}
       </div>
     );
   }
@@ -201,7 +206,7 @@ function eacWithBurden(t) {
   return formatMoney(t.eac_in_basis);
 }
 
-function Detail({ d }) {
+function Detail({ d, onOpenJob, onReview }) {
   const t = d.totals;
   return (
     <div>
@@ -221,6 +226,25 @@ function Detail({ d }) {
         <dd className="num">{formatMoney(d.price)}</dd>
         <dt>Estimate date</dt>
         <dd>{d.estimate_date || "Not given"}</dd>
+        {(d.job || d.to_review) && (
+          <>
+            <dt>Job</dt>
+            <dd>
+              {d.job ? (
+                <>
+                  <button type="button" className="link-button" onClick={() => onOpenJob(d.job.id)}>
+                    {d.job.name}
+                  </button>{" "}
+                  ({d.job.role_label})
+                </>
+              ) : (
+                <button type="button" className="link-button" onClick={onReview}>
+                  Sold, not yet reviewed
+                </button>
+              )}
+            </dd>
+          </>
+        )}
         <dt>Versions</dt>
         <dd>
           {d.versions}

@@ -80,7 +80,7 @@ The owner is a CPA and the domain expert. When accounting treatment is unclear, 
 - Every screen is legible and usable on a phone. Read-only reports are the priority: a wide table scrolls sideways inside its own container with the first column (job or account) held in place, and the page itself never scrolls sideways. Data-entry and admin screens must work on a phone but are designed for a laptop first.
 
 ## Vocabulary (use these words in code and UI)
-- **Estimate**: a priced proposal from the estimating system. **Job**: the unit we track and report. One job has one or more estimates (roles: original, change_order, ignored).
+- **Estimate**: a priced proposal from the estimating system. **Job**: the unit we track and report. One job has one or more estimates (roles: original, change_order, ignored); a job's ids in other systems are its aliases; matching is by alias, never by name.
 - **Revised contract** = original + approved change orders. **EAC** = estimated total cost at completion. **Cost to date**, **Billed to date**, **Earned revenue**, **Over/(under) billed**, **Backlog**, **Fade/Gain**: as defined in BLUEPRINT §8.2. Do not invent synonyms.
 - **Division**: line of business (LS, EX, GC, SNOW…). **Cost category** (D-23, in slot order): Labor, Labor Burden, Materials, Supplies, Subcontractors, Equipment (owned), Vehicles (owned), Equipment Rental, Equipment Maintenance, Disposal, Fuel, Permits & Bonds, Warranty, Other.
 - **Cost code**: division digit plus cost category slot, e.g. 410 = SNOW Labor. Computed, never stored.

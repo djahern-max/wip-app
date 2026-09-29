@@ -131,6 +131,14 @@ Rules:
 - **Division** comes from the estimate or is set on the job; cost lines whose GL account maps to a *different* division than their job raise a soft warning (mis-coding detector).
 - `revenue_method` gains the value `pool` (D-30, D-31); the values are now `fixed_price`, `time_and_materials`, `recurring_service`, `none`, `pool`. A pool holds shared supplies until month-end allocation; it has no estimate and no contract, and a person sets the value (never inferred from the name).
 
+**As built (F07, 2026-09-29).** Migration 0011; the three tables are tenant-scoped with RLS.
+- `job`: `customer_id` (set by the first QuickBooks link to the linked row's parent, cleared with the last), `name`, `division_id` (required by the API), `revenue_method` (all five values; only `fixed_price` reaches the WIP schedule), `status`, `sold_on` (the original estimate's date, else the day the job was made), `notes`. **No contract column**: the revised contract is computed on read.
+- `job_estimate(job, estimate, role, note)`: an estimate is on at most one job; a job has at most one `original`; a pool has none. **`ignored`** is a sold estimate that is superseded or was sold in error: it stays attached with a required reason so it never returns to the review queue, and it counts for nothing (no price, no change order, no EAC).
+- `job_alias(job, system, external_id)`: systems `lmn_estimate` (written by attaching an estimate, any role) and `qbo_customer` (written by a person's link, the QuickBooks `Customer.Id` of a project, sub-customer or customer). One outside id → one job; a job may hold several QuickBooks rows. `lmn_job` waits for a source.
+- `estimate_work_area.kind` (+ who, when): NULL until a person confirms original or change order on the job's original estimate; a new version carries the confirmation to the row with the same order number and name.
+- Revised contract = Σ kept work areas confirmed original on the original estimate (its header price when it has no work areas loaded). Change orders (confirmed on the original, or every kept work area of an estimate attached as `change_order`) are shown unapproved until the sign-off feature. EAC = Σ of the attached estimates' EAC in the basis, `ignored` excluded. T&M: no revised contract (D-24); pool: no contract, no EAC (D-30).
+- Suggestions (never decisions): attach candidates *same customer* / *by client name only* / *by name only*; QuickBooks candidates *estimate id in name* / *customer name* / *address* (exact token rules, `app/domain/jobs/names.py`), plus a search by name from which a person links by id. Customer duplicates are a read-only list; they are merged in QuickBooks.
+
 ---
 
 ## 6. Ingestion design
@@ -273,16 +281,18 @@ All reports: on-screen, XLSX, PDF. XLSX exports contain values, not float artifa
 |---|---|---|
 | `EST_NO_ID` | Imported estimate lacks an external id (Mijal) | warn |
 | `EST_ZERO_SOLD` | Sold estimate with $0 price | warn |
-| `EST_UNATTACHED` | Sold estimate not attached to a job | block-close |
+| `EST_UNATTACHED` | Sold estimate not attached to a job (F07: the review queue; the brief's `EST_SOLD_UNREVIEWED`) | block-close |
 | `EST_NO_COST` | Sold estimate without cost breakdown (cannot enter WIP) | block-close for fixed-price |
-| `JOB_NO_LEDGER_LINK` | Job has no QBO project/customer | block-close |
-| `LEDGER_PROJECT_NO_JOB` | QBO project has activity, no job | block-close |
+| `JOB_NO_LEDGER_LINK` | Open job has no QBO project/customer (F07; the brief's `JOB_NO_QBO_LINK`) | block-close |
+| `LEDGER_PROJECT_NO_JOB` | Active QBO project or sub-customer has a billing or payment row, no job (F07; the brief's `QBO_PROJECT_NO_JOB`) | block-close |
+| `JOB_SECOND_ESTIMATE_FOR_CUSTOMER` | Sold estimate to review whose customer already has a job, by project id or client name (F07, D-03) | warn |
+| `JOB_DIVISION_UNSET` | Job with no division (F07; only data made outside the review) | warn |
 | `COST_UNASSIGNED` | In-job-cost GL line with no job | warn, totals shown on tie-out |
 | `COST_DIVISION_MISMATCH` | Line's account division ≠ job division | warn |
 | `BILLED_OVER_CONTRACT` | Billed > revised contract (likely missing change order) | warn |
 | `COST_OVER_EAC` | Cost to date > EAC | block-close until EAC revised |
 | `EAC_STALE` | Job > X% complete or > N days since EAC review | warn |
-| `CUSTOMER_FUZZY` | Possible duplicate or mismatch (Hosmer/Hossler) | info |
+| `CUSTOMER_FUZZY` | Possible duplicate or mismatch (Hosmer/Hossler); F07: the read-only Customers list, exact token rules | info |
 | `LABOR_NO_JOB` / `LABOR_NO_RATE` | Timesheet row unmatched to job or employee rate | warn |
 | `PRIOR_PERIOD_CHANGED` | Source data dated in an approved period changed | warn, shows delta |
 | `WARRANTY_REVENUE` | Warranty-type job has billings | info |
@@ -352,8 +362,8 @@ This is the work that makes the tool possible, and it is valuable even if the to
 - [ ] Are crews clocking to **jobs** in LMN Crew, or just clocking in/out? If not to jobs, labor job costing has no source, and fixing that is an operations project, not a software one.
 
 ### 13.2 One QBO project per sold job
-- [ ] Naming convention with the LMN id in it: `6366990 Turley - E Dunbarton Rd`. Deterministic matching forever. Exception (D-30): a supplies pool is named `Pool - <group>` (as spelled in QuickBooks, with a hyphen: `Pool - Hydroseed`; D-30 wrote an en dash, and matching is by id) under a customer of the same name, since it has no estimate.
-- [ ] Create projects for the 16 sold estimates. Decide Turley (one job or two) and DeVellis/Mukherjee (attach the $998.71 as a change order when sold).
+- [ ] Naming convention with the LMN id in it: `6366990 Turley - E Dunbarton Rd`. Deterministic matching forever. Both spellings are accepted, `6366990 …` and `EST6366990 …`: the id first, followed by a non-digit (F07 suggests the project on that rule; the link itself is a person's, by id). Exception (D-30): a supplies pool is named `Pool - <group>` (as spelled in QuickBooks, with a hyphen: `Pool - Hydroseed`; D-30 wrote an en dash, and matching is by id) under a customer of the same name, since it has no estimate.
+- [ ] Create projects for the 16 sold estimates (D-03: 16 jobs). Turley is two projects, `6366990 Turley - 378 E Dunbarton Rd` and `6120638 Turley - Landscape Projects 2026`; DeVellis/Mukherjee is one project, `6346291 …`, and EST6281138 ($998.71) is attached to its job as a change order when it sells.
 - [ ] Re-tag this year's invoices, payments, bills, and expenses for those jobs to their project. This is the backfill that gives the tool history.
 
 ### 13.3 Ramp, built the way you want it
@@ -397,7 +407,7 @@ For the 16 sold jobs, from QBO: first invoice date/amount, payments applied, tot
 |---|---|---|
 | D-01 | Who creates the QBO project when a job sells: a person, LMN's sync, or (later) this tool? | Person, using the naming convention, until volume hurts. |
 | D-02 | Deposits: through income with WIP deferral, or a deposit liability? | Through income (§8.6). |
-| D-03 | Turley: one job or two? General rule for multi-estimate customers? | One job per distinct scope/site that management tracks as a unit; phases as change orders only if priced against the same budget. |
+| D-03 | Turley: one job or two? General rule for multi-estimate customers? | Closed by D-03 (2026-09-27): one job per sold estimate unless a person attaches it to an existing job as a change order; Turley is two jobs, DeVellis/Mukherjee one. Applied by F07. |
 | D-04 | Owned equipment and fuel in the WIP cost basis? | **Exclude from both sides in v1**; show as memo. Revisit once equipment hours by job are reliable, then include on both sides using internal rates. Never include on one side only. |
 | D-05 | Labor burden policy: which costs, one rate or per division, reviewed how often? | Closed by D-05 (2026-09-27): taxes + workers' comp at the assigned class + employer share of benefits; one effective-dated rate per division, applied to both sides; reviewed quarterly with the WC-to-941 tie-out. Applied on estimates by F06.1. |
 | D-06 | Labor rate: actual employee rate, or crew average? | Actual, with division average as fallback when a rate is missing. |

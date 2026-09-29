@@ -47,6 +47,7 @@ class Route:
 
 
 _BURDEN_YEARS = itertools.count(2100)
+_NO_JOB = uuid.uuid4()  # F07: a job id no tenant has
 
 
 def _burden_period() -> dict:
@@ -132,6 +133,69 @@ def _routes() -> list[Route]:
             "GET",
             f"/api/estimates/{uuid.uuid4()}",
             ALL,
+            also_ok=frozenset({404}),
+        ),
+        # F07: jobs are read by every role; writes by the roles that upload. A job id
+        # that does not exist in tenant A is 404 for a role the guard let through, so
+        # no cell changes data. The duplicates list is for the same three roles.
+        Route("GET", "/api/jobs", ALL),
+        Route("GET", "/api/jobs/review", ALL),
+        Route("GET", f"/api/jobs/{_NO_JOB}", ALL, also_ok=frozenset({404})),
+        Route("GET", f"/api/jobs/{_NO_JOB}/qbo-candidates", ALL, also_ok=frozenset({404})),
+        Route("GET", f"/api/jobs/{_NO_JOB}/qbo-search?q=a", ALL, also_ok=frozenset({404})),
+        Route("GET", "/api/customers/duplicates", frozenset({FA, FS, CA})),
+        Route(
+            "POST",
+            "/api/jobs",
+            frozenset({FA, FS, CA}),
+            body=lambda: {"estimate_id": str(uuid.uuid4()), "division_id": str(uuid.uuid4())},
+            also_ok=frozenset({404}),
+        ),
+        Route(
+            "POST",
+            "/api/jobs/pool",
+            frozenset({FA, FS, CA}),
+            body=lambda: {"name": "Matrix pool", "division_id": str(uuid.uuid4())},
+            also_ok=frozenset({422}),
+        ),
+        Route(
+            "PATCH",
+            f"/api/jobs/{_NO_JOB}",
+            frozenset({FA, FS, CA}),
+            body=lambda: {"notes": "matrix"},
+            also_ok=frozenset({404}),
+        ),
+        Route(
+            "POST",
+            f"/api/jobs/{_NO_JOB}/estimates",
+            frozenset({FA, FS, CA}),
+            body=lambda: {"estimate_id": str(uuid.uuid4()), "role": "change_order"},
+            also_ok=frozenset({404}),
+        ),
+        Route(
+            "DELETE",
+            f"/api/jobs/{_NO_JOB}/estimates/{uuid.uuid4()}",
+            frozenset({FA, FS, CA}),
+            also_ok=frozenset({404}),
+        ),
+        Route(
+            "POST",
+            f"/api/jobs/{_NO_JOB}/aliases",
+            frozenset({FA, FS, CA}),
+            body=lambda: {"system": "qbo_customer", "external_id": "matrix"},
+            also_ok=frozenset({404}),
+        ),
+        Route(
+            "DELETE",
+            f"/api/jobs/{_NO_JOB}/aliases/{uuid.uuid4()}",
+            frozenset({FA, FS, CA}),
+            also_ok=frozenset({404}),
+        ),
+        Route(
+            "POST",
+            f"/api/jobs/{_NO_JOB}/work-areas/{uuid.uuid4()}/kind",
+            frozenset({FA, FS, CA}),
+            body=lambda: {"kind": "original"},
             also_ok=frozenset({404}),
         ),
         Route("GET", "/api/admin/users", frozenset({FA})),

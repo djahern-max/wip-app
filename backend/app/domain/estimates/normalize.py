@@ -39,7 +39,7 @@ from app.domain.config.categories import ensure_cost_categories
 from app.domain.config.models import CostCategory, Division
 from app.domain.estimates.models import Estimate, EstimateCost, EstimateVersion, EstimateWorkArea
 from app.domain.estimates.names import suggests_change_order
-from app.domain.estimates.versions import WorkAreaRow, new_orders_flagged
+from app.domain.estimates.versions import WorkAreaRow, new_orders_flagged, same_name
 from app.ingest.models import ImportBatch, RawRecord
 from app.ingest.raw import latest_raw
 from app.worker.registry import task
@@ -313,8 +313,12 @@ def _make_version(
     ]
     rows = new_orders_flagged(baseline_rows, rows)
     notes = {int(r["order"]): r.get("notes") for r in rows_in}
+    confirmed = _confirmed_kinds(db, est.id, before=version.version_no) if rows else {}
     areas: dict[int, EstimateWorkArea] = {}
     for r in rows:
+        kept_kind = confirmed.get(r.order_no)
+        if kept_kind is not None and not same_name(kept_kind.name, r.name):
+            kept_kind = None  # renamed at this order (EST_WORK_AREA_RENUMBERED): dropped
         w = EstimateWorkArea(
             tenant_id=tenant_id,
             estimate_version_id=version.id,
@@ -324,6 +328,9 @@ def _make_version(
             change_order_suggested=r.change_order_suggested,
             price=r.price,
             notes=(notes.get(r.order_no) or None),
+            kind=kept_kind.kind if kept_kind else None,
+            kind_confirmed_by=kept_kind.kind_confirmed_by if kept_kind else None,
+            kind_confirmed_at=kept_kind.kind_confirmed_at if kept_kind else None,
         )
         db.add(w)
         areas[r.order_no] = w
@@ -374,6 +381,25 @@ def _make_version(
             (previous or version).is_baseline = True
     db.flush()
     return version
+
+
+def _confirmed_kinds(db: Session, estimate_id: UUID, *, before: int) -> dict[int, EstimateWorkArea]:
+    """F07 (D-01; owner's answer 8): the confirmed work-area kinds on the previous
+    version with work areas, by order number. The caller carries one forward only to
+    a row with the same order number **and** name; a renamed or new row starts
+    unconfirmed. Nothing is carried from any older version."""
+    previous = _latest_with_work_areas(db, estimate_id, before=before)
+    if previous is None:
+        return {}
+    return {
+        w.order_no: w
+        for w in db.execute(
+            select(EstimateWorkArea).where(
+                EstimateWorkArea.estimate_version_id == previous.id,
+                EstimateWorkArea.kind.is_not(None),
+            )
+        ).scalars()
+    }
 
 
 def _latest_with_work_areas(

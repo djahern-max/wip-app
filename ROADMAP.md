@@ -75,9 +75,9 @@ An addition after F05.1; nothing moved. One image is the brand: `frontend/public
 A patch to F06 (nothing moved). Labor burden on estimates as D-05 and D-34 define it: per kept, priced work area and division, slot-10 lines × the rate in force on the estimate date, quantized half up; computed on read and never written; the detail shows cost as estimated and with burden side by side and EAC in the WIP basis burdened; `EST_BURDEN_LINE`, `EST_NO_BURDEN_RATE`, `EST_NO_BURDEN_DATE`. Configuration lists hide inactive rows behind "Show inactive (n)"; Imports opens on "Choose a source".
 **Accept**: 67 Elm Street on EX 0.1959: burden 6,383.50, as-estimated total 315,832.69, with burden 322,216.19, EAC in the WIP basis 293,017.70 beside the as-estimated 286,634.20; Turley 0.00; the all-LS copy 6,960.29 and 293,594.49; a date before any rate leaves EAC not computed; a slot-20 line is shown as estimated and excluded from EAC; nothing is written on read.
 
-### F07 · Job spine & crosswalk  ☐
-`job`, `job_alias`, `job_estimate` with roles; "sold estimate → new job or attach as change order" review screen; link job ↔ QBO project with fuzzy suggestions (id-in-name first, then customer + address similarity); customer merge suggestions.
-**Accept**: the 16 sold estimates resolve to the agreed job list; Turley and DeVellis cases handled per D-03; every link and unlink is in the audit log; no automatic attachment without confirmation.
+### F07 · Job spine & crosswalk  ◐ (built 2026-09-29; the owner's pass on jobcost.dev is open, and needs P0-1)
+`job`, `job_alias`, `job_estimate` with roles (migration 0011); the review screen for sold estimates (new job or attach with a role); the work-area kind confirmed by a person (D-01) and the revised contract, unapproved change orders and EAC computed on read; linking a job to QuickBooks rows by id from labelled suggestions (estimate id in name, then customer name and address; exact token rules) or a search; review items `EST_UNATTACHED`, `JOB_NO_LEDGER_LINK`, `LEDGER_PROJECT_NO_JOB`, `JOB_SECOND_ESTIMATE_FOR_CUSTOMER`, `JOB_DIVISION_UNSET`; a read-only customer duplicates list. Nothing written to QuickBooks. Brief: `docs/briefs/F07.md`.
+**Accept**: the 16 sold estimates resolve to the agreed job list; Turley and DeVellis cases handled per D-03; every link and unlink is in the audit log; no automatic attachment without confirmation. Detail in the brief.
 
 ### F08 · Sold Jobs Board & Job Detail (billing side)  ☐
 Reports 1 and 2 from §9, billing half only. Deposit identification per tenant policy. XLSX/PDF export.

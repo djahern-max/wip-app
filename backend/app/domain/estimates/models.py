@@ -13,7 +13,8 @@ and forced in migration 0010. Money is ``NUMERIC(14,2)``, hours ``NUMERIC(9,2)``
   question 11): the first version with work areas received while the estimate is
   sold, or the latest such version when a later upload marks it sold.
 - ``estimate_work_area``: per version, identity ``order_no`` (the "#n" of D-26).
-  Its cost is the sum of its cost lines, computed, never stored.
+  Its cost is the sum of its cost lines, computed, never stored. F07 adds the
+  confirmed ``kind`` (D-01).
 - ``estimate_cost``: one row per cost code under a work area (same-code lines are
   summed at parse). The code resolves to ``(division, cost_category)`` through the
   F04 grid; an unknown code keeps its text with both ids NULL.
@@ -48,6 +49,13 @@ STATUS_NORM_CHECK_SQL = "status_norm IS NULL OR status_norm IN ('pending','sold'
 # The one status → label mapping (D-22). An unknown word is shown as received.
 STATUS_LABELS: dict[str, str] = {"pending": "Pending", "sold": "Sold", "lost": "Lost"}
 BASELINE_INDEX = "uq_estimate_version_baseline"
+WORK_AREA_KINDS: tuple[str, ...] = ("original", "change_order")
+WORK_AREA_KIND_CHECK = "ck_estimate_work_area_kind"
+WORK_AREA_KIND_CHECK_SQL = (
+    "(kind IS NULL AND kind_confirmed_by IS NULL AND kind_confirmed_at IS NULL) "
+    "OR (kind IN ('original','change_order') AND kind_confirmed_by IS NOT NULL "
+    "AND kind_confirmed_at IS NOT NULL)"
+)
 MONEY = Numeric(14, 2)
 HOURS = Numeric(9, 2)
 
@@ -133,6 +141,7 @@ class EstimateWorkArea(Base):
         UniqueConstraint(
             "tenant_id", "estimate_version_id", "order_no", name="uq_estimate_work_area_order"
         ),
+        CheckConstraint(WORK_AREA_KIND_CHECK_SQL, name=WORK_AREA_KIND_CHECK),
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
@@ -144,6 +153,12 @@ class EstimateWorkArea(Base):
     change_order_suggested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     price: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
     notes: Mapped[str | None] = mapped_column(String(2000))
+    # F07 (D-01): a person's confirmation of the work area's kind; all three NULL until
+    # then (the suggestion is computed on read from ``change_order_suggested``). A new
+    # version carries it to the row with the same order number and name (normalize).
+    kind: Mapped[str | None] = mapped_column(String(20))
+    kind_confirmed_by: Mapped[uuid.UUID | None] = _fk("user.id")
+    kind_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class EstimateCost(Base):

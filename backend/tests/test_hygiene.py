@@ -442,11 +442,17 @@ def test_json_loads_appears_only_in_the_codec_and_always_with_parse_float() -> N
 
 
 def test_no_float_conversion_on_ingestion_paths() -> None:
-    """No ``float(`` call in the modules that carry payloads."""
+    """No ``float(`` call in the modules that carry payloads or the contract figures."""
     hits = []
     for rel, src in _app_sources():
         if rel.startswith(
-            ("app/ingest/", "app/worker/", "app/core/jsoncodec.py", "app/integrations/")
+            (
+                "app/ingest/",
+                "app/worker/",
+                "app/core/jsoncodec.py",
+                "app/integrations/",
+                "app/domain/jobs/",  # F07: the contract path
+            )
         ):
             for m in re.finditer(r"(?<![\w.])float\(", src):
                 hits.append(f"{rel}:{src.count(chr(10), 0, m.start()) + 1}")

@@ -638,6 +638,93 @@ The per-estimate sentences are computed when the estimate is read (pure generato
 `app/domain/estimates/exceptions.py`); F09 persists them. File-level ones live on the
 batch.
 
+## Jobs (F07, D-03)
+
+A **job** is the unit everything after F07 reports on. It carries its estimates (each
+with a role) and its **aliases**: the ids other systems know it by. Matching is by alias,
+never by name. Names, addresses and jobsites only produce labelled suggestions; a person
+makes every job, attachment and link, and each one writes one audit row naming the rows
+it touched. Nothing is ever written to QuickBooks.
+
+### Reviewing sold estimates
+Jobs → **Review sold estimates (n)** shows every Sold estimate that is on no job, one at a
+time (pending and lost estimates never appear). Roles `firm_admin`, `firm_staff`,
+`client_admin` act; every role can read.
+- **New job** (the default, D-03): choose the division (the one carrying the most
+  estimated cost is preselected; an estimate without cost lines suggests none, and a job
+  needs one), keep or change the name. The job starts Sold, fixed price, and takes the
+  estimate as its `original` plus the alias `lmn_estimate` = the estimate id.
+- **Attach** to a job, with a role: `change_order` (an addition to that job's scope that
+  the customer treats as one contract, D-03) or `ignored` (superseded or sold in error; a
+  reason in the note is required; it never returns to the queue and counts for nothing).
+  `original` is accepted only by a job that has none. Suggested jobs are listed first
+  with the reason: *same customer* (a QuickBooks project named with this estimate's id
+  belongs to that job's customer), *by client name only*, *by name only* (same jobsite or
+  estimate name). Any other job can be chosen from the list. A pool never takes an
+  estimate.
+- **Skip** moves to the next estimate and writes nothing.
+- **Detach** (on the job) returns an estimate to the queue and removes its estimate id
+  from the job. The original cannot be detached while other estimates are attached.
+
+The rule the reviewer applies (D-03): one job per distinct scope that management tracks
+as a unit, priced against its own budget, billed on its own. Turley is two jobs;
+DeVellis/Mukherjee is one job with EST6281138 attached as a change order once it sells.
+
+### Work-area kinds and the contract figures (D-01)
+On the job detail, each kept work area of the original estimate shows its kind:
+*suggested* (from the "CO:" / "C/O" name prefix or from appearing after the baseline)
+until someone confirms it as Original or Change order. Figures are computed each time
+the job is read, never stored:
+- **Revised contract**: the kept work areas confirmed as original. Nothing counts before
+  it is confirmed ("n work areas to confirm" shows beside it). An original estimate with
+  no work areas loaded counts its price ("No work areas loaded").
+- **Unapproved change orders**: work areas confirmed as change orders, and every kept
+  work area of an estimate attached as a change order (its price when it has no work
+  areas). They stay outside the contract until the sign-off feature approves them.
+- **EAC in the WIP basis**: the sum of each attached estimate's own figure (burdened,
+  F06.1), ignored estimates excluded; "Not computed" if any of them is not computed.
+- Time and materials: no revised contract (D-24). Pool: no contract and no EAC (D-30).
+
+A confirmation survives a re-upload when the work area keeps both its order number and
+its name; a renamed or new work area is suggested again and needs confirming.
+
+### Linking a job to QuickBooks
+The job detail's QuickBooks section lists **suggested rows**, each with why:
+*estimate id in name* (the §13.2 convention: `6366990 …` or `EST6366990 …`), *customer
+name* (the row's customer matches the estimate's client once generic words such as
+"client", "LLC", "Inc", "and" are dropped), *address* (a street number and street name in
+both; compass words are skipped, so "378 East Dunbarton" matches "378 E Dunbarton"),
+*customer name and address*. Suggestions come from active projects and sub-customers not
+yet linked. For anything else (a pool, a project named without the id), **search** by
+name: any active, unlinked QuickBooks row. **Link** is made by the row's id; the job's
+customer becomes the row's parent (or the row itself when it has none). A job may have
+several QuickBooks rows; one QuickBooks row belongs to at most one job (a second link is
+refused: unlink it from the other job first). **Unlink** removes the link; unlinking the
+last one clears the job's customer.
+
+Pools (D-30): Jobs → New pool job (name, division); link it to the `Pool - <group>`
+project found by search.
+
+### Possible duplicate customers
+Customers (roles `firm_admin`, `firm_staff`, `client_admin`) lists pairs of active
+top-level QuickBooks customers whose names have the same words once punctuation, "and",
+"&" and suffixes are dropped, or differ by one word (a first name), with each one's
+invoice and payment counts. Merge them in QuickBooks; the platform follows on the next
+sync. Nothing on the page writes anything. (Before trusting links across a merge, check
+what QuickBooks sends after one: F05.1 Discovered.)
+
+### What each message means
+| Code (in the API; never shown alone) | The sentence says | What to do |
+|---|---|---|
+| `EST_UNATTACHED` | A sold estimate is on no job, with how long it has been sold. | Review it: new job or attach. |
+| `JOB_SECOND_ESTIMATE_FOR_CUSTOMER` | A sold estimate's customer already has a job (by project id or by client name). | Decide per D-03: new job for separate scope, attach as a change order for an addition. |
+| `JOB_NO_LEDGER_LINK` | An open job has no QuickBooks link, so its billing cannot be read. | Link its project; create the project in QuickBooks first if needed (§13.2). |
+| `LEDGER_PROJECT_NO_JOB` | An active QuickBooks project or sub-customer has invoices or payments and no job. | Link it to its job, or make the job first. |
+| `JOB_DIVISION_UNSET` | A job has no division (only for data made outside the review). | Set the division on the job. |
+| `CUSTOMER_FUZZY` | Two customers look like one (Customers page). | Merge in QuickBooks. |
+
+The review items are computed when read (`app/domain/jobs/issues.py`); F09 persists them.
+
 ## QuickBooks connection (F05)
 
 Built against the Intuit **sandbox** only (D-25). The sandbox company is connected to its own

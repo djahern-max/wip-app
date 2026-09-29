@@ -78,6 +78,11 @@ can_manage_connections = require_roles(Role.firm_admin)
 can_view_connections = require_roles(*FIRM_AND_CLIENT_ADMIN)
 # F06: every role reads estimates; uploading them is can_manage_imports.
 can_view_estimates = require_roles(*ALL_ROLES)
+# F07: every role reads jobs; creating, attaching, linking and confirming are for the
+# roles that upload; the customer duplicates list is for them too (owner's answer 22).
+can_view_jobs = require_roles(*ALL_ROLES)
+can_manage_jobs = require_roles(*FIRM_AND_CLIENT_ADMIN)
+can_view_customer_duplicates = require_roles(*FIRM_AND_CLIENT_ADMIN)
 # Firm-level (no active tenant needed)
 can_manage_users = require_firm_role(Role.firm_admin)
 can_manage_memberships = require_firm_role(Role.firm_admin)
@@ -106,6 +111,13 @@ CAPABILITIES: dict[str, tuple[Guard, frozenset[Role], str]] = {
     "manage_connections": (can_manage_connections, frozenset({Role.firm_admin}), "tenant"),
     "view_connections": (can_view_connections, frozenset(FIRM_AND_CLIENT_ADMIN), "tenant"),
     "view_estimates": (can_view_estimates, frozenset(ALL_ROLES), "tenant"),
+    "view_jobs": (can_view_jobs, frozenset(ALL_ROLES), "tenant"),
+    "manage_jobs": (can_manage_jobs, frozenset(FIRM_AND_CLIENT_ADMIN), "tenant"),
+    "view_customer_duplicates": (
+        can_view_customer_duplicates,
+        frozenset(FIRM_AND_CLIENT_ADMIN),
+        "tenant",
+    ),
     "manage_users": (can_manage_users, frozenset({Role.firm_admin}), "firm"),
     "manage_memberships": (can_manage_memberships, frozenset({Role.firm_admin}), "firm"),
     "manage_firm_memberships": (

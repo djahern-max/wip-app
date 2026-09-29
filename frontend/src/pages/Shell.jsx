@@ -4,8 +4,10 @@ import { PRODUCT_NAME, SUPPORT_EMAIL } from "../product.js";
 import Logo from "../Logo.jsx";
 import Config from "./Config.jsx";
 import Connections from "./Connections.jsx";
+import Customers from "./Customers.jsx";
 import Estimates from "./Estimates.jsx";
 import Imports from "./Imports.jsx";
+import Jobs from "./Jobs.jsx";
 
 // Roles with can_manage_imports and can_view_tenant_config (app/core/authz.py). The
 // server enforces them; this only decides whether to show the links. Estimates (F06)
@@ -13,6 +15,8 @@ import Imports from "./Imports.jsx";
 const IMPORT_ROLES = ["firm_admin", "firm_staff", "client_admin"];
 const CONFIG_ROLES = ["firm_admin", "firm_staff", "client_admin"];
 const CONNECTION_ROLES = ["firm_admin", "firm_staff", "client_admin"]; // can_view_connections
+// F07: every role reads jobs; can_manage_jobs and can_view_customer_duplicates are these.
+const JOB_MANAGER_ROLES = ["firm_admin", "firm_staff", "client_admin"];
 
 // QuickBooks sends the browser back to /connections?result=… (F05). Read it once,
 // open that screen, and clear the address so a refresh does not repeat the message.
@@ -31,11 +35,31 @@ export default function Shell({ me, onChanged, onLogout }) {
   const [error, setError] = useState(null);
   const [returned, setReturned] = useState(returnedFromQuickBooks);
   const [view, setView] = useState(returned ? "connections" : "home");
+  // F07: what another screen asked to open (a job, the review queue, an estimate).
+  const [jobTarget, setJobTarget] = useState(null);
+  const [estimateTarget, setEstimateTarget] = useState(null);
 
   // Leaving a screen forgets the message QuickBooks came back with.
   function go(next) {
     setReturned(null);
+    setJobTarget(null);
+    setEstimateTarget(null);
     setView(next);
+  }
+
+  function openJob(jobId) {
+    go("jobs");
+    setJobTarget({ view: "detail", jobId });
+  }
+
+  function openReview() {
+    go("jobs");
+    setJobTarget({ view: "review" });
+  }
+
+  function openEstimate(estimateId) {
+    go("estimates");
+    setEstimateTarget(estimateId);
   }
 
   useEffect(() => {
@@ -59,6 +83,7 @@ export default function Shell({ me, onChanged, onLogout }) {
   const canImport = Boolean(active) && IMPORT_ROLES.includes(me.role);
   const canConfig = Boolean(active) && CONFIG_ROLES.includes(me.role);
   const canConnections = Boolean(active) && CONNECTION_ROLES.includes(me.role);
+  const canManageJobs = Boolean(active) && JOB_MANAGER_ROLES.includes(me.role);
 
   return (
     <div>
@@ -90,6 +115,14 @@ export default function Shell({ me, onChanged, onLogout }) {
             <button type="button" className="link-button" onClick={() => go("estimates")}>
               Estimates
             </button>
+            <button type="button" className="link-button" onClick={() => go("jobs")}>
+              Jobs
+            </button>
+            {canManageJobs && (
+              <button type="button" className="link-button" onClick={() => go("customers")}>
+                Customers
+              </button>
+            )}
             {canImport && (
               <button type="button" className="link-button" onClick={() => go("imports")}>
                 Imports
@@ -116,7 +149,18 @@ export default function Shell({ me, onChanged, onLogout }) {
       <main className="main">
         {error && <p className="error">{error}</p>}
         {active && view === "estimates" ? (
-          <Estimates me={me} canUpload={canImport} onUpload={() => go("imports")} />
+          <Estimates
+            me={me}
+            canUpload={canImport}
+            onUpload={() => go("imports")}
+            target={estimateTarget}
+            onOpenJob={openJob}
+            onReview={openReview}
+          />
+        ) : active && view === "jobs" ? (
+          <Jobs me={me} canManage={canManageJobs} target={jobTarget} onOpenEstimate={openEstimate} />
+        ) : active && view === "customers" && canManageJobs ? (
+          <Customers me={me} />
         ) : active && view === "imports" && canImport ? (
           <Imports me={me} />
         ) : active && view === "config" && canConfig ? (

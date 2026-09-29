@@ -15,6 +15,20 @@ Newest first. One entry per closed feature or decision. Format:
 
 ---
 
+## 2026-09-29 · F07 · Job spine & crosswalk
+**What**: The job spine (BLUEPRINT §5). Migration 0011 adds `job` (`revenue_method` with the five D-31 values, `status`, `division_id`, `customer_id`, `sold_on`, no contract column), `job_estimate` (role `original` / `change_order` / `ignored`; one job per estimate, at most one original per job, a note required for `ignored`) and `job_alias` (`lmn_estimate`, `qbo_customer`; one outside id → one job, several QuickBooks rows per job), all tenant-scoped with RLS; and `estimate_work_area.kind` with who and when, NULL until a person confirms. `app/domain/jobs/`: pure `names` (the exact token rules), `suggest` (division by most cost, attach candidates *same customer* / *by client name only* / *by name only*, QuickBooks candidates *estimate id in name* / *customer name* / *address*), `contract` (revised contract = kept work areas confirmed original on the original estimate, its header price when it has no work areas; unapproved change orders; EAC as the sum of the attached estimates' F06.1 figures), `issues`, `duplicates`; `service` for reads and the write actions. API under `/api/jobs` (list, review queue, detail, create from an estimate, pool, PATCH, attach, detach, QuickBooks candidates and search, link, unlink, confirm a kind) and `/api/customers/duplicates`; the estimate detail gains the job it is on. Screens: Jobs, Review sold estimates, Job detail, Customers (duplicates); a "Job:" line on the estimate detail.
+**Why**: D-03 (one job per sold estimate unless a person attaches it) and §5 (matching by id through aliases). Names only suggest; a person makes every job, attachment and link; each action writes one audit row naming the rows it touched; reads write none.
+**Normalizer change (F06, owner's answer 8)**: `estimates.normalize` now carries a confirmed work-area kind to the new version's row with the same order number and name (`versions.same_name`, the `EST_WORK_AREA_RENUMBERED` comparison); a renamed or new row starts unconfirmed.
+**Codes (owner's answer 18)**: BLUEPRINT §10 names where §10 has one: `EST_UNATTACHED` (the brief's `EST_SOLD_UNREVIEWED`), `JOB_NO_LEDGER_LINK` (`JOB_NO_QBO_LINK`), `LEDGER_PROJECT_NO_JOB` (`QBO_PROJECT_NO_JOB`), `CUSTOMER_FUZZY` (the duplicates list); new: `JOB_SECOND_ESTIMATE_FOR_CUSTOMER`, `JOB_DIVISION_UNSET`.
+**Figures**: 67 Elm Street: revised contract 0.00 and "20 work areas to confirm" until kinds are confirmed; 465,469.59 with 1–16 confirmed original, 9,660.09 unapproved with 18–21 confirmed; EAC in the basis 293,017.70 throughout. DeVellis: 39,032.44 from the header price, 998.71 unapproved once EST6281138 is attached.
+**Migrations**: 0011 (reversible; the downgrade drops the three tables and the three columns, and the guard refuses `wip`).
+**Tests**: 745 backend and 38 frontend. New `test_job_domain.py` (pure), `test_job_review.py`, `test_job_contract.py`, `test_job_qbo_link.py` over the Rye Beach estimate fixtures loaded in production order and synthetic QuickBooks customers built in the test (`tests/job_helpers.py`); `test_rls.py`, `test_migrations.py`, `test_roles.py` (three capabilities, twelve routes), `test_hygiene.py` (float scan covers `app/domain/jobs/`) and `test_delete_tenant.py` extended; `frontend/src/jobs.test.js`.
+**Decisions referenced / made**: D-01, D-03, D-04, D-05, D-22, D-23, D-24, D-30, D-31, D-34. None made; the owner's answers to the Plan are in `docs/briefs/F07.md`, with two build notes for the owner (compass words in the address rule; `LEDGER_PROJECT_NO_JOB` on active rows only).
+**Dependencies added**: none.
+**Follow-ups**: the owner's pass on jobcost.dev (after P0-1). Discovered: F06's blank-cell-clears-field question; the F05.1 customer-merge check before links are trusted across a merge.
+
+---
+
 ## 2026-09-29 · F06.1 · close-out
 **What**: The owner's pass on jobcost.dev reported done: the last criterion ticked in `docs/briefs/F06.1.md`, ROADMAP F06.1 ☑, the live stub says F06.1 is closed and points at F07. **Migrations**: none. **Decisions referenced / made**: none. **Dependencies added**: none.
 

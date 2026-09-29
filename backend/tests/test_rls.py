@@ -20,6 +20,7 @@ from app.domain.config.models import (
     TenantPolicy,
 )
 from app.domain.estimates.models import Estimate, EstimateCost, EstimateVersion, EstimateWorkArea
+from app.domain.jobs.models import Job, JobAlias, JobEstimate
 from app.ingest.models import Connection, ImportBatch, RawRecord, SyncRun
 from app.tenancy import catalog
 from app.tenancy.models import Membership, RlsProbe, Role
@@ -39,6 +40,7 @@ def _tenant_tables(engine: Engine) -> list[str]:
 F03_TABLES = ("connection", "sync_run", "import_batch", "raw_record", "task")
 F05_TABLES = ("customer", "billing", "billing_line", "payment", "payment_application")
 F06_TABLES = ("estimate", "estimate_version", "estimate_work_area", "estimate_cost")
+F07_TABLES = ("job", "job_estimate", "job_alias")
 F04_TABLES = (
     "division",
     "cost_category",
@@ -60,6 +62,7 @@ def test_every_tenant_table_is_enumerated(migrated_db: None, owner_engine: Engin
         *F04_TABLES,
         *F05_TABLES,
         *F06_TABLES,
+        *F07_TABLES,
     }
 
 
@@ -416,6 +419,44 @@ def test_f06_tables_read_zero_rows_of_another_tenant(
         "estimate_work_area": EstimateWorkArea,
         "estimate_cost": EstimateCost,
     }[table]
+    with tenant_session(rw_engine, seed.tenant_a) as s:
+        orm_tenants = {r.tenant_id for r in s.execute(select(model)).scalars()}
+        raw = s.execute(
+            text(f'SELECT count(*) FROM "{table}" WHERE tenant_id = :b'), {"b": seed.tenant_b}
+        ).scalar_one()
+    assert seed.tenant_b not in orm_tenants and raw == 0
+    with tenant_session(rw_engine, seed.tenant_b) as s:
+        assert s.execute(text(f'SELECT count(*) FROM "{table}"')).scalar_one() >= 1
+
+
+def _seed_f07_rows(owner_engine: Engine, tenant_id: uuid.UUID, marker: str) -> None:
+    """One row per F07 table in ``tenant_id`` (as the owner, with context), on top of
+    one F06 estimate."""
+    _seed_f06_rows(owner_engine, tenant_id, marker)
+    with tenant_session(owner_engine, tenant_id) as s:
+        est = s.execute(select(Estimate).where(Estimate.external_id == marker)).scalar_one()
+        job = Job(
+            tenant_id=tenant_id,
+            name=marker,
+            revenue_method="fixed_price",
+            status="sold",
+            sold_on=date(2026, 9, 29),
+        )
+        s.add(job)
+        s.flush()
+        s.add(JobEstimate(tenant_id=tenant_id, job_id=job.id, estimate_id=est.id, role="original"))
+        s.add(
+            JobAlias(tenant_id=tenant_id, job_id=job.id, system="lmn_estimate", external_id=marker)
+        )
+
+
+@pytest.mark.parametrize("table", F07_TABLES)
+def test_f07_tables_read_zero_rows_of_another_tenant(
+    seed: Seed, owner_engine: Engine, rw_engine: Engine, table: str
+) -> None:
+    marker = uuid.uuid4().hex[:12]
+    _seed_f07_rows(owner_engine, seed.tenant_b, marker)
+    model = {"job": Job, "job_estimate": JobEstimate, "job_alias": JobAlias}[table]
     with tenant_session(rw_engine, seed.tenant_a) as s:
         orm_tenants = {r.tenant_id for r in s.execute(select(model)).scalars()}
         raw = s.execute(

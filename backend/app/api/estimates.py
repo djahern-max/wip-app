@@ -15,6 +15,7 @@ from app.api.schemas import (
     EstimateCostLineOut,
     EstimateDetailOut,
     EstimateIssueOut,
+    EstimateJobOut,
     EstimateRowOut,
     EstimatesOut,
     EstimateTotalsOut,
@@ -35,6 +36,8 @@ from app.domain.estimates.service import (
     status_label,
 )
 from app.domain.estimates.totals import with_burden
+from app.domain.jobs.models import ROLE_LABELS
+from app.domain.jobs.service import estimate_job
 
 router = APIRouter(prefix="/estimates", tags=["estimates"])
 
@@ -164,8 +167,18 @@ def get_estimate(viewer: Viewer, db: TenantSession, estimate_id: UUID):
     baseline = next((vv.version.version_no for vv in versions if vv.version.is_baseline), None)
     row = _row(view).model_dump()
     row["attention"] += [EstimateIssueOut(code=i.code, message=i.message) for i in burden.issues]
+    on_job = estimate_job(db, view.estimate.id)  # F07: the "Job:" line
     return EstimateDetailOut(
         **row,
+        job=None
+        if on_job is None
+        else EstimateJobOut(
+            id=str(on_job[0].id),
+            name=on_job[0].name,
+            role=on_job[1].role,
+            role_label=ROLE_LABELS[on_job[1].role],
+        ),
+        to_review=on_job is None and view.estimate.status_norm == "sold",
         versions_list=[
             EstimateVersionOut(
                 id=str(vv.version.id),

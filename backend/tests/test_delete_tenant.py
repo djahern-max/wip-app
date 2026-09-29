@@ -51,8 +51,8 @@ def _fill_every_tenant_table(
     sync_run, raw_record, task, customer, billing, billing_line, payment,
     payment_application, audit_log), a chart and rules (gl_account, account_map,
     account_suggest_rule, import_batch, cost_category), a division, a policy, a burden
-    rate, a probe row, an estimate with a version, work areas and cost lines (F06);
-    membership rows come with the tenant."""
+    rate, a probe row, an estimate with a version, work areas and cost lines (F06), a
+    job with its estimate and alias (F07); membership rows come with the tenant."""
     fake = FakeIntuit()
     FixtureCompany().serve(fake)
     with installed(fake):
@@ -94,6 +94,15 @@ def _fill_every_tenant_table(
             basis_note="test",
             actor=actor,
         )
+    # F07: a job for 67 Elm Street (job, job_estimate, its lmn_estimate job_alias).
+    estimate = admin.get("/api/estimates").json()["estimates"][0]
+    division = next(d for d in admin.get("/api/config/divisions").json() if d["code"] == "ZZ")
+    r = admin.post(
+        "/api/jobs",
+        json={"estimate_id": estimate["id"], "division_id": division["id"]},
+        headers=CSRF,
+    )
+    assert r.status_code == 201, r.text
     with tenant_session(owner_engine, tenant_id) as db:
         db.add(RlsProbe(tenant_id=tenant_id, label="to-delete"))
     return fake, _slug(rw_engine, tenant_id)

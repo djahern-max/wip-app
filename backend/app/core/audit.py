@@ -108,6 +108,14 @@ class TenantEvent(enum.StrEnum):
     estimate_created = "estimate_created"
     estimate_updated = "estimate_updated"
     estimate_version_created = "estimate_version_created"
+    # F07 (jobs and the crosswalk; one row per person's action, naming the rows touched)
+    job_created = "job_created"
+    job_updated = "job_updated"
+    job_estimate_attached = "job_estimate_attached"
+    job_estimate_detached = "job_estimate_detached"
+    job_alias_linked = "job_alias_linked"
+    job_alias_unlinked = "job_alias_unlinked"
+    work_area_kind_confirmed = "work_area_kind_confirmed"
 
 
 @dataclass(frozen=True)

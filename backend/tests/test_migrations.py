@@ -50,8 +50,14 @@ EXPECTED_TABLES = {
     "estimate_version",
     "estimate_work_area",
     "estimate_cost",
+    # F07 (0011)
+    "job",
+    "job_estimate",
+    "job_alias",
 }
 F06_TABLES = {"estimate", "estimate_version", "estimate_work_area", "estimate_cost"}
+F07_TABLES = {"job", "job_estimate", "job_alias"}
+F07_WORK_AREA_COLUMNS = {"kind", "kind_confirmed_by", "kind_confirmed_at"}
 F03_TABLES = {"connection", "sync_run", "import_batch", "raw_record", "task"}
 F05_TABLES = {"customer", "billing", "billing_line", "payment", "payment_application"}
 F04_TABLES = {
@@ -163,6 +169,23 @@ def test_upgrade_head_then_downgrade_base(scratch_db_url: str) -> None:
     command.upgrade(cfg, "0002")
     assert F02_ONLY_USER_COLUMNS <= _user_columns(scratch_db_url)
     assert "firm_membership" not in _public_tables(scratch_db_url)
+    # 0011 alone is reversible (F07): the three job tables, their one-original index
+    # and the work-area kind columns come and go; nothing else is touched.
+    command.upgrade(cfg, "head")
+    assert F07_TABLES <= _public_tables(scratch_db_url)
+    assert F07_WORK_AREA_COLUMNS <= _columns(scratch_db_url, "estimate_work_area")
+    assert "ck_estimate_work_area_kind" in _constraints(scratch_db_url, "estimate_work_area")
+    assert _query(
+        scratch_db_url,
+        "SELECT indexdef FROM pg_indexes WHERE indexname = 'uq_job_estimate_one_original'",
+    ) == {
+        "CREATE UNIQUE INDEX uq_job_estimate_one_original ON public.job_estimate "
+        "USING btree (tenant_id, job_id) WHERE ((role)::text = 'original'::text)"
+    }
+    command.downgrade(cfg, "0010")
+    assert F07_TABLES.isdisjoint(_public_tables(scratch_db_url))
+    assert F07_WORK_AREA_COLUMNS.isdisjoint(_columns(scratch_db_url, "estimate_work_area"))
+    assert F06_TABLES <= _public_tables(scratch_db_url)
     # 0010 alone is reversible (F06): the four estimate tables, import_batch.issues
     # and the ``unchanged`` follow-up outcome come and go.
     command.upgrade(cfg, "head")
