@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { formatMoney } from "../money.js";
-import { attachReady, nextIndex, reasonText } from "../jobs.js";
+import { attachReady, chooseJob, nextIndex, reasonText } from "../jobs.js";
 import Attention from "./JobAttention.jsx";
 
 // Review sold estimates (F07, D-03): one sold estimate at a time. The default is a new
@@ -196,7 +196,7 @@ export default function JobReview({ me, canManage, onBack, onOpenJob }) {
                   <select
                     className="input"
                     value={attach.jobId}
-                    onChange={(e) => setAttach({ ...attach, jobId: e.target.value })}
+                    onChange={(e) => setAttach(chooseJob(attach, e.target.value, jobs))}
                     disabled={busy}
                   >
                     <option value="">Choose a job</option>

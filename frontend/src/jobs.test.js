@@ -27,3 +27,25 @@ test("attach needs a job and a role, and a note only when ignored", () => {
   assert.equal(attachReady({ jobId: "j", role: "ignored", note: "  " }), false);
   assert.equal(attachReady({ jobId: "j", role: "ignored", note: "Sold in error" }), true);
 });
+
+test("a sold job with no link reads as backlog; later statuses need the link (D-35)", async () => {
+  const { qboCell, offersInProgress } = await import("./jobs.js");
+  assert.equal(qboCell({ qbo_linked: true, qbo_names: ["6115758 Client 05", "Old"], status: "in_progress" }), "6115758 Client 05; Old");
+  assert.equal(qboCell({ qbo_linked: false, qbo_names: [], status: "sold" }), "Not yet: sold, no money moved (backlog)");
+  assert.equal(qboCell({ qbo_linked: false, qbo_names: [], status: "in_progress" }), "Not linked: link its project");
+  assert.equal(qboCell({ qbo_linked: false, qbo_names: [], status: "closed" }), "Not linked: link its project");
+  assert.equal(offersInProgress({ status: "sold" }), true);
+  assert.equal(offersInProgress({ status: "in_progress" }), false);
+});
+
+test("choosing a program job presets ignored and the note", async () => {
+  const { chooseJob, PROGRAM_NOTE } = await import("./jobs.js");
+  const jobs = [
+    { id: "p", revenue_method: "recurring_service" },
+    { id: "j", revenue_method: "fixed_price" },
+  ];
+  const start = { jobId: "", role: "change_order", note: "" };
+  assert.deepEqual(chooseJob(start, "p", jobs), { jobId: "p", role: "ignored", note: PROGRAM_NOTE });
+  assert.deepEqual(chooseJob(start, "j", jobs), { jobId: "j", role: "change_order", note: "" });
+  assert.equal(chooseJob({ ...start, note: "Snow contract" }, "p", jobs).note, "Snow contract");
+});

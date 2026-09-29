@@ -59,7 +59,13 @@ JOB_STATUS_LABELS: dict[str, str] = {
     "closed": "Closed",
     "cancelled": "Cancelled",
 }
-OPEN_STATUSES = frozenset({"sold", "in_progress", "substantially_complete"})
+# D-35: a QuickBooks project is created when the first money moves, and the person sets
+# the job in progress when linking it. A sold job with no link is backlog; an in progress
+# or substantially complete job needs its link. Closed and cancelled never warn: jobs
+# finished before go-live have no project (owner, 2026-09-29).
+LINK_REQUIRED_STATUSES = frozenset({"in_progress", "substantially_complete"})
+# Jobs made by hand, with no estimate: pools (D-30) and maintenance / snow programs (D-35).
+NO_ESTIMATE_METHODS = frozenset({"pool", "recurring_service"})
 ROLES: tuple[str, ...] = ("original", "change_order", "ignored")
 ROLE_LABELS: dict[str, str] = {
     "original": "Original",

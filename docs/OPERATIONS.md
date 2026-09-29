@@ -702,8 +702,37 @@ several QuickBooks rows; one QuickBooks row belongs to at most one job (a second
 refused: unlink it from the other job first). **Unlink** removes the link; unlinking the
 last one clears the job's customer.
 
-Pools (D-30): Jobs → New pool job (name, division); link it to the `Pool - <group>`
-project found by search.
+### When a QuickBooks project is created (D-35)
+- A construction or excavation job (fixed price or T&M) gets its QuickBooks project when
+  the **first money moves**: a deposit, the first invoice or the first cost. Not when the
+  estimate sells, and no "potential" projects for sold estimates with no activity.
+- Until then the job exists only here, at status **Sold**; it counts in backlog and
+  nowhere else. The Jobs page shows it as "Not yet: sold, no money moved (backlog)" and
+  raises nothing.
+- When the project is created, link it to the job and set the job **In progress** in the
+  same sitting: on the job's QuickBooks section the box "When linking, set the job In
+  progress" is ticked for a Sold job, and the link writes one audit row with both.
+- An In progress or Substantially complete job with no link raises `JOB_NO_LEDGER_LINK`.
+  Closed and Cancelled jobs never do: jobs finished before go-live have no project.
+- Money for a construction job is recorded **on its project**, never on the parent
+  customer; the deposit that triggers the project is entered on the project. A document
+  on a parent customer for a construction job is a data error (F08 shows it as
+  unassigned until it is moved).
+
+### Pools and programs
+- Pools (D-30): Jobs → New pool or program job, kind Pool (name, division); link it to
+  the `Pool - <group>` project found by search.
+- Maintenance and snow (D-35) are not projects per contract. One QuickBooks project per
+  division-season, `Maintenance <year>` and `Snow <season>`, each under a customer of the
+  same name; in the platform one job each: Jobs → New pool or program job, kind Program
+  (revenue method Recurring service), linked to that project found by search. A program
+  is recognised as billed: no contract, no EAC, never on the WIP schedule. A sold maintenance
+  or snow estimate is not normally loaded; if one arrives, attach it to the season's program
+  job with role Ignored and the note "maintenance contract; billed as service" (the only role
+  a program job accepts; Review sold estimates presets both when the program is chosen). Maintenance and snow purchases and labor are coded to the program project.
+- The project list a person keeps: active construction and excavation jobs, one pool per
+  material group, one program project per maintenance or snow season. Everything else is
+  a plain customer.
 
 ### Possible duplicate customers
 Customers (roles `firm_admin`, `firm_staff`, `client_admin`) lists pairs of active
@@ -718,7 +747,7 @@ what QuickBooks sends after one: F05.1 Discovered.)
 |---|---|---|
 | `EST_UNATTACHED` | A sold estimate is on no job, with how long it has been sold. | Review it: new job or attach. |
 | `JOB_SECOND_ESTIMATE_FOR_CUSTOMER` | A sold estimate's customer already has a job (by project id or by client name). | Decide per D-03: new job for separate scope, attach as a change order for an addition. |
-| `JOB_NO_LEDGER_LINK` | An open job has no QuickBooks link, so its billing cannot be read. | Link its project; create the project in QuickBooks first if needed (§13.2). |
+| `JOB_NO_LEDGER_LINK` | An In progress or Substantially complete job has no QuickBooks link, so its billing cannot be read. Never raised for a Sold (backlog, D-35), Closed or Cancelled job. | Link its project; create it in QuickBooks first if needed (§13.2). If no money has moved yet, the job should be Sold. |
 | `LEDGER_PROJECT_NO_JOB` | An active QuickBooks project or sub-customer has invoices or payments and no job. | Link it to its job, or make the job first. |
 | `JOB_DIVISION_UNSET` | A job has no division (only for data made outside the review). | Set the division on the job. |
 | `CUSTOMER_FUZZY` | Two customers look like one (Customers page). | Merge in QuickBooks. |

@@ -50,6 +50,7 @@ from app.domain.jobs.issues import (
 )
 from app.domain.jobs.models import (
     JOB_STATUSES,
+    NO_ESTIMATE_METHODS,
     REVENUE_METHODS,
     ROLES,
     Job,
@@ -630,14 +631,24 @@ def create_job_from_estimate(
 
 
 def create_pool_job(
-    db: Session, tenant_id: UUID, *, name: str | None, division_id: UUID | None, actor: Actor
+    db: Session,
+    tenant_id: UUID,
+    *,
+    name: str | None,
+    division_id: UUID | None,
+    actor: Actor,
+    revenue_method: str = "pool",
 ) -> Job:
+    """A job made by hand with no estimate: a pool (D-30) or, with ``revenue_method =
+    recurring_service``, a maintenance or snow program for one season (D-35)."""
+    if revenue_method not in NO_ESTIMATE_METHODS:
+        raise Invalid("Only a pool or a maintenance or snow program is made without an estimate.")
     division = _division(db, division_id)
     job = Job(
         tenant_id=tenant_id,
         name=_clean_name(name),
         division_id=division.id,
-        revenue_method="pool",
+        revenue_method=revenue_method,
         status="sold",
         sold_on=tenant_today(db),
         created_by=actor.user_id,
@@ -673,13 +684,13 @@ def update_job(db: Session, tenant_id: UUID, job_id: UUID, changes: dict, actor:
         method = changes["revenue_method"]
         if method not in REVENUE_METHODS:
             raise Invalid("Choose a revenue method from the list.")
-        if method == "pool" and job.revenue_method != "pool":
+        if method in NO_ESTIMATE_METHODS and job.revenue_method not in NO_ESTIMATE_METHODS:
             has_estimates = db.execute(
                 select(func.count()).select_from(JobEstimate).where(JobEstimate.job_id == job.id)
             ).scalar_one()
             if has_estimates:
                 raise Invalid(
-                    "A pool has no estimate; detach this job's estimates before making it a pool."
+                    "A pool or a program has no estimate; detach this job's estimates first."
                 )
         job.revenue_method = method
     if "status" in changes:
@@ -720,6 +731,13 @@ def attach_estimate(
     job = _job(db, job_id)
     if job.revenue_method == "pool":
         raise Invalid("A pool has no estimate; attach this estimate to a job instead (D-30).")
+    if job.revenue_method == "recurring_service" and role != "ignored":
+        # Owner, 2026-09-29: a sold maintenance or snow estimate goes on the season's
+        # program job as ignored, with a note; the program is billed as service (D-35).
+        raise Invalid(
+            "A maintenance or snow program takes an estimate only as ignored, with a note "
+            "such as: maintenance contract; billed as service (D-35)."
+        )
     if role not in ROLES:
         raise Invalid("Choose a role: original, change order or ignored.")
     note = (note or "").strip()[:2000] or None
@@ -816,9 +834,18 @@ def detach_estimate(
 
 
 def link_alias(
-    db: Session, tenant_id: UUID, job_id: UUID, *, system: str, external_id: str, actor: Actor
+    db: Session,
+    tenant_id: UUID,
+    job_id: UUID,
+    *,
+    system: str,
+    external_id: str,
+    actor: Actor,
+    set_in_progress: bool = False,
 ) -> JobAlias:
-    """A person links one QuickBooks row, by its id. Never called with a name."""
+    """A person links one QuickBooks row, by its id. Never called with a name. D-35: the
+    project is created when the first money moves, so the person may set a sold job in
+    progress in the same action (``set_in_progress``); one audit row covers both."""
     job = _job(db, job_id)
     if system != QBO:
         raise Invalid(
@@ -853,6 +880,9 @@ def link_alias(
     db.add(alias)
     if job.customer_id is None:
         job.customer_id = row.parent_customer_id or row.id
+    before_status = job.status
+    if set_in_progress and job.status == "sold":
+        job.status = "in_progress"
     _flush(db, f'"{row.display_name}" was linked to a job a moment ago; reload the page.')
     audit(
         db,
@@ -868,6 +898,7 @@ def link_alias(
                 str(before_customer) if before_customer else None,
                 str(job.customer_id) if job.customer_id else None,
             ],
+            "job.status": [before_status, job.status],
         },
     )
     return alias

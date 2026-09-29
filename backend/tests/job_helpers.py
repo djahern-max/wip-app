@@ -232,8 +232,12 @@ class Tenant:
     def job(self, job_id: str) -> dict:
         return self.get(f"/api/jobs/{job_id}")
 
-    def link(self, job_id: str, key: str, status: int = 200) -> dict:
-        body = {"system": "qbo_customer", "external_id": self.customers[key]["external_id"]}
+    def link(self, job_id: str, key: str, status: int = 200, in_progress: bool = False) -> dict:
+        body = {
+            "system": "qbo_customer",
+            "external_id": self.customers[key]["external_id"],
+            "set_in_progress": in_progress,
+        }
         return self.send("POST", f"/api/jobs/{job_id}/aliases", body, status)
 
     def audit_rows(self) -> int:

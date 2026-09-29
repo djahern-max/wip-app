@@ -159,6 +159,13 @@ def _routes() -> list[Route]:
             also_ok=frozenset({422}),
         ),
         Route(
+            "POST",
+            "/api/jobs/program",
+            frozenset({FA, FS, CA}),
+            body=lambda: {"name": "Matrix program", "division_id": str(uuid.uuid4())},
+            also_ok=frozenset({422}),
+        ),
+        Route(
             "PATCH",
             f"/api/jobs/{_NO_JOB}",
             frozenset({FA, FS, CA}),

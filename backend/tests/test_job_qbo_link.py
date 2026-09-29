@@ -143,8 +143,8 @@ def test_review_items_on_the_crosswalk(t: Tenant) -> None:
     items = t.get("/api/jobs")["ledger_items"]
     assert len(items) == 2 and any('sub-customer "Old"' in i["message"] for i in items)
     job = t.new_job(DEVELLIS_ID, "LS")
-    assert [i["code"] for i in job["attention"]] == ["JOB_NO_LEDGER_LINK"]
-    t.link(job["id"], "ocean")
+    assert job["attention"] == []  # sold and unlinked: backlog (D-35)
+    t.link(job["id"], "ocean", in_progress=True)
     assert t.job(job["id"])["attention"] == []
     items = t.get("/api/jobs")["ledger_items"]
     assert [('"Old"' in i["message"]) for i in items] == [True]
@@ -169,7 +169,9 @@ def test_pool_job_is_found_by_search_and_never_takes_an_estimate(t: Tenant) -> N
         None,
     )
     assert pool["sold_on_set_when_created"] is True
-    assert [i["code"] for i in pool["attention"]] == ["JOB_NO_LEDGER_LINK"]
+    assert pool["attention"] == []  # made at status sold: nothing moved yet (D-35)
+    moving = t.send("PATCH", f"/api/jobs/{pool['id']}", {"status": "in_progress"})
+    assert [i["code"] for i in moving["attention"]] == ["JOB_NO_LEDGER_LINK"]
     assert _suggested(t, pool["id"]) == []
     found = t.get(f"/api/jobs/{pool['id']}/qbo-search?q=pool")["rows"]
     assert [(r["display_name"], r["kind_label"]) for r in found] == [
@@ -216,3 +218,126 @@ def test_customer_duplicates_are_listed_read_only(
         assert side["billing_count"] == 0 and side["customer_id"]
     viewer = login_as("client_viewer")
     assert viewer.get("/api/customers/duplicates").status_code == 403
+
+
+def test_d35_a_sold_job_without_a_link_is_backlog_and_linking_sets_it_in_progress(
+    t: Tenant,
+) -> None:
+    """D-35: a project is created when the first money moves. A sold job with no link
+    raises nothing and reads as backlog; linking offers to set it in progress in the same
+    action (one audit row); from in progress on, a job with no link raises
+    JOB_NO_LEDGER_LINK."""
+    elm = t.new_job(ELM_ID)
+    turley = t.new_job(TURLEY_ID)
+    listed = {j["id"]: j for j in t.get("/api/jobs")["jobs"]}
+    for job in (elm, turley):
+        row = listed[job["id"]]
+        assert (row["status"], row["qbo_linked"], row["attention"]) == ("sold", False, [])
+    # Linked with the offer taken: in progress in the same action, one audit row.
+    seen = t.audit_rows()
+    linked = t.link(elm["id"], "elm", in_progress=True)
+    (row,) = t.audit_actions(seen)
+    assert row.action == "job_alias_linked"
+    assert row.detail["rows"]["job.status"] == ["sold", "in_progress"]
+    assert (linked["status_label"], linked["attention"]) == ("In progress", [])
+    # Linked without it: the status is left as it was.
+    left = t.link(turley["id"], "turley")
+    assert left["status"] == "sold"
+    # The offer never moves a job backwards or sideways.
+    t.send("PATCH", f"/api/jobs/{turley['id']}", {"status": "substantially_complete"})
+    alias = next(a for a in left["aliases"] if a["system"] == "qbo_customer")
+    t.send("DELETE", f"/api/jobs/{turley['id']}/aliases/{alias['id']}")
+    again = t.link(turley["id"], "turley", in_progress=True)
+    assert again["status"] == "substantially_complete"
+    # In progress and unlinked: the item, in one sentence naming the status.
+    alias = next(a for a in linked["aliases"] if a["system"] == "qbo_customer")
+    unlinked = t.send("DELETE", f"/api/jobs/{elm['id']}/aliases/{alias['id']}")
+    (issue,) = unlinked["attention"]
+    assert (
+        issue["code"] == "JOB_NO_LEDGER_LINK"
+        and "is In progress but not linked" in issue["message"]
+    )
+    cancelled = t.send("PATCH", f"/api/jobs/{elm['id']}", {"status": "cancelled"})
+    assert cancelled["attention"] == []
+
+
+def test_d35_a_maintenance_or_snow_program_is_made_by_hand_with_no_contract(t: Tenant) -> None:
+    seen = t.audit_rows()
+    program = t.send(
+        "POST",
+        "/api/jobs/program",
+        {"name": "Snow 2026-27", "division_id": str(t.divisions["SNOW"])},
+        status=201,
+    )
+    (row,) = t.audit_actions(seen)
+    assert (
+        row.action == "job_created" and row.detail["after"]["revenue_method"] == "recurring_service"
+    )
+    assert program["revenue_method_label"] == "Recurring service" and program["estimates"] == []
+    assert (program["revised_contract"], program["unapproved_change_orders"]) == (None, None)
+    assert program["eac_in_basis"] is None and "D-35" in program["eac_note"]
+    assert "D-35" in program["revised_contract_note"]
+    assert all(c["job_id"] != program["id"] for e in t.queue().values() for c in e["candidates"])
+    elm = t.queue()[ELM_ID]
+    r = t.client.post(
+        f"/api/jobs/{program['id']}/estimates",
+        json={"estimate_id": elm["estimate_id"], "role": "change_order"},
+        headers=CSRF,
+    )
+    assert r.status_code == 422 and "program" in r.json()["detail"]
+    r = t.client.patch(
+        f"/api/jobs/{t.new_job(ELM_ID)['id']}",
+        json={"revenue_method": "recurring_service"},
+        headers=CSRF,
+    )
+    assert r.status_code == 422 and "detach" in r.json()["detail"]
+
+
+def test_a_sold_maintenance_estimate_goes_to_its_program_job_as_ignored_only(t: Tenant) -> None:
+    """Owner, 2026-09-29: sold maintenance or snow estimates are not normally loaded; one
+    that arrives is attached to the season's program job with role ignored and a note,
+    and a program job accepts estimates with no other role."""
+    program = t.send(
+        "POST",
+        "/api/jobs/program",
+        {"name": "Maintenance 2026", "division_id": str(t.divisions["LS"])},
+        status=201,
+    )
+    estimate = t.queue()["EST6355355"]
+    for role in ("original", "change_order"):
+        r = t.client.post(
+            f"/api/jobs/{program['id']}/estimates",
+            json={"estimate_id": estimate["estimate_id"], "role": role, "note": "x"},
+            headers=CSRF,
+        )
+        assert r.status_code == 422 and "ignored" in r.json()["detail"], role
+    seen = t.audit_rows()
+    after = t.send(
+        "POST",
+        f"/api/jobs/{program['id']}/estimates",
+        {
+            "estimate_id": estimate["estimate_id"],
+            "role": "ignored",
+            "note": "maintenance contract; billed as service",
+        },
+    )
+    (row,) = t.audit_actions(seen)
+    assert row.action == "job_estimate_attached" and row.detail["after"]["role"] == "ignored"
+    assert [(e["external_id"], e["role_label"]) for e in after["estimates"]] == [
+        ("EST6355355", "Ignored")
+    ]
+    assert (after["revised_contract"], after["eac_in_basis"]) == (None, None)
+    assert "EST6355355" not in t.queue()
+    # A pool still takes no estimate at all.
+    pool = t.send(
+        "POST",
+        "/api/jobs/pool",
+        {"name": "Pool - Hydroseed", "division_id": str(t.divisions["LS"])},
+        status=201,
+    )
+    r = t.client.post(
+        f"/api/jobs/{pool['id']}/estimates",
+        json={"estimate_id": t.queue()[ELM_ID]["estimate_id"], "role": "ignored", "note": "x"},
+        headers=CSRF,
+    )
+    assert r.status_code == 422 and "pool" in r.json()["detail"].lower()

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { formatMoney } from "../money.js";
-import { amountOr, reasonText } from "../jobs.js";
+import { amountOr, offersInProgress, reasonText } from "../jobs.js";
 import Attention from "./JobAttention.jsx";
 
 // Job detail (F07): the job's header (edited in place by the roles that manage jobs),
@@ -19,6 +19,7 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
   const [results, setResults] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [setInProgress, setSetInProgress] = useState(true); // D-35: offered for a sold job
 
   useEffect(() => {
     api("GET", `/api/jobs/${jobId}`)
@@ -84,7 +85,11 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
 
   async function link(externalId) {
     const ok = await run(() =>
-      api("POST", `/api/jobs/${jobId}/aliases`, { system: "qbo_customer", external_id: externalId }),
+      api("POST", `/api/jobs/${jobId}/aliases`, {
+        system: "qbo_customer",
+        external_id: externalId,
+        set_in_progress: offersInProgress(job) && setInProgress,
+      }),
     );
     if (ok) setResults(null);
   }
@@ -323,7 +328,11 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
 
       <h3>QuickBooks</h3>
       {qboLinks.length === 0 ? (
-        <p>Not linked.</p>
+        <p>
+          {job.status === "sold"
+            ? "Not linked yet. Sold with no money moved: backlog. Create the QuickBooks project when the first money moves (a deposit, the first invoice or the first cost) and link it here (D-35)."
+            : "Not linked."}
+        </p>
       ) : (
         <ul>
           {qboLinks.map((a) => (
@@ -343,6 +352,19 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
             </li>
           ))}
         </ul>
+      )}
+      {canManage && offersInProgress(job) && (
+        <p>
+          <label>
+            <input
+              type="checkbox"
+              checked={setInProgress}
+              onChange={(e) => setSetInProgress(e.target.checked)}
+              disabled={busy}
+            />{" "}
+            When linking, set the job In progress: the first money has moved (D-35)
+          </label>
+        </p>
       )}
       <h4>Suggested QuickBooks rows</h4>
       {!suggestions ? (

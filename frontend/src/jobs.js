@@ -28,3 +28,30 @@ export function attachReady({ jobId, role, note }) {
   if (!jobId || !role) return false;
   return role !== "ignored" || Boolean(note && note.trim());
 }
+
+// The Jobs table's QuickBooks cell (D-35). A QuickBooks project is created when the
+// first money moves, so a sold job with no link is backlog, not a problem; from in
+// progress on, a missing link is (the attention column says so).
+export function qboCell(job) {
+  if (job.qbo_linked) return job.qbo_names.join("; ");
+  if (job.status === "sold") return "Not yet: sold, no money moved (backlog)";
+  if (job.status === "cancelled") return "Not linked";
+  return "Not linked: link its project";
+}
+
+// Linking offers to set a sold job in progress in the same action (D-35).
+export function offersInProgress(job) {
+  return job.status === "sold";
+}
+
+// Attach: choosing a maintenance or snow program job presets the only role it accepts,
+// ignored, and the note (owner, 2026-09-29; D-35). The person may still edit the note.
+export const PROGRAM_NOTE = "Maintenance contract; billed as service";
+
+export function chooseJob(attach, jobId, jobs) {
+  const job = jobs.find((j) => j.id === jobId);
+  if (job && job.revenue_method === "recurring_service") {
+    return { jobId, role: "ignored", note: attach.note && attach.note.trim() ? attach.note : PROGRAM_NOTE };
+  }
+  return { ...attach, jobId };
+}

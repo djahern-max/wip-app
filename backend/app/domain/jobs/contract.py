@@ -12,7 +12,8 @@ attached estimates in, the figures out; read on demand and never stored.
 - **EAC in the WIP basis**: Σ of each attached estimate's own figure (F06.1, burdened),
   ``ignored`` excluded; not computed when any of them is not computed.
 - A time-and-materials job has no revised contract and no change orders (D-24). A
-  pool has neither, and no EAC (D-30).
+  pool has neither, and no EAC (D-30); nor has a maintenance or snow program
+  (``recurring_service``), which is recognised as billed (D-35).
 
 Money is ``Decimal`` throughout; nothing here rounds (every input is already cents).
 """
@@ -58,7 +59,7 @@ def _kept(areas: Sequence[AreaIn]) -> list[AreaIn]:
 def job_contract(revenue_method: str, attached: Sequence[AttachedIn]) -> Contract:
     counted = [a for a in attached if a.role != "ignored"]
     original = next((a for a in counted if a.role == "original"), None)
-    if revenue_method == "pool":
+    if revenue_method in ("pool", "recurring_service"):  # D-30, D-35
         return Contract(None, False, None, 0, False, None, False)
 
     revised: Decimal | None = None

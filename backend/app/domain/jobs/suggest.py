@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from uuid import UUID
 
+from app.domain.jobs.models import NO_ESTIMATE_METHODS
 from app.domain.jobs.names import (
     customer_name_key,
     estimate_id_digits,
@@ -167,7 +168,7 @@ def attach_candidates(
     "same customer" (a QuickBooks row named with this estimate's id belongs to the
     job's customer), "by client name only" (client text equals the job's customer's
     name or its original estimate's client text), "by name only" (jobsite or name
-    text equal to the job's original estimate's). Pool jobs are never candidates."""
+    text equal to the job's original estimate's). Pools and programs are never candidates."""
     digits = estimate_id_digits(estimate.external_id)
     id_customers = (
         {r.paying_customer_id for r in rows if name_starts_with_estimate_id(r.display_name, digits)}
@@ -179,7 +180,7 @@ def attach_candidates(
     name = normalized(estimate.name)
     out: list[AttachCandidate] = []
     for job in jobs:
-        if job.revenue_method == "pool":
+        if job.revenue_method in NO_ESTIMATE_METHODS:  # pools and programs (D-30, D-35)
             continue
         reasons: list[str] = []
         if job.customer_id is not None and job.customer_id in id_customers:

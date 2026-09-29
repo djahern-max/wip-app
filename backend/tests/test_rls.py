@@ -184,30 +184,49 @@ def _seed_f03_rows(owner_engine: Engine, tenant_id: uuid.UUID, marker: str) -> N
         s.add(Task(tenant_id=tenant_id, kind="probe", payload={}, max_attempts=1))
 
 
-def _seed_f04_rows(owner_engine: Engine, tenant_id: uuid.UUID, marker: str) -> None:
-    """One row per F04 table in ``tenant_id`` (as the owner, with context)."""
+# Fixed keys for the F04 probe rows: every parametrised case reuses one set per tenant,
+# so no unique key can collide. The slot "Q1" is outside the D-23 slots (digits only).
+F04_PROBE = {
+    "division": "RLSF04",
+    "slot": "Q1",
+    "account_no": "RLS-F04",
+    "rule_order": 990_001,
+    "policy_key": "k-rls-f04",
+}
+
+
+def _seed_f04_rows(owner_engine: Engine, tenant_id: uuid.UUID) -> None:
+    """One row per F04 table in ``tenant_id`` (as the owner, with context), with fixed
+    keys; a second call for the same tenant finds them and adds nothing."""
     with tenant_session(owner_engine, tenant_id) as s:
-        d = Division(
-            tenant_id=tenant_id, code=f"D{marker[:6]}".upper(), name="Div", code_digit=None
-        )
-        c = CostCategory(tenant_id=tenant_id, slot=marker[:2], name="Cat", sort_order=0)
+        exists = s.execute(
+            select(Division.id).where(Division.code == F04_PROBE["division"])
+        ).first()
+        if exists:
+            return
+        d = Division(tenant_id=tenant_id, code=F04_PROBE["division"], name="Div", code_digit=None)
+        c = CostCategory(tenant_id=tenant_id, slot=F04_PROBE["slot"], name="Cat", sort_order=0)
         s.add_all([d, c])
         s.flush()
-        a = GlAccount(tenant_id=tenant_id, account_no=marker, name="Acct", ledger_type="t")
+        a = GlAccount(
+            tenant_id=tenant_id, account_no=F04_PROBE["account_no"], name="Acct", ledger_type="t"
+        )
         s.add(a)
         s.flush()
         s.add(AccountMap(tenant_id=tenant_id, gl_account_id=a.id, in_job_cost=False))
         s.add(
             AccountSuggestRule(
                 tenant_id=tenant_id,
-                sort_order=int(marker[:6], 16),
+                sort_order=F04_PROBE["rule_order"],
                 name="r",
                 pattern="^x$",
                 in_job_cost=False,
             )
         )
         s.add(
-            TenantPolicy(tenant_id=tenant_id, key=f"k-{marker}", value={"v": 1}, decision_ref="t")
+            TenantPolicy(
+                tenant_id=tenant_id, key=F04_PROBE["policy_key"], value={"v": 1}, decision_ref="t"
+            )
         )
         s.add(
             BurdenRate(tenant_id=tenant_id, effective_from=date(2026, 1, 1), rate=Decimal("0.1000"))
@@ -218,8 +237,7 @@ def _seed_f04_rows(owner_engine: Engine, tenant_id: uuid.UUID, marker: str) -> N
 def test_f04_tables_read_zero_rows_of_another_tenant(
     seed: Seed, owner_engine: Engine, rw_engine: Engine, table: str
 ) -> None:
-    marker = uuid.uuid4().hex[:12]
-    _seed_f04_rows(owner_engine, seed.tenant_b, marker)
+    _seed_f04_rows(owner_engine, seed.tenant_b)
     model = {
         "division": Division,
         "cost_category": CostCategory,

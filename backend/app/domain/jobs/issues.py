@@ -9,7 +9,7 @@ from datetime import date
 from uuid import UUID
 
 from app.domain.estimates.exceptions import Issue
-from app.domain.jobs.models import OPEN_STATUSES
+from app.domain.jobs.models import JOB_STATUS_LABELS, LINK_REQUIRED_STATUSES
 
 SENTENCES: dict[str, str] = {
     # §10 EST_UNATTACHED (the brief's EST_SOLD_UNREVIEWED)
@@ -25,8 +25,9 @@ SENTENCES: dict[str, str] = {
     ),
     # §10 JOB_NO_LEDGER_LINK (the brief's JOB_NO_QBO_LINK)
     "JOB_NO_LEDGER_LINK": (
-        'Job "{name}" is not linked to QuickBooks, so its billing cannot be read. Link '
-        "its project on the job's QuickBooks section."
+        'Job "{name}" is {status} but not linked to QuickBooks, so its billing cannot be '
+        "read. Link its project on the job's QuickBooks section; the project is created "
+        "when the first money moves (D-35)."
     ),
     # §10 LEDGER_PROJECT_NO_JOB (the brief's QBO_PROJECT_NO_JOB)
     "LEDGER_PROJECT_NO_JOB": (
@@ -90,8 +91,15 @@ def job_issues(job: JobState) -> list[Issue]:
     out: list[Issue] = []
     if job.division_id is None:
         out.append(Issue("JOB_DIVISION_UNSET", sentence("JOB_DIVISION_UNSET", name=job.name), {}))
-    if job.status in OPEN_STATUSES and job.qbo_alias_count == 0:
-        out.append(Issue("JOB_NO_LEDGER_LINK", sentence("JOB_NO_LEDGER_LINK", name=job.name), {}))
+    if job.status in LINK_REQUIRED_STATUSES and job.qbo_alias_count == 0:
+        status = JOB_STATUS_LABELS[job.status]
+        out.append(
+            Issue(
+                "JOB_NO_LEDGER_LINK",
+                sentence("JOB_NO_LEDGER_LINK", name=job.name, status=status),
+                {"status": job.status},
+            )
+        )
     return out
 
 

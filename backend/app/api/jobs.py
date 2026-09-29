@@ -97,6 +97,7 @@ class AttachIn(_In):
 class AliasIn(_In):
     system: str = Field(max_length=30)
     external_id: str = Field(min_length=1, max_length=80)
+    set_in_progress: bool = False  # D-35: the first money has moved; offered for a sold job
 
 
 class KindIn(_In):
@@ -133,6 +134,8 @@ def _contract_note(v: service.JobView) -> str | None:
     method = v.job.revenue_method
     if method == "pool":
         return "A pool has no contract (D-30)."
+    if method == "recurring_service":
+        return "A maintenance or snow program is recognised as billed: no contract (D-35)."
     if method == "time_and_materials":
         return "Time and materials: no revised contract; revenue is what is billed (D-24)."
     if not c.has_original:
@@ -147,6 +150,8 @@ def _contract_note(v: service.JobView) -> str | None:
 def _eac_note(v: service.JobView) -> str | None:
     if v.job.revenue_method == "pool":
         return "A pool has no EAC (D-30)."
+    if v.job.revenue_method == "recurring_service":
+        return "A maintenance or snow program has no EAC (D-35)."
     if v.contract.eac_not_computed:
         return (
             "Not computed: an estimate on this job has no EAC in the WIP basis; see its attention."
@@ -439,6 +444,23 @@ def create_pool(request: Request, m: Manager, db: TenantSession, body: PoolJobIn
     return _fresh_detail(db, m, job.id)
 
 
+@router.post("/program", response_model=JobDetailOut, status_code=201)
+def create_program(request: Request, m: Manager, db: TenantSession, body: PoolJobIn):
+    """D-35: one maintenance or snow program job per division-season, made by hand."""
+    try:
+        job = service.create_pool_job(
+            db,
+            m.active_tenant_id,
+            name=body.name,
+            division_id=body.division_id,
+            actor=_actor(m, request),
+            revenue_method="recurring_service",
+        )
+    except service.JobError as exc:
+        _raise(exc)
+    return _fresh_detail(db, m, job.id)
+
+
 @router.patch("/{job_id}", response_model=JobDetailOut)
 def patch_job(request: Request, m: Manager, db: TenantSession, job_id: UUID, body: JobPatchIn):
     changes = {k: getattr(body, k) for k in body.model_fields_set}
@@ -485,6 +507,7 @@ def link(request: Request, m: Manager, db: TenantSession, job_id: UUID, body: Al
             system=body.system,
             external_id=body.external_id,
             actor=_actor(m, request),
+            set_in_progress=body.set_in_progress,
         )
     except service.JobError as exc:
         _raise(exc)

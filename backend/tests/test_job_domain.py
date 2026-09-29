@@ -281,18 +281,24 @@ def test_time_and_materials_and_pool() -> None:
     )
     none = job_contract("fixed_price", [])
     assert none.revised_contract is None and not none.has_original
+    # D-35: maintenance and snow programs are recognised as billed; no contract, no EAC.
+    program = job_contract("recurring_service", [])
+    assert (program.revised_contract, program.unapproved_change_orders, program.eac_in_basis) == (
+        None,
+        None,
+        None,
+    )
 
 
 # --- review items ------------------------------------------------------------------------
 
 
 def test_job_items_and_ledger_items() -> None:
-    open_job = JobState(_id(), "Job A", "sold", None, 0)
+    open_job = JobState(_id(), "Job A", "in_progress", None, 0)
     assert [i.code for i in job_issues(open_job)] == ["JOB_DIVISION_UNSET", "JOB_NO_LEDGER_LINK"]
-    closed = JobState(_id(), "Job B", "closed", _id(), 0)
-    assert job_issues(closed) == []
     linked = JobState(_id(), "Job C", "in_progress", _id(), 2)
     assert job_issues(linked) == []
+
     rows = [
         LedgerRow(_id(), "13", "1701 Ocean Boulevard", "Project", 1, False),
         LedgerRow(_id(), "10", "6115758 Client 05", "Project", 0, False),
@@ -308,6 +314,25 @@ def test_job_items_and_ledger_items() -> None:
     assert u.code == "EST_UNATTACHED" and "9 days ago" in u.message and u.detail["age_days"] == 9
     for issue in (*issues, u, *job_issues(open_job)):
         assert issue.code not in issue.message
+
+
+def test_no_ledger_link_is_raised_from_in_progress_never_for_sold() -> None:
+    """D-35: a project is created when the first money moves; a sold job with no link is
+    backlog, not a problem. In progress and substantially complete need one; closed and
+    cancelled never warn (owner, 2026-09-29)."""
+    raised = {
+        status: [i.code for i in job_issues(JobState(_id(), "Job", status, _id(), 0))]
+        for status in ("sold", "in_progress", "substantially_complete", "closed", "cancelled")
+    }
+    assert raised == {
+        "sold": [],
+        "in_progress": ["JOB_NO_LEDGER_LINK"],
+        "substantially_complete": ["JOB_NO_LEDGER_LINK"],
+        "closed": [],  # finished before go-live: no project, no warning
+        "cancelled": [],
+    }
+    (issue,) = job_issues(JobState(_id(), "Job", "in_progress", _id(), 0))
+    assert "In progress" in issue.message and "D-35" in issue.message
 
 
 # --- duplicates ------------------------------------------------------------------------

@@ -2,11 +2,13 @@
 
 _No feature in flight (2026-09-29)._ **F07 · Job spine & crosswalk is built** (2026-09-29)
 and waits for the owner's pass on jobcost.dev, which needs P0-1 (the QuickBooks projects
-for the sold jobs, named per §13.2): migration 0011 (`job`, `job_estimate`, `job_alias`,
+for the jobs with money on them, D-35, named per §13.2): migration 0011 (`job`, `job_estimate`, `job_alias`,
 the work-area kind columns), the review queue for sold estimates, work-area kinds and the
 computed contract figures, QuickBooks links by id from labelled suggestions or a search,
 the review items and the read-only customer duplicates list. Its brief, with the owner's
-answers and two build notes for the owner, is `docs/briefs/F07.md`. ROADMAP F07 is ◐.
+answers, the two build notes the owner accepted and D-35 applied (a sold job with no
+QuickBooks link is backlog; linking sets it in progress; maintenance and snow programs),
+is `docs/briefs/F07.md`. The dev `wip` database is at 0011. ROADMAP F07 is ◐.
 
 **F06.1 · Burden on estimates** and **F06 · Estimate import** are closed (2026-09-29;
 `docs/briefs/F06.1.md`, `docs/briefs/F06.md`). **F05.2 · Brand assets** stays ◐ until
@@ -34,7 +36,7 @@ exceptions are pure generators; file-level facts live in `import_batch.issues`.
 
 ## Discovered
 F07 (2026-09-29):
-- `tests/test_rls.py::test_f04_tables_read_zero_rows_of_another_tenant[tenant_policy]` failed once in a first run and passed six times after: the known `_seed_f04_rows` slot collision (F05.1 Discovered) still bites.
+- Fixed 2026-09-29 (owner's request before the push): `tests/test_rls.py::test_f04_tables_read_zero_rows_of_another_tenant` no longer seeds random keys; `_seed_f04_rows` writes one fixed set per tenant (`F04_PROBE`, slot `Q1` outside the D-23 slots) and a second call adds nothing. The suite ran three times clean (745 passed each).
 - The job screens were not rendered in a browser by Claude Code (owner pass).
 - For a later F06 patch (owner's answer 12): a newer upload with a blank `client`, `jobsite` or `estimator` cell clears the stored field (`_header_values`), so the order files are loaded in decides what an estimate's header says (the Turley template has none of the three; loaded after the 80-row sheet, EST6120638 loses its client and jobsite text). Should a blank cell keep the stored value?
 
@@ -70,7 +72,7 @@ F05.1 (2026-09-22 to 2026-09-25; details in `docs/briefs/F05.1.md`, Discovered):
 - A webhook that arrives while a poll is running enqueues nothing; the change lands on the next scheduled poll. A "one more after this" follow-up would shorten that to seconds.
 - `Merge` is a webhook operation on Customer, Account, Item, Vendor, Class, Department, Employee and PaymentMethod; what CDC returns after a customer merge needs checking before `job_alias` links are trusted across a merge (put back on the carried list by the owner, F07 answer 19: a sandbox merge by the owner and one poll).
 - CI #33 (2026-09-25): the NOTIFY wake-up test raced the worker's `LISTEN` registration; fixed (listener opened before the first pass, `Worker.listening` readiness event, test waits on it). Two other intermittents remain open, below.
-- `tests/test_rls.py::test_f04_tables_read_zero_rows_of_another_tenant` seeds a `cost_category` slot from `uuid.hex[:2]`, which can collide with a D-23 slot about once in a few hundred params; use a slot outside the D-23 range. One unreproduced setup ERROR in `test_migrations.py::test_0003_data_step…`.
+- One unreproduced setup ERROR in `test_migrations.py::test_0003_data_step…` (F05.1); not seen in the three clean runs of 2026-09-29.
 
 Carried from the stubs of 2026-09-21 and 2026-09-22 (F05, F04, F03, F02.1), still open:
 - F05 (2026-09-21): The nightly drift check's `drift` outcome and the "fresh backfill needed" state are proven in tests only. A mapping from QuickBooks `AccountType` to `gl_account.ledger_type` is not built (owner answer 10).

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
-import { amountOr } from "../jobs.js";
+import { amountOr, qboCell } from "../jobs.js";
 import Attention from "./JobAttention.jsx";
 import JobDetail from "./JobDetail.jsx";
 import JobReview from "./JobReview.jsx";
@@ -21,7 +21,7 @@ export default function Jobs({ me, canManage, target, onOpenEstimate }) {
   const [jobId, setJobId] = useState(null);
   const [data, setData] = useState(null);
   const [filters, setFilters] = useState({ status: "", division_id: "", revenue_method: "", no_link: false });
-  const [pool, setPool] = useState({ name: "", division_id: "" });
+  const [pool, setPool] = useState({ kind: "pool", name: "", division_id: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [reload, setReload] = useState(0);
@@ -70,11 +70,12 @@ export default function Jobs({ me, canManage, target, onOpenEstimate }) {
     setBusy(true);
     setError(null);
     try {
-      const job = await api("POST", "/api/jobs/pool", { name: pool.name, division_id: pool.division_id || null });
-      setPool({ name: "", division_id: "" });
+      const path = pool.kind === "program" ? "/api/jobs/program" : "/api/jobs/pool";
+      const job = await api("POST", path, { name: pool.name, division_id: pool.division_id || null });
+      setPool({ kind: pool.kind, name: "", division_id: "" });
       openJob(job.id);
     } catch (err) {
-      setError(err.detail || "The pool job could not be created. Try again.");
+      setError(err.detail || "The job could not be created. Try again.");
     } finally {
       setBusy(false);
     }
@@ -146,6 +147,10 @@ export default function Jobs({ me, canManage, target, onOpenEstimate }) {
           </label>
         </div>
       )}
+      <p className="hint">
+        A QuickBooks project is created when the first money moves on a job (D-35). A Sold job with no link is
+        backlog; from In progress on, a job needs its link.
+      </p>
       {!data ? (
         <p className="hint">Loading…</p>
       ) : (
@@ -190,7 +195,7 @@ export default function Jobs({ me, canManage, target, onOpenEstimate }) {
                   </td>
                   <td className="num">{amountOr(j.unapproved_change_orders, "None")}</td>
                   <td className="num">{amountOr(j.eac_in_basis, "Not computed")}</td>
-                  <td>{j.qbo_linked ? j.qbo_names.join("; ") : "Not linked"}</td>
+                  <td>{qboCell(j)}</td>
                   <td>
                     <Attention items={j.attention} />
                   </td>
@@ -214,19 +219,32 @@ export default function Jobs({ me, canManage, target, onOpenEstimate }) {
 
       {canManage && data && (
         <>
-          <h3>New pool job</h3>
+          <h3>New pool or program job</h3>
           <p className="hint">
-            A pool holds shared supplies until month-end allocation. It has no estimate and no contract, and it
-            never appears on the WIP schedule (D-30).
+            Made by hand, with no estimate and no contract; never on the WIP schedule. A pool holds shared supplies
+            until month-end allocation (D-30). A program is one maintenance or snow season, recognised as billed
+            (D-35).
           </p>
           <form onSubmit={createPool} className="inline-form">
+            <label className="label">
+              Kind
+              <select
+                className="input"
+                value={pool.kind}
+                onChange={(e) => setPool({ ...pool, kind: e.target.value })}
+                disabled={busy}
+              >
+                <option value="pool">Pool (shared supplies)</option>
+                <option value="program">Program (maintenance or snow season)</option>
+              </select>
+            </label>
             <label className="label">
               Name
               <input
                 className="input"
                 value={pool.name}
                 onChange={(e) => setPool({ ...pool, name: e.target.value })}
-                placeholder="Pool - Hydroseed"
+                placeholder={pool.kind === "program" ? "Snow 2026-27" : "Pool - Hydroseed"}
                 required
                 disabled={busy}
               />
@@ -249,7 +267,7 @@ export default function Jobs({ me, canManage, target, onOpenEstimate }) {
               </select>
             </label>
             <button type="submit" className="button" disabled={busy || !pool.name.trim() || !pool.division_id}>
-              Create pool job
+              {pool.kind === "program" ? "Create program job" : "Create pool job"}
             </button>
           </form>
         </>
