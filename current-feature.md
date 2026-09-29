@@ -1,10 +1,10 @@
 # current-feature.md
 
-_No feature in flight (2026-09-29)._ **F06.1 · Burden on estimates is built** (2026-09-29;
-ROADMAP ◐ until the owner's pass on jobcost.dev): labor burden computed on read per D-05 and
-D-34, the as-estimated and with-burden columns, EAC in the WIP basis burdened, the three
-`EST_*` burden sentences, "Show inactive" on the configuration lists and "Choose a source"
-on Imports. Its brief is `docs/briefs/F06.1.md`; the owner pass is its one open criterion.
+_No feature in flight (2026-09-29)._ **F06.1 · Burden on estimates is closed** (2026-09-29;
+owner's pass on jobcost.dev the same day): labor burden computed on read per D-05 and D-34,
+the as-estimated and with-burden columns, EAC in the WIP basis burdened, the three `EST_*`
+burden sentences, "Show inactive" on the configuration lists and "Choose a source" on
+Imports. Its brief is `docs/briefs/F06.1.md`.
 
 **F06 · Estimate import is closed** (2026-09-29): the
 owner's production pass on `rye-beach` and the 80-row fixture (`backend/tests/fixtures/
