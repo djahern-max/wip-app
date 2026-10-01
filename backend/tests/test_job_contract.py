@@ -59,7 +59,7 @@ def test_elm_street_kinds_and_revised_contract(t: Tenant) -> None:
     assert row.action == "work_area_kind_confirmed"
     assert (row.detail["before"], row.detail["after"]) == ({"kind": None}, {"kind": "change_order"})
     assert row.detail["rows"]["order_no"] == 18 and row.detail["rows"]["estimate"] == ELM_ID
-    assert job["to_confirm"] == 19 and _areas(job)[18]["kind_label"] == "Change order"
+    assert job["to_confirm"] == 19 and _areas(job)[18]["kind_label"] == "Change order, confirmed"
     job = _confirm(t, job, list(range(1, 17)), "original")
     job = _confirm(t, job, [19, 20, 21], "change_order")
     assert job["revised_contract"] == "465469.59"

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { formatMoney } from "../money.js";
 import { amountOr, offersInProgress, reasonText } from "../jobs.js";
+import { KindActions } from "../kindActions.js";
 import Attention from "./JobAttention.jsx";
 
 // Job detail (F07): the job's header (edited in place by the roles that manage jobs),
@@ -9,7 +10,10 @@ import Attention from "./JobAttention.jsx";
 // kind (suggested until a person confirms it, D-01), the computed contract figures, and
 // its QuickBooks links. Suggestions for a link say why; the search lists any active,
 // unlinked QuickBooks row by name, and a link is always made by the row's id. Every
-// action writes one audit row. Mount effects only read (GET).
+// action writes one audit row. Mount effects only read (GET). F07.1: "Confirm all as
+// suggested" confirms every unconfirmed kept work area at its suggestion in one press
+// (one audit row each); the Action column says what a click will do; Sold on can be
+// corrected.
 
 export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate }) {
   const [job, setJob] = useState(null);
@@ -19,6 +23,7 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
   const [results, setResults] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [notice, setNotice] = useState(null); // F07.1: what "Confirm all as suggested" did
   const [setInProgress, setSetInProgress] = useState(true); // D-35: offered for a sold job
 
   useEffect(() => {
@@ -42,6 +47,7 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
       revenue_method: j.revenue_method,
       status: j.status,
       notes: j.notes || "",
+      sold_on: j.sold_on,
     });
   }
 
@@ -62,7 +68,7 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
   function save(e) {
     e.preventDefault();
     const changes = {};
-    for (const key of ["name", "division_id", "revenue_method", "status", "notes"]) {
+    for (const key of ["name", "division_id", "revenue_method", "status", "notes", "sold_on"]) {
       const before = key === "division_id" ? job.division_id || "" : key === "notes" ? job.notes || "" : job[key];
       if (edit[key] !== before) changes[key] = edit[key] === "" && key === "division_id" ? null : edit[key];
     }
@@ -81,6 +87,16 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
     } finally {
       setBusy(false);
     }
+  }
+
+  async function confirmAll() {
+    setNotice(null);
+    const ok = await run(async () => {
+      const r = await api("POST", `/api/jobs/${jobId}/work-areas/kinds/confirm-suggested`);
+      setNotice(r.message);
+      return r;
+    });
+    if (!ok) setNotice(null);
   }
 
   async function link(externalId) {
@@ -114,7 +130,8 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
       edit.division_id !== (job.division_id || "") ||
       edit.revenue_method !== job.revenue_method ||
       edit.status !== job.status ||
-      edit.notes !== (job.notes || ""));
+      edit.notes !== (job.notes || "") ||
+      edit.sold_on !== job.sold_on);
 
   return (
     <div>
@@ -187,7 +204,18 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
             Notes
             <input className="input" value={edit.notes} onChange={(e) => setEdit({ ...edit, notes: e.target.value })} disabled={busy} />
           </label>
-          <button type="submit" className="button-primary" disabled={busy || !changed || !edit.name.trim()}>
+          <label className="label">
+            Sold on
+            <input
+              className="input"
+              type="date"
+              value={edit.sold_on}
+              onChange={(e) => setEdit({ ...edit, sold_on: e.target.value })}
+              required
+              disabled={busy}
+            />
+          </label>
+          <button type="submit" className="button-primary" disabled={busy || !changed || !edit.name.trim() || !edit.sold_on}>
             Save changes
           </button>
         </form>
@@ -277,6 +305,15 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
           {!job.work_areas_loaded ? (
             <p className="hint">No work areas loaded for this estimate: the revised contract is its price.</p>
           ) : (
+            <>
+            {canManage && job.to_confirm > 0 && (
+              <p>
+                <button type="button" className="button" disabled={busy} onClick={confirmAll}>
+                  Confirm all as suggested ({job.to_confirm})
+                </button>
+              </p>
+            )}
+            {notice && <p className="hint">{notice}</p>}
             <div className="table-wrap">
               <table className="table">
                 <thead>
@@ -286,7 +323,7 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
                     <th>Kept</th>
                     <th className="num">Price</th>
                     <th>Kind</th>
-                    {canManage && <th>Confirm as</th>}
+                    {canManage && <th>Action</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -299,22 +336,13 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
                       <td>{w.kind_label}</td>
                       {canManage && (
                         <td>
-                          {w.kept &&
-                            ["original", "change_order"]
-                              .filter((k) => k !== w.kind)
-                              .map((k) => (
-                                <button
-                                  key={k}
-                                  type="button"
-                                  className="link-button"
-                                  disabled={busy}
-                                  onClick={() =>
-                                    run(() => api("POST", `/api/jobs/${jobId}/work-areas/${w.id}/kind`, { kind: k }))
-                                  }
-                                >
-                                  {k === "original" ? "Original" : "Change order"}{" "}
-                                </button>
-                              ))}
+                          <KindActions
+                            area={w}
+                            busy={busy}
+                            onConfirm={(k) =>
+                              run(() => api("POST", `/api/jobs/${jobId}/work-areas/${w.id}/kind`, { kind: k }))
+                            }
+                          />
                         </td>
                       )}
                     </tr>
@@ -322,6 +350,7 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </>
       )}

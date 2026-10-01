@@ -16,6 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.audit.models import AuditLog
 from app.core.audit import TenantEvent
 from app.domain.billing.models import Billing, Customer, Payment
 from app.domain.billing.sync import SOURCE as QBO_SOURCE
@@ -66,6 +67,7 @@ from app.domain.jobs.suggest import (
     attach_candidates,
     qbo_candidates,
     suggest_division,
+    suggested_kind,
 )
 from app.tenancy.models import User
 
@@ -183,6 +185,7 @@ class JobView:
     contract: Contract
     issues: list[Issue]
     users: dict[UUID, str] = field(default_factory=dict)
+    sold_on_set_by_person: bool = False  # F07.1: a ``job_updated`` row names ``sold_on``
 
     @property
     def original(self) -> AttachedView | None:
@@ -190,7 +193,10 @@ class JobView:
 
     @property
     def sold_on_set_when_created(self) -> bool:
-        """Owner's answer 17: the date did not come from the original estimate."""
+        """Owner's answer 17: the date did not come from the original estimate; F07.1
+        (owner, 2026-10-01): and no person has set it since, which the audit log records."""
+        if self.sold_on_set_by_person:
+            return False
         o = self.original
         return o is None or o.estimate.estimate_date != self.job.sold_on
 
@@ -199,11 +205,28 @@ class JobView:
         return [a for a in self.aliases if a.system == QBO]
 
 
+def _sold_on_set_by_person(db: Session, job_ids: Sequence[UUID]) -> set[str]:
+    """F07.1: the jobs whose ``sold_on`` a person has set (``PATCH``), read from the
+    append-only audit log: a ``job_updated`` row with ``sold_on`` among its changed
+    fields. No column is added for it (owner, 2026-10-01)."""
+    return set(
+        db.execute(
+            select(AuditLog.entity_id).where(
+                AuditLog.entity_type == "job",
+                AuditLog.action == TenantEvent.job_updated,
+                AuditLog.entity_id.in_([str(i) for i in job_ids]),
+                AuditLog.detail.contains({"changed_fields": ["sold_on"]}),
+            )
+        ).scalars()
+    )
+
+
 def load_job_views(db: Session, tenant_id: UUID, jobs: Sequence[Job]) -> list[JobView]:
     if not jobs:
         return []
     grid = load_grid(db, tenant_id)
     ids = [j.id for j in jobs]
+    set_by_person = _sold_on_set_by_person(db, ids)
     links = list(
         db.execute(
             select(JobEstimate).where(JobEstimate.job_id.in_(ids)).order_by(JobEstimate.attached_at)
@@ -278,6 +301,7 @@ def load_job_views(db: Session, tenant_id: UUID, jobs: Sequence[Job]) -> list[Jo
                 contract=contract,
                 issues=job_issues(state),
                 users=users,
+                sold_on_set_by_person=str(job.id) in set_by_person,
             )
         )
     return out
@@ -668,7 +692,7 @@ def create_pool_job(
     return job
 
 
-PATCH_FIELDS = ("name", "division_id", "revenue_method", "status", "notes")
+PATCH_FIELDS = ("name", "division_id", "revenue_method", "status", "notes", "sold_on")
 
 
 def update_job(db: Session, tenant_id: UUID, job_id: UUID, changes: dict, actor: Actor) -> Job:
@@ -699,6 +723,15 @@ def update_job(db: Session, tenant_id: UUID, job_id: UUID, changes: dict, actor:
         job.status = changes["status"]
     if "notes" in changes:
         job.notes = (changes["notes"] or "").strip()[:4000] or None
+    if "sold_on" in changes:
+        # F07.1: a person corrects the date (the estimate carried none, or the wrong one).
+        sold_on = changes["sold_on"]
+        if sold_on is None:
+            raise Invalid("Give the sold-on date.")
+        today = tenant_today(db)
+        if sold_on > today:
+            raise Invalid(f"Sold on cannot be after today, {today.isoformat()}.")
+        job.sold_on = sold_on
     after = _job_fields(job)
     changed = sorted(k for k in after if after[k] != before[k])
     if changed:
@@ -941,14 +974,10 @@ def unlink_alias(db: Session, tenant_id: UUID, job_id: UUID, alias_id: UUID, act
     )
 
 
-def confirm_kind(
-    db: Session, tenant_id: UUID, job_id: UUID, work_area_id: UUID, kind: str, actor: Actor
-) -> EstimateWorkArea:
-    """D-01: a person confirms a kept work area's kind on the latest version of the
-    job's original estimate. A change-order estimate's kinds come from its role."""
-    job = _job(db, job_id)
-    if kind not in WORK_AREA_KINDS:
-        raise Invalid("Choose original or change order.")
+def _original_work_areas(
+    db: Session, tenant_id: UUID, job: Job
+) -> tuple[Estimate, list[EstimateWorkArea]]:
+    """The work areas of the latest version of the job's original estimate."""
     original = db.execute(
         select(JobEstimate).where(JobEstimate.job_id == job.id, JobEstimate.role == "original")
     ).scalar_one_or_none()
@@ -956,17 +985,24 @@ def confirm_kind(
         raise NotFound("This job has no original estimate.")
     est = db.get(Estimate, original.estimate_id)
     view = load_views(db, [est], load_grid(db, tenant_id))[0]
-    area = next((w.row for w in view.work_areas or () if w.row.id == work_area_id), None)
-    if area is None:
-        raise NotFound(
-            "That work area is not on the latest version of this job's original estimate."
-        )
-    if not area.kept:
-        raise Invalid(f"Work area #{area.order_no} is omitted; only kept work areas have a kind.")
+    return est, [w.row for w in view.work_areas or ()]
+
+
+def _confirm_area(
+    db: Session,
+    tenant_id: UUID,
+    job: Job,
+    est: Estimate,
+    area: EstimateWorkArea,
+    kind: str,
+    actor: Actor,
+    when: datetime,
+) -> None:
+    """Set one work area's kind and write its one ``work_area_kind_confirmed`` row."""
     before = area.kind
     area.kind = kind
     area.kind_confirmed_by = actor.user_id
-    area.kind_confirmed_at = datetime.now(UTC)
+    area.kind_confirmed_at = when
     db.flush()
     audit(
         db,
@@ -983,4 +1019,78 @@ def confirm_kind(
             "order_no": area.order_no,
         },
     )
+
+
+def confirm_kind(
+    db: Session, tenant_id: UUID, job_id: UUID, work_area_id: UUID, kind: str, actor: Actor
+) -> EstimateWorkArea:
+    """D-01: a person confirms a kept work area's kind on the latest version of the
+    job's original estimate. A change-order estimate's kinds come from its role."""
+    job = _job(db, job_id)
+    if kind not in WORK_AREA_KINDS:
+        raise Invalid("Choose original or change order.")
+    est, rows = _original_work_areas(db, tenant_id, job)
+    area = next((r for r in rows if r.id == work_area_id), None)
+    if area is None:
+        raise NotFound(
+            "That work area is not on the latest version of this job's original estimate."
+        )
+    if not area.kept:
+        raise Invalid(f"Work area #{area.order_no} is omitted; only kept work areas have a kind.")
+    _confirm_area(db, tenant_id, job, est, area, kind, actor, datetime.now(UTC))
     return area
+
+
+@dataclass(frozen=True)
+class AreaChoice:
+    """One work area as the F07.1 selector sees it (pure; no row objects)."""
+
+    order_no: int
+    kept: bool
+    kind: str | None  # confirmed kind, or None
+    suggestion: str | None  # the platform's suggestion, or None
+
+
+def as_suggested(areas: Sequence[AreaChoice]) -> tuple[list[AreaChoice], int]:
+    """F07.1: the kept work areas with no confirmed kind and a suggestion, in order (each
+    is confirmed at its suggestion), and the count of kept, unconfirmed work areas with
+    no suggestion (skipped: they stay in "to confirm"). Confirmed and omitted work areas
+    are never in either."""
+    chosen = [a for a in areas if a.kept and a.kind is None and a.suggestion is not None]
+    skipped = sum(1 for a in areas if a.kept and a.kind is None and a.suggestion is None)
+    return chosen, skipped
+
+
+@dataclass(frozen=True)
+class ConfirmedSuggested:
+    confirmed: int
+    skipped: int
+
+
+def confirm_suggested_kinds(
+    db: Session, tenant_id: UUID, job_id: UUID, actor: Actor
+) -> ConfirmedSuggested:
+    """F07.1 (D-01): one press by a person confirms every kept, unconfirmed work area on
+    the latest version of the job's original estimate at its suggested kind. One
+    ``work_area_kind_confirmed`` row per work area, as the single action writes it, in
+    the request's one transaction; never a summary row. Nothing left: nothing written."""
+    job = _job(db, job_id)
+    est, rows = _original_work_areas(db, tenant_id, job)
+    by_order = {r.order_no: r for r in rows}
+    chosen, skipped = as_suggested(
+        [
+            AreaChoice(
+                r.order_no,
+                r.kept,
+                r.kind,
+                suggested_kind(r.change_order_suggested) if r.kept else None,
+            )
+            for r in rows
+        ]
+    )
+    when = datetime.now(UTC)
+    for choice in chosen:
+        _confirm_area(
+            db, tenant_id, job, est, by_order[choice.order_no], choice.suggestion, actor, when
+        )
+    return ConfirmedSuggested(confirmed=len(chosen), skipped=skipped)

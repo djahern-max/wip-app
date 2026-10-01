@@ -19,6 +19,7 @@ import JobReview from "./JobReview.jsx";
 export default function Jobs({ me, canManage, target, onOpenEstimate }) {
   const [view, setView] = useState("list");
   const [jobId, setJobId] = useState(null);
+  const [reviewStart, setReviewStart] = useState(null); // F07.1: {estimateId, externalId}
   const [data, setData] = useState(null);
   const [filters, setFilters] = useState({ status: "", division_id: "", revenue_method: "", no_link: false });
   const [pool, setPool] = useState({ kind: "pool", name: "", division_id: "" });
@@ -33,6 +34,7 @@ export default function Jobs({ me, canManage, target, onOpenEstimate }) {
       setJobId(target.jobId);
       setView("detail");
     } else if (target.view === "review") {
+      setReviewStart(target.estimateId ? { estimateId: target.estimateId, externalId: target.externalId } : null);
       setView("review");
     }
   }, [target]);
@@ -82,7 +84,16 @@ export default function Jobs({ me, canManage, target, onOpenEstimate }) {
   }
 
   if (view === "review") {
-    return <JobReview me={me} canManage={canManage} onBack={backToList} onOpenJob={openJob} />;
+    return (
+      <JobReview
+        me={me}
+        canManage={canManage}
+        onBack={backToList}
+        onOpenJob={openJob}
+        startEstimateId={reviewStart ? reviewStart.estimateId : null}
+        startExternalId={reviewStart ? reviewStart.externalId : null}
+      />
+    );
   }
   if (view === "detail" && jobId) {
     return (
@@ -95,7 +106,15 @@ export default function Jobs({ me, canManage, target, onOpenEstimate }) {
       <h2>Jobs</h2>
       {error && <p className="error">{error}</p>}
       <div className="toolbar">
-        <button type="button" className="button-primary" onClick={() => setView("review")} disabled={!data}>
+        <button
+          type="button"
+          className="button-primary"
+          onClick={() => {
+            setReviewStart(null);
+            setView("review");
+          }}
+          disabled={!data}
+        >
           Review sold estimates ({data ? data.to_review : "…"})
         </button>
       </div>

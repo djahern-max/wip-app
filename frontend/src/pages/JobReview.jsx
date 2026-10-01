@@ -1,19 +1,23 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 import { formatMoney } from "../money.js";
-import { attachReady, chooseJob, nextIndex, reasonText } from "../jobs.js";
+import { attachReady, chooseJob, estimateOption, missingSentence, nextIndex, reasonText, startIndex } from "../jobs.js";
 import Attention from "./JobAttention.jsx";
 
 // Review sold estimates (F07, D-03): one sold estimate at a time. The default is a new
 // job; the person may instead attach it to an existing job with a role. Suggested jobs
 // come first with the reason each was suggested; any other job can be chosen from the
 // list. Nothing is written until the person presses New job or Attach; Skip writes
-// nothing. Mount effects only read (GET).
+// nothing. Mount effects only read (GET). F07.1: the queue opens on the estimate the
+// person came from (`startEstimateId`), or at its start with one sentence when that
+// estimate is no longer queued; the "Estimate" select jumps to any entry.
 
-export default function JobReview({ me, canManage, onBack, onOpenJob }) {
+export default function JobReview({ me, canManage, onBack, onOpenJob, startEstimateId, startExternalId }) {
   const [queue, setQueue] = useState(null);
   const [jobs, setJobs] = useState([]);
   const [index, setIndex] = useState(0);
+  const [notice, setNotice] = useState(null);
+  const started = useRef(false); // the jump happens once, on the first load
   const [form, setForm] = useState({ division_id: "", name: "" });
   const [attach, setAttach] = useState({ jobId: "", role: "change_order", note: "" });
   const [busy, setBusy] = useState(false);
@@ -22,7 +26,15 @@ export default function JobReview({ me, canManage, onBack, onOpenJob }) {
 
   useEffect(() => {
     api("GET", "/api/jobs/review")
-      .then(setQueue)
+      .then((d) => {
+        if (!started.current) {
+          started.current = true;
+          const start = startIndex(d.entries, startEstimateId);
+          setIndex(start.index);
+          setNotice(start.missing ? missingSentence(startExternalId || startEstimateId) : null);
+        }
+        setQueue(d);
+      })
       .catch(() => setError("The sold estimates could not be loaded. Refresh the page."));
     api("GET", "/api/jobs")
       .then((d) => setJobs(d.jobs.filter((j) => j.revenue_method !== "pool")))
@@ -90,6 +102,7 @@ export default function JobReview({ me, canManage, onBack, onOpenJob }) {
       </p>
       <h2>Review sold estimates</h2>
       {error && <p className="error">{error}</p>}
+      {notice && <p className="hint">{notice}</p>}
       {!queue ? (
         <p className="hint">Loading…</p>
       ) : !entry ? (
@@ -101,6 +114,23 @@ export default function JobReview({ me, canManage, onBack, onOpenJob }) {
             customer treats as its own contract; attach an estimate only when it adds to the scope of an existing job
             (D-03).
           </p>
+          <div className="inline-form">
+            <label className="label">
+              Estimate
+              <select
+                className="input"
+                value={entry.estimate_id}
+                onChange={(e) => setIndex(startIndex(queue.entries, e.target.value).index)}
+                disabled={busy}
+              >
+                {queue.entries.map((q) => (
+                  <option key={q.estimate_id} value={q.estimate_id}>
+                    {estimateOption(q)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           <dl className="kv">
             <dt>Estimate ID</dt>
             <dd>{entry.external_id}</dd>

@@ -55,3 +55,39 @@ export function chooseJob(attach, jobId, jobs) {
   }
   return { ...attach, jobId };
 }
+
+// --- F07.1 -----------------------------------------------------------------------------
+
+// The Action column: what a click on a work-area row will do, each action its own
+// control (D-22: words first). Unconfirmed: confirm at either kind. Confirmed: change
+// to the other. Omitted: nothing.
+export function kindActions(area) {
+  if (!area.kept) return [];
+  if (area.kind === null || area.kind === undefined) {
+    return [
+      { kind: "original", label: "Confirm original" },
+      { kind: "change_order", label: "Confirm change order" },
+    ];
+  }
+  return area.kind === "original"
+    ? [{ kind: "change_order", label: "Change to change order" }]
+    : [{ kind: "original", label: "Change to original" }];
+}
+
+// Review: where the queue opens. The chosen estimate's position, or the start (with
+// `missing` when an id was asked for and is no longer queued: already a job, or no
+// longer sold).
+export function startIndex(entries, estimateId) {
+  if (!estimateId || entries.length === 0) return { index: 0, missing: false };
+  const index = entries.findIndex((e) => e.estimate_id === estimateId);
+  return index < 0 ? { index: 0, missing: true } : { index, missing: false };
+}
+
+export function missingSentence(externalId) {
+  return `${externalId} is not waiting for review any more, so the queue opens at its first estimate.`;
+}
+
+// One entry of the "Estimate" select: id, name, price.
+export function estimateOption(entry) {
+  return `${entry.external_id} · ${entry.name} · ${formatMoney(entry.price)}`;
+}

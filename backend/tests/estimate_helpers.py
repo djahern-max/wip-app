@@ -29,6 +29,7 @@ from tests.conftest import CSRF, Seed
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "rye_beach" / "estimates"
 ELM = FIXTURES / "estimate_upload_EST6115758.xlsx"
+ELM_V2 = FIXTURES / "estimate_upload_EST6115758_v2.xlsx"  # F07.1: production, 2026-10-01
 TURLEY = FIXTURES / "estimate_upload_EST6120638.xlsx"
 EIGHTY = FIXTURES / "estimates_2026-09-17.xlsx"
 TEMPLATE = Path(__file__).resolve().parents[2] / "docs" / "templates" / "estimate_template.xlsx"

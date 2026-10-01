@@ -585,6 +585,14 @@ class JobDetailOut(JobRowOut):
     statuses: list[ChoiceOut]
 
 
+class ConfirmSuggestedOut(JobDetailOut):
+    """F07.1: the job detail after "Confirm all as suggested", with what the press did."""
+
+    confirmed: int
+    skipped: int  # kept work areas with no suggestion, left to confirm
+    message: str  # one sentence
+
+
 class AttachCandidateOut(_Out):
     job_id: str
     job_name: str

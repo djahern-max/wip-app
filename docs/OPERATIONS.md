@@ -662,7 +662,11 @@ time (pending and lost estimates never appear). Roles `firm_admin`, `firm_staff`
   belongs to that job's customer), *by client name only*, *by name only* (same jobsite or
   estimate name). Any other job can be chosen from the list. A pool never takes an
   estimate.
-- **Skip** moves to the next estimate and writes nothing.
+- **Skip** moves to the next estimate and writes nothing. The **Estimate** select at the
+  top of the queue lists every waiting estimate (id, name, price) and jumps to the one
+  chosen; it writes nothing either. "Sold, not yet reviewed" on an estimate's detail opens
+  the queue on that estimate; if it is no longer waiting (already a job, or no longer
+  sold) the queue opens at its first entry and says so in one sentence.
 - **Detach** (on the job) returns an estimate to the queue and removes its estimate id
   from the job. The original cannot be detached while other estimates are attached.
 
@@ -673,8 +677,16 @@ DeVellis/Mukherjee is one job with EST6281138 attached as a change order once it
 ### Work-area kinds and the contract figures (D-01)
 On the job detail, each kept work area of the original estimate shows its kind:
 *suggested* (from the "CO:" / "C/O" name prefix or from appearing after the baseline)
-until someone confirms it as Original or Change order. Figures are computed each time
-the job is read, never stored:
+until someone confirms it as Original or Change order. The Kind column reads "Original
+(suggested)" or "Change order (suggested)" until then, and "Original, confirmed" or
+"Change order, confirmed" after. The **Action** column says what a click does: an
+unconfirmed row has two separate controls, **Confirm original** and **Confirm change
+order**; a confirmed row has one, **Change to change order** or **Change to original**.
+**Confirm all as suggested (n)** above the table confirms every unconfirmed kept work
+area at its suggestion in one press, each one as its own audit row (the suggestion is the
+platform's, the confirmation is the person's, D-01); already-confirmed rows are not
+touched, an omitted row is never confirmed, and a second press with nothing left writes
+nothing. Figures are computed each time the job is read, never stored:
 - **Revised contract**: the kept work areas confirmed as original. Nothing counts before
   it is confirmed ("n work areas to confirm" shows beside it). An original estimate with
   no work areas loaded counts its price ("No work areas loaded").
@@ -687,6 +699,14 @@ the job is read, never stored:
 
 A confirmation survives a re-upload when the work area keeps both its order number and
 its name; a renamed or new work area is suggested again and needs confirming.
+
+### Correcting Sold on
+A job's **Sold on** is the original estimate's date when the file carried one, else the
+day the job was made, shown with "(set when created)". The roles that manage jobs correct
+it in the job's edit form (the "Sold on" date field, then "Save changes"); the change is
+part of the job's `job_updated` audit row with before and after, and the note goes away
+once a person has set the date (the audit log is how that is known; no column holds it).
+A date after today in the company's time zone is refused in one sentence.
 
 ### Linking a job to QuickBooks
 The job detail's QuickBooks section lists **suggested rows**, each with why:

@@ -251,8 +251,8 @@ A period cannot move to `approved` unless each of these passes or is explicitly 
 6. **Ratio checks** (warnings): payroll tax % by division, materials % of revenue by division versus trailing average. This would have caught the SNOW payroll-tax anomaly.
 7. **Pool balances** (D-30): every pool job balance is 0.00 at period end, or waived with a note.
 
-### 8.6 Deposits (Decision D-02)
-Recommended: deposits are invoiced like any other billing and hit income; the WIP entry defers them, and a job with a deposit and no cost correctly shows as ~100% overbilled. This keeps LMN/QBO invoicing habits unchanged. The Sold Jobs Board still identifies deposits (by configured deposit item, or first invoice before first cost) so you can answer "who has paid a deposit?" The alternative (a 2420 Customer Deposits liability with reclass at job start) is supported by the model but adds a manual step every client will forget.
+### 8.6 Deposits (Decision D-02, closed 2026-10-01)
+A customer deposit is **one advance invoice** on the job's QuickBooks project (D-35): document number `<estimate number>_DEP` (D-26), to the division's income account, never a percent of each work area. It counts in billed to date from the invoice date. No customer-deposit liability account is used and 2420 is not added to the chart. At period end the WIP entry (§8.4) defers whatever is billed ahead of earned revenue (DR 4n90 WIP Adjustment / CR 2410, reversing on day 1 of the next period), so a job with a deposit and no cost to date shows as overbilled by the deposit, which is the condition the entry exists to correct. On each later pay application (D-36) the deposit is netted at the job level, inside "less billed to date before this application", never line by line. The platform identifies a deposit by the `_DEP` document number and the tenant's configured deposit item (the "first invoice before first cost" rule stays a suggestion only) and reports deposit invoiced and deposit received per job (§8.2 memo columns; §9 report 1). A payment with no invoice to apply it to is not billed to date: it is shown on the job as an unapplied payment and raises a review item until an invoice exists. The alternative (a 2420 liability with a reclass at every progress invoice) would hold under another name what 2410 already holds, and add an apply step every client will forget.
 
 ### 8.7 Output legend
 Every exported schedule carries a tenant-configurable footer (default: "Prepared by management from the company's records. No assurance is provided."). You will know better than I do how this interacts with your SSARS obligations once schedules start going to banks and sureties; the tool just needs to make the legend impossible to forget.
@@ -380,7 +380,7 @@ This is the work that makes the tool possible, and it is valuable even if the to
 | 1210 | Retainage Receivable | Other Current Assets *(only if GC contracts withhold)* |
 | 1350 | Costs & Estimated Earnings in Excess of Billings | Other Current Assets |
 | 2410 | Billings in Excess of Costs & Estimated Earnings | Other Current Liabilities |
-| 2420 | Customer Deposits | Other Current Liabilities *(only if D-02 goes the liability route)* |
+| 2420 | Customer Deposits | *Not created* (D-02, 2026-10-01: a deposit is one advance invoice through income; 2410 defers it) |
 | 4190 | WIP Adjustment - LS | Income |
 | 4290 | WIP Adjustment - EX | Income |
 
@@ -407,7 +407,7 @@ For the 16 sold jobs, from QBO: first invoice date/amount, payments applied, tot
 | # | Decision | Recommendation |
 |---|---|---|
 | D-01 | Who creates the QBO project when a job sells: a person, LMN's sync, or (later) this tool? | Person, using the naming convention, until volume hurts. |
-| D-02 | Deposits: through income with WIP deferral, or a deposit liability? | Through income (§8.6). |
+| D-02 | Deposits: through income with WIP deferral, or a deposit liability? | Closed by D-02 (2026-10-01): one advance invoice (`_DEP`) through income, deferred by the WIP entry against 2410; 2420 not created; netted at the job level on each pay application (D-36). Applied by F08, F08.1. |
 | D-03 | Turley: one job or two? General rule for multi-estimate customers? | Closed by D-03 (2026-09-27): one job per sold estimate unless a person attaches it to an existing job as a change order; Turley is two jobs, DeVellis/Mukherjee one. Applied by F07. |
 | D-04 | Owned equipment and fuel in the WIP cost basis? | **Exclude from both sides in v1**; show as memo. Revisit once equipment hours by job are reliable, then include on both sides using internal rates. Never include on one side only. |
 | D-05 | Labor burden policy: which costs, one rate or per division, reviewed how often? | Closed by D-05 (2026-09-27): taxes + workers' comp at the assigned class + employer share of benefits; one effective-dated rate per division, applied to both sides; reviewed quarterly with the WC-to-941 tie-out. Applied on estimates by F06.1. |
@@ -417,6 +417,7 @@ For the 16 sold jobs, from QBO: first invoice date/amount, payments applied, tot
 | D-09 | Product name. | Closed by D-33 (2026-09-26): `jobcost.dev`, one string with the hostname (D-27), in one constant per side. |
 | D-34 | SNOW burden rate; is burden stored on an estimate? | Closed by D-34 (2026-09-29): SNOW 0.2061 at each employee's assigned WC class; burden is shown beside estimated cost, never written into it. |
 | D-35 | When is a QuickBooks project created, and how are maintenance and snow tracked? | Closed by D-35 (2026-09-29): a construction or excavation project is created when the first money moves; a sold job without one is backlog; maintenance and snow run as one program project and one `recurring_service` job per division-season. Applied by F07. |
+| D-36 | What does the customer receive for a progress billing, and what does the invoice carry? | Closed by D-36 (2026-10-01): the platform produces a pay application with a schedule of values (kept original and approved change-order work areas; earned to date, retainage, less billed before, amount due); the invoice stays in QuickBooks, keyed from it (`_PMT<n>`, one line, "Pay application n") and tied to it by document number. Applied by F08.1; D-26's "#n" line rule stays for invoices keyed before pay applications are in use. |
 
 ---
 

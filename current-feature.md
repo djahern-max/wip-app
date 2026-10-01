@@ -1,40 +1,55 @@
 # current-feature.md
 
-_No feature in flight (2026-09-29)._ **F07 · Job spine & crosswalk is built** (2026-09-29)
-and waits for the owner's pass on jobcost.dev, which needs P0-1 (the QuickBooks projects
-for the jobs with money on them, D-35, named per §13.2): migration 0011 (`job`, `job_estimate`, `job_alias`,
-the work-area kind columns), the review queue for sold estimates, work-area kinds and the
-computed contract figures, QuickBooks links by id from labelled suggestions or a search,
-the review items and the read-only customer duplicates list. Its brief, with the owner's
-answers, the two build notes the owner accepted and D-35 applied (a sold job with no
-QuickBooks link is backlog; linking sets it in progress; maintenance and snow programs),
-is `docs/briefs/F07.md`. The dev `wip` database is at 0011. ROADMAP F07 is ◐.
+_No feature in flight (2026-10-01)._ **F07.1 · Job screens patch is built** (2026-10-01;
+761 backend, 45 frontend) and waits for the owner's pass on jobcost.dev: a second job
+through the review select and "Confirm all as suggested"; 67 Elm Street's rows reading
+"…, confirmed" and its Sold on corrected. Its brief, with the Plan, the owner's answers
+and the build notes, is `docs/briefs/F07.1.md`. ROADMAP F07.1 is ◐. **F07 · Job spine &
+crosswalk** stays ◐ on the same pass, job by job (restated 2026-10-01; the owner ticks
+it): 67 Elm Street passed on 2026-10-01; the other sold estimates are reviewed as the
+owner reaches them; P0-1 (the QuickBooks projects for the jobs with money on them, D-35)
+gates only the links. No migration since 0011; the dev `wip` database is at 0011.
 
-**F06.1 · Burden on estimates** and **F06 · Estimate import** are closed (2026-09-29;
-`docs/briefs/F06.1.md`, `docs/briefs/F06.md`). **F05.2 · Brand assets** stays ◐ until
-the owner's browser pass on jobcost.dev and the swap test (`docs/briefs/F05.2.md`).
+**D-02** (a deposit is one advance invoice, deferred by the WIP entry; 2420 not created)
+and **D-36** (the platform produces a pay application with a schedule of values; the
+invoice refers to it) were decided 2026-10-01 and are in `docs/DECISIONS.md`; BLUEPRINT
+§8.6, §13.4, §14 and ROADMAP F08.1 say so. **F06.1**, **F06** are closed; **F05.2 ·
+Brand assets** stays ◐ until the owner's browser pass on jobcost.dev and the swap test
+(`docs/briefs/F05.2.md`).
 
 Next per ROADMAP: **F08 · Sold Jobs Board & Job Detail (billing side)**: reports 1 and 2
-of §9, billing half only; deposit identification per tenant policy (D-02 open); XLSX/PDF
-export. It reads billed and collected by job through the `qbo_customer` aliases F07
-writes. Not started; the owner supplies the brief. Copy it here, expand it, and restate
-the acceptance criteria before coding.
+of §9, billing half only; the deposit identified by the `_DEP` document number and the
+tenant's deposit item (D-02), counted in billed to date; the unapplied-payment review
+item; XLSX/PDF export. It reads billed and collected by job through the `qbo_customer`
+aliases F07 writes. Not started; the owner supplies the brief. Copy it here, expand it,
+and restate the acceptance criteria before coding. After it, **F08.1 · Pay applications**
+as D-36 restates it.
 
-Standing state from F07: the job is the reporting unit; matching is by alias
+Standing state from F07 and F07.1: the job is the reporting unit; matching is by alias
 (`job_alias`), never by name; names reach only the pure suggestion functions in
 `app/domain/jobs/suggest.py` (rules in `names.py`). The revised contract, unapproved
 change orders and a job's EAC are computed on read (`app/domain/jobs/contract.py`),
-never stored. A job may hold several QuickBooks rows; one row belongs to at most one job.
-Every job action writes one audit row (`entity_type = job`) naming the rows it touched.
-Review items are pure generators (`app/domain/jobs/issues.py`), §10 names where §10 has
-one; F09 persists them. A confirmed work-area kind is carried to the next version when
-order number and name both match (`estimates.normalize`).
+never stored. A work-area kind is the platform's suggestion until a person confirms it,
+one at a time or all at once ("Confirm all as suggested", one audit row per work area);
+a confirmed kind is carried to the next version when order number and name both match
+(`estimates.normalize`). A job may hold several QuickBooks rows; one row belongs to at
+most one job. Every job action writes one audit row (`entity_type = job`) naming the rows
+it touched; "(set when created)" on Sold on is read from that log. Review items are pure
+generators (`app/domain/jobs/issues.py`), §10 names where §10 has one; F09 persists them.
+The second 67 Elm Street fixture (`estimate_upload_EST6115758_v2.xlsx`, 29 work areas) is
+the job the owner is working; later features are accepted against it.
 
 Standing state from F06.1 and F06: burden is computed on read from the active
 `burden_rate` rows and never stored; the template is the only estimate source; per-estimate
 exceptions are pure generators; file-level facts live in `import_batch.issues`.
 
 ## Discovered
+F07.1 (2026-10-01):
+- The job screens were not rendered in a browser by Claude Code (the owner's pass checks 390 px; `.actions` wraps on a narrow row).
+- A kept work area never lacks a kind suggestion (`suggested_kind` is total over F06's boolean flag); the "no suggestion" branch of "Confirm all as suggested" is proven on the pure selector only. If the suggestion rule ever yields "none", add an API test with a workbook.
+- `_sold_on_set_by_person` reads `audit_log` by `entity_id` with no index on it (the index leads with `tenant_id, occurred_at`); fine at a tenant's size today; F09 adds one if it ever matters.
+- `JobReview` jumps once per mount (`started` ref); the Jobs page's own "Review sold estimates" button always opens at the start.
+
 F07 (2026-09-29):
 - Fixed 2026-09-29 (owner's request before the push): `tests/test_rls.py::test_f04_tables_read_zero_rows_of_another_tenant` no longer seeds random keys; `_seed_f04_rows` writes one fixed set per tenant (`F04_PROBE`, slot `Q1` outside the D-23 slots) and a second call adds nothing. The suite ran three times clean (745 passed each).
 - The job screens were not rendered in a browser by Claude Code (owner pass).

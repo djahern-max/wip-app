@@ -343,6 +343,13 @@ h2 {
   font-size: 14px;
 }
 
+/* F07.1: the Action column's controls, separate elements with visible space between. */
+.actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
 .inline-form {
   display: flex;
   flex-wrap: wrap;

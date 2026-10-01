@@ -238,7 +238,7 @@ function Detail({ d, onOpenJob, onReview }) {
                   ({d.job.role_label})
                 </>
               ) : (
-                <button type="button" className="link-button" onClick={onReview}>
+                <button type="button" className="link-button" onClick={() => onReview(d.id, d.external_id)}>
                   Sold, not yet reviewed
                 </button>
               )}

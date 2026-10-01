@@ -205,6 +205,12 @@ def _routes() -> list[Route]:
             body=lambda: {"kind": "original"},
             also_ok=frozenset({404}),
         ),
+        Route(  # F07.1
+            "POST",
+            f"/api/jobs/{_NO_JOB}/work-areas/kinds/confirm-suggested",
+            frozenset({FA, FS, CA}),
+            also_ok=frozenset({404}),
+        ),
         Route("GET", "/api/admin/users", frozenset({FA})),
         Route(
             "POST",

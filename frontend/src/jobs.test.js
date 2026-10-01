@@ -49,3 +49,39 @@ test("choosing a program job presets ignored and the note", async () => {
   assert.deepEqual(chooseJob(start, "j", jobs), { jobId: "j", role: "change_order", note: "" });
   assert.equal(chooseJob({ ...start, note: "Snow contract" }, "p", jobs).note, "Snow contract");
 });
+
+// --- F07.1 -----------------------------------------------------------------------------
+
+test("the Action column: two separate confirmations before, one change after (D-22)", async () => {
+  const { kindActions } = await import("./jobs.js");
+  assert.deepEqual(kindActions({ kept: true, kind: null }), [
+    { kind: "original", label: "Confirm original" },
+    { kind: "change_order", label: "Confirm change order" },
+  ]);
+  assert.deepEqual(kindActions({ kept: true, kind: "original" }), [
+    { kind: "change_order", label: "Change to change order" },
+  ]);
+  assert.deepEqual(kindActions({ kept: true, kind: "change_order" }), [
+    { kind: "original", label: "Change to original" },
+  ]);
+  assert.deepEqual(kindActions({ kept: false, kind: null }), []);
+});
+
+test("the review queue opens on the chosen estimate, or at its start with one sentence", async () => {
+  const { startIndex, missingSentence, estimateOption } = await import("./jobs.js");
+  const entries = [{ estimate_id: "a" }, { estimate_id: "b" }, { estimate_id: "c" }];
+  assert.deepEqual(startIndex(entries, "b"), { index: 1, missing: false });
+  assert.deepEqual(startIndex(entries, "c"), { index: 2, missing: false });
+  assert.deepEqual(startIndex(entries, "zz"), { index: 0, missing: true });
+  assert.deepEqual(startIndex(entries, null), { index: 0, missing: false });
+  assert.deepEqual(startIndex(entries, undefined), { index: 0, missing: false });
+  assert.deepEqual(startIndex([], "a"), { index: 0, missing: false });
+  assert.equal(
+    missingSentence("EST6115758"),
+    "EST6115758 is not waiting for review any more, so the queue opens at its first estimate.",
+  );
+  assert.equal(
+    estimateOption({ external_id: "EST6115758", name: "67 Elm Street | Parking Lot", price: "519173.72" }),
+    "EST6115758 · 67 Elm Street | Parking Lot · 519,173.72",
+  );
+});

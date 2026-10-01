@@ -3,7 +3,8 @@ production order. Nothing is attached or created except by a request naming an i
 every action writes exactly one audit row and reads write none."""
 
 from collections.abc import Callable
-from datetime import date
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,7 +13,7 @@ from sqlalchemy import Engine, func, select
 from app.core.db import tenant_session
 from app.domain.jobs.models import Job, JobAlias, JobEstimate
 from tests.config_helpers import run_until_quiet
-from tests.conftest import Seed
+from tests.conftest import CSRF, Seed
 from tests.estimate_helpers import EIGHTY, build_workbook, fixture_rows, upload_template
 from tests.job_helpers import (
     DEVELLIS_ADDON_ID,
@@ -247,6 +248,70 @@ def test_sold_on_is_the_estimate_date_or_the_creation_date(t: Tenant) -> None:
     run_until_quiet(t.engine)
     job2 = t.new_job("EST9000001", "LS")
     assert (job2["sold_on"], job2["sold_on_set_when_created"]) == ("2026-05-04", False)
+
+
+def test_sold_on_can_be_corrected_and_the_note_goes_once_a_person_sets_it(t: Tenant) -> None:
+    """F07.1: ``PATCH sold_on`` is part of the one ``job_updated`` row; "(set when
+    created)" shows while the date came from neither the estimate nor a person, which
+    the audit log records (owner, 2026-10-01); a future date is refused in one sentence."""
+    job = t.new_job(ELM_ID)
+    assert job["sold_on_set_when_created"] is True
+    created_on = job["sold_on"]
+    seen = t.audit_rows()
+    job = t.send("PATCH", f"/api/jobs/{job['id']}", {"sold_on": "2026-06-15"})
+    assert (job["sold_on"], job["sold_on_set_when_created"]) == ("2026-06-15", False)
+    (row,) = t.audit_actions(seen)
+    assert row.action == "job_updated" and row.detail["changed_fields"] == ["sold_on"]
+    assert row.detail["before"] == {"sold_on": created_on}
+    assert row.detail["after"] == {"sold_on": "2026-06-15"}
+    listed = next(j for j in t.get("/api/jobs")["jobs"] if j["id"] == job["id"])
+    assert (listed["sold_on"], listed["sold_on_set_when_created"]) == ("2026-06-15", False)
+    # The same date again changes nothing and writes nothing.
+    assert t.send("PATCH", f"/api/jobs/{job['id']}", {"sold_on": "2026-06-15"})["sold_on"] == (
+        "2026-06-15"
+    )
+    assert t.audit_rows() == seen + 1
+    # Set back to the creation date by a person: still no note (the audit row stands).
+    job = t.send("PATCH", f"/api/jobs/{job['id']}", {"sold_on": created_on})
+    assert job["sold_on_set_when_created"] is False
+    today = datetime.now(ZoneInfo("America/New_York")).date()
+    r = t.client.patch(
+        f"/api/jobs/{job['id']}",
+        json={"sold_on": (today + timedelta(days=1)).isoformat()},
+        headers=CSRF,
+    )
+    assert r.status_code == 422
+    assert r.json()["detail"] == f"Sold on cannot be after today, {today.isoformat()}."
+    r = t.client.patch(f"/api/jobs/{job['id']}", json={"sold_on": None}, headers=CSRF)
+    assert r.status_code == 422 and r.json()["detail"] == "Give the sold-on date."
+    assert t.send("PATCH", f"/api/jobs/{job['id']}", {"sold_on": today.isoformat()})["sold_on"] == (
+        today.isoformat()
+    )
+
+
+def test_a_job_dated_by_its_estimate_keeps_behaving_as_today_until_a_person_sets_it(
+    t: Tenant,
+) -> None:
+    dated = build_workbook(
+        estimates=[
+            {
+                "estimate_id": "EST9000002",
+                "estimator": "Test",
+                "client": "Client 91",
+                "jobsite": "Site",
+                "name": "Dated two",
+                "status": "Sold",
+                "price": 100,
+                "estimate_date": date(2026, 5, 4),
+            }
+        ]
+    )
+    upload_template(t.client, dated, "dated2.xlsx")
+    run_until_quiet(t.engine)
+    job = t.new_job("EST9000002", "LS")
+    assert (job["sold_on"], job["sold_on_set_when_created"]) == ("2026-05-04", False)
+    job = t.send("PATCH", f"/api/jobs/{job['id']}", {"sold_on": "2026-05-06"})
+    assert (job["sold_on"], job["sold_on_set_when_created"]) == ("2026-05-06", False)
 
 
 def test_patch_writes_one_row_with_the_changed_fields_and_the_estimate_shows_its_job(

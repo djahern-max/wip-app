@@ -52,9 +52,10 @@ export default function Shell({ me, onChanged, onLogout }) {
     setJobTarget({ view: "detail", jobId });
   }
 
-  function openReview() {
+  function openReview(estimateId, externalId) {
+    // F07.1: the queue opens on the estimate the person was looking at.
     go("jobs");
-    setJobTarget({ view: "review" });
+    setJobTarget({ view: "review", estimateId: estimateId || null, externalId: externalId || null });
   }
 
   function openEstimate(estimateId) {

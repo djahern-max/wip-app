@@ -7,6 +7,7 @@ Money is strings with cents (D-22). Suggestions carry their reason; nothing is
 attached or linked except by a person's request naming an id.
 """
 
+from datetime import date
 from typing import Annotated
 from uuid import UUID
 
@@ -18,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.api.schemas import (
     AttachCandidateOut,
     ChoiceOut,
+    ConfirmSuggestedOut,
     DivisionChoiceOut,
     DuplicatePairOut,
     DuplicateSideOut,
@@ -86,6 +88,7 @@ class JobPatchIn(_In):
     revenue_method: str | None = Field(default=None, max_length=30)
     status: str | None = Field(default=None, max_length=30)
     notes: str | None = Field(default=None, max_length=4000)
+    sold_on: date | None = None  # F07.1: corrected by a person; never after today
 
 
 class AttachIn(_In):
@@ -193,11 +196,24 @@ def _row(v: service.JobView) -> dict:
 
 
 def _kind_label(kind: str | None, suggested: str | None, kept: bool) -> str:
+    """Words first (D-22): what is suggested, what is confirmed (F07.1)."""
     if not kept:
         return "Omitted"
     if kind is not None:
-        return "Original" if kind == "original" else "Change order"
+        return "Original, confirmed" if kind == "original" else "Change order, confirmed"
     return "Original (suggested)" if suggested == "original" else "Change order (suggested)"
+
+
+def _confirm_message(confirmed: int, skipped: int) -> str:
+    if confirmed == 0 and skipped == 0:
+        return "Nothing was left to confirm."
+    text = f"{confirmed} work area{'s' if confirmed != 1 else ''} confirmed as suggested"
+    if skipped:
+        text += (
+            f"; {skipped} kept work area{'s have' if skipped != 1 else ' has'} no suggestion "
+            f"and {'are' if skipped != 1 else 'is'} left to confirm"
+        )
+    return text + "."
 
 
 def _detail(db: Session, v: service.JobView) -> JobDetailOut:
@@ -534,3 +550,20 @@ def confirm_kind(
     except service.JobError as exc:
         _raise(exc)
     return _fresh_detail(db, m, job_id)
+
+
+@router.post("/{job_id}/work-areas/kinds/confirm-suggested", response_model=ConfirmSuggestedOut)
+def confirm_suggested(request: Request, m: Manager, db: TenantSession, job_id: UUID):
+    """F07.1: confirm every kept, unconfirmed work area at its suggested kind (D-01); one
+    audit row per work area in this one transaction."""
+    try:
+        done = service.confirm_suggested_kinds(db, m.active_tenant_id, job_id, _actor(m, request))
+    except service.JobError as exc:
+        _raise(exc)
+    detail = _fresh_detail(db, m, job_id)
+    return ConfirmSuggestedOut(
+        **detail.model_dump(),
+        confirmed=done.confirmed,
+        skipped=done.skipped,
+        message=_confirm_message(done.confirmed, done.skipped),
+    )
