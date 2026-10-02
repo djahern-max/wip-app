@@ -23,7 +23,7 @@ backend/     FastAPI + SQLAlchemy 2.0 + Alembic (Python 3.12)
   scripts/       create_user.py: bootstrap the practice, create users, issue activation links, reset TOTP
   tests/         pytest (probe routes live here, not in the app); fixtures/ and golden/ hold anonymized Rye Beach data
 frontend/    React 18 + Vite, plain JavaScript
-  public/brand/  logo.svg (the one hand-made picture), logo-mark.svg (16/32 px favicons), brand.json (F05.2)
+  public/brand/  logo.svg (the one hand-made picture), brand.json; an optional logo-mark.svg for the 16/32 px favicons, none at present (F05.2)
   scripts/       make-brand.mjs: `npm run brand` writes the favicons, icons, manifest and OG image into public/ (committed)
 db/init/     role + database bootstrap for Postgres 16
 deploy/      production: setup.sh, deploy.sh, env templates, nginx site, systemd units (F05.0)

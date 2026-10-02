@@ -1473,9 +1473,12 @@ only. Check from the Mac: `nc -vz -w 5 174.138.33.185 443` succeeds, `… 8000` 
 ## Brand (F05.2)
 
 One image is the brand. `frontend/public/brand/logo.svg` is the only hand-made picture in
-the repo (the owner's hammer, committed as supplied; it carries no colour and renders
-black). Beside it: `logo-mark.svg`, the logo's outer outline filled, used for the 16 and
-32 px favicons only because the line art does not read at 16 px; and `brand.json`
+the repo (the owner's logo, committed as supplied on 2026-10-02 in place of the original
+hammer; it carries its own fill colours, which `brand.json` does not govern). Beside it,
+optionally, `logo-mark.svg`: a simplified mark used for the 16 and 32 px favicons only,
+for a logo whose detail does not read at 16 px. There is none at present: the current logo
+reads at 16 px as it is, so those two favicons come from `logo.svg` (the script says which it
+used). And `brand.json`
 (`background` `#fff`, `foreground` `#000`, `padding` 0.15), hand-copied from
 `styles.css` and not following it (`--accent` is never used in the brand assets). The
 wordmark and the manifest name come from `SITE_HOST` in `frontend/src/product.js`, which
@@ -1496,9 +1499,10 @@ PNG shows that rendering.
 Swapping the logo:
 
 1. Overwrite `frontend/public/brand/logo.svg` (an SVG with a `viewBox`; nothing else is
-   required). Overwrite `logo-mark.svg` with a matching simplified mark, or delete it: without
-   it the 16 and 32 px favicons fall back to the line art of `logo.svg`, and the script says
-   so when it runs.
+   required). If the new logo does not read at 16 px, add `logo-mark.svg`, a matching
+   simplified mark; without it the 16 and 32 px favicons come from `logo.svg` itself, and the
+   script says so when it runs. If a mark exists and the logo changes, replace or delete it to
+   match.
 2. `cd frontend && npm run brand`, then look at `public/og-image.png` and
    `public/favicon-16.png`.
 3. `npm test`, commit the sources and the outputs together, and deploy as usual

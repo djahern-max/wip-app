@@ -116,22 +116,40 @@ for (const page of ["privacy.html", "terms.html", "qbo-disconnected.html"]) {
 
 // --- the generator's pure parts ------------------------------------------------------
 
+// The pure parts are tested on a fixed logo defined here, not on the committed one, so the
+// tests say nothing about which logo is committed (its viewBox, paths, fills or whether a
+// mark exists): the owner's swap test (F05.2, 2026-10-02) found the original hammer's
+// viewBox typed into the icon test.
+// The fixed logo is deliberately not square and not at the origin, so a viewBox carried
+// through is visibly its own.
+const FIXED_LOGO = parseSvg(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="2 4 10 20"><rect width="1" height="1"/></svg>',
+);
+
+test("the committed logo parses: an <svg> root with a viewBox (else npm run brand fails)", () => {
+  const logo = parseSvg(text(SOURCES.logo));
+  assert.equal(logo.viewBox.length, 4);
+  assert.ok(logo.viewBox[2] > 0 && logo.viewBox[3] > 0);
+});
+
 test("the OG image's SVG source names SITE_HOST once, in the foreground colour", () => {
-  const svg = ogSvg(parseSvg(text(SOURCES.logo)), HOST, brand);
+  const svg = ogSvg(FIXED_LOGO, HOST, brand);
   assert.equal(svg.split(HOST).length - 1, 1);
   assert.ok(svg.includes(`width="${OG_WIDTH}" height="${OG_HEIGHT}"`));
-  assert.ok(svg.includes(`fill="${brand.foreground}"`));
-  assert.ok(svg.includes(`fill="${brand.background}"`));
+  assert.ok(svg.includes(`<rect width="${OG_WIDTH}" height="${OG_HEIGHT}" fill="${brand.background}"/>`));
+  assert.ok(svg.includes(`fill="${brand.foreground}">${HOST}</text>`));
   assert.ok(svg.includes("'Helvetica Neue', Helvetica, Arial, sans-serif"));
+  assert.ok(svg.includes('viewBox="2 4 10 20"'), "the logo keeps its own viewBox");
 });
 
 test("an icon SVG insets the logo by the padding and keeps its viewBox", () => {
-  const logo = parseSvg(text(SOURCES.logo));
-  const svg = iconSvg(logo, 180, brand.background, 0.15);
-  assert.ok(svg.includes('<svg x="27" y="27" width="126" height="126" viewBox="0 0 74 74"'));
+  const svg = iconSvg(FIXED_LOGO, 180, brand.background, 0.15);
+  assert.ok(svg.includes('<svg x="27" y="27" width="126" height="126" viewBox="2 4 10 20"'));
   assert.ok(svg.includes(`<rect width="180" height="180" fill="${brand.background}"/>`));
-  const bare = iconSvg(logo, 16, null, 0);
-  assert.ok(!bare.includes("<rect"));
+  assert.ok(svg.includes('<rect width="1" height="1"/>'), "the logo's own markup is carried");
+  const bare = iconSvg(FIXED_LOGO, 16, null, 0);
+  assert.ok(!bare.includes("<rect width=\"16\""));
+  assert.ok(bare.includes('<svg x="0" y="0" width="16" height="16" viewBox="2 4 10 20"'));
 });
 
 test("parseSvg refuses a document without a viewBox", () => {
