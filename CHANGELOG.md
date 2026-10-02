@@ -15,6 +15,17 @@ Newest first. One entry per closed feature or decision. Format:
 
 ---
 
+## 2026-10-02 · F05.2 · Closed (owner pass)
+**What**: The owner's browser pass on jobcost.dev, after deploying the logo swap, is complete: the tab icon, the sign-in card, the header after sign-in, `/privacy`, a link preview and Add to Home Screen all show the new logo. Both open criteria of the brief are ticked (the swap test passed earlier the same day) and its Status line reads closed; ROADMAP F05.2 is ☑; `current-feature.md` says F05.2 closed. Docs only.
+**Why**: the last open criterion of F05.2 was the owner's.
+**Migrations**: none.
+**Tests**: none run; no code changed.
+**Decisions referenced / made**: none.
+**Dependencies added**: none.
+**Follow-ups**: none for F05.2. F07 and F07.1 stay ◐ on the owner's pass as `current-feature.md` states; F08 is next.
+
+---
+
 ## 2026-10-02 · F05.2 · Logo swapped
 **What**: The owner's swap test (the last open criterion of F05.2 but the browser pass) was run on 2026-10-02 against a new logo and passed; the owner kept it. `frontend/public/brand/logo.svg` is now that logo, committed as supplied (a 64-unit viewBox; it carries its own fill colours, which `brand.json` does not govern). `logo-mark.svg` is removed: the new logo reads at 16 px, so the 16 and 32 px favicons come from `logo.svg`, the fallback the script and the runbook already described (`brand-manifest.json` records the mark as null). `npm run brand` regenerated the twelve outputs; a second run changed no byte. The one code change the swap forced: `frontend/tests/brand.test.js` typed the hammer's viewBox into the icon test, so any other logo failed `npm test` after a correct regeneration. The two pure-part tests (OG source, icon inset) now run on a small fixed SVG defined in the test, and a new test asserts only that the committed logo parses with a viewBox; no other test, nor the CI post-build step, held a value belonging to the hammer (both already accept a missing mark). `make-brand.mjs` is untouched. Prose brought up to date: OPERATIONS "Brand" (the current logo, the mark as optional and absent; the swap procedure kept), the README layout line, the ROADMAP F05.2 line, and the brief (swap test ticked with the date; the finding under Discovered).
 **Why**: the owner decided to keep the new logo rather than restore the hammer, and the test must say nothing about which logo is committed, since the whole point of F05.2 is that a swap is overwrite, run, commit, deploy.

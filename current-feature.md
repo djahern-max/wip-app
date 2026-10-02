@@ -14,8 +14,8 @@ gates only the links. No migration since 0011; the dev `wip` database is at 0011
 and **D-36** (the platform produces a pay application with a schedule of values; the
 invoice refers to it) were decided 2026-10-01 and are in `docs/DECISIONS.md`; BLUEPRINT
 §8.6, §13.4, §14 and ROADMAP F08.1 say so. **F06.1**, **F06** are closed; **F05.2 ·
-Brand assets** stays ◐ until the owner's browser pass on jobcost.dev and the swap test
-(`docs/briefs/F05.2.md`).
+Brand assets** closed 2026-10-02 (swap test and the owner's browser pass on jobcost.dev,
+`docs/briefs/F05.2.md`).
 
 Next per ROADMAP: **F08 · Sold Jobs Board & Job Detail (billing side)**: reports 1 and 2
 of §9, billing half only; the deposit identified by the `_DEP` document number and the
