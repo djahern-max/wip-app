@@ -302,3 +302,12 @@ What the platform holds does not change. The sync still copies the whole company
 **Reasoning**: F07 raised `LEDGER_PROJECT_NO_JOB` for every project or sub-customer with any invoice or payment and no job. Against the fixture that is one row. On `rye-beach` on 2026-10-04 it was several hundred sentences, nearly all for sub-customers from earlier years with generic names, and the duplicates list was longer still; the seven projects actually in progress were not findable among them. The owner works one job at a time (the pilot jobs, starting with 6115758) and the project list a person keeps is short by design (D-35). The platform should start from what the person picks and stay quiet about the rest. Limiting what is fetched instead was considered and rejected: cost documents carry the job on the line and cannot be requested by project, and without the full copy there is no Unassigned figure and no tie-out, which principle 2 requires before a period can close.
 
 **Affected**: New patch F07.2 (the picker, the tracked flag, the narrowed review item, the duplicates link). F07 as built: the `LEDGER_PROJECT_NO_JOB` rule ("a project or sub-customer with at least one billing or payment row and no alias") is replaced by the rule above; the link candidates, suggestions and search on a job are unchanged. F08 (money on untracked rows is part of the not-on-a-job figure). F09 (persists the narrowed item). BLUEPRINT §5 ("A QBO project with activity and no job is an exception" becomes "A tracked QuickBooks row with no job is an exception"), §10. CLAUDE.md Vocabulary: add "**tracked**: a QuickBooks customer, sub-customer or project a person has picked to work on, or one linked to a job; the screens show tracked rows only". OPERATIONS.md "Jobs". D-35 unchanged (when a project is created, programs, pools). F05 unchanged (what is fetched and held).
+
+## D-38 · 2026-10-04 · A tracked row that is inactive in QuickBooks raises no review item
+
+**Decision**: Amends D-37. `LEDGER_PROJECT_NO_JOB` is raised for a tracked row that is
+active in QuickBooks and has no job. A tracked row that QuickBooks has made inactive stays
+tracked, reads "Inactive in QuickBooks" and raises nothing. The rest of D-37 stands.
+**Reasoning**: An inactive project cannot take a job's money, so asking for a job on it is
+noise (owner, 2026-10-04, amendment 2 to the F07.2 plan).
+**Affected**: F07.2 as built (no code change). BLUEPRINT §5, §10.
