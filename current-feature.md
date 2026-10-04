@@ -1,49 +1,51 @@
 # current-feature.md
 
-_No feature in flight (2026-10-01)._ **F07.1 · Job screens patch is built** (2026-10-01;
-761 backend, 45 frontend) and waits for the owner's pass on jobcost.dev: a second job
-through the review select and "Confirm all as suggested"; 67 Elm Street's rows reading
-"…, confirmed" and its Sold on corrected. Its brief, with the Plan, the owner's answers
-and the build notes, is `docs/briefs/F07.1.md`. ROADMAP F07.1 is ◐. **F07 · Job spine &
-crosswalk** stays ◐ on the same pass, job by job (restated 2026-10-01; the owner ticks
-it): 67 Elm Street passed on 2026-10-01; the other sold estimates are reviewed as the
-owner reaches them; P0-1 (the QuickBooks projects for the jobs with money on them, D-35)
-gates only the links. No migration since 0011; the dev `wip` database is at 0011.
+_No feature in flight (2026-10-04)._ **F07.2 · Pick what to work on is built** (2026-10-04;
+migration 0012; D-37 appended) and waits for the owner's pass on jobcost.dev, tenant
+`rye-beach`: Jobs quiet on arrival; find the 67 Elm Street project by its number, track
+it, link it to its job, and see only that project under Tracked. Its brief, with the
+Plan, the owner's amendments and the build notes, is `docs/briefs/F07.2.md`. ROADMAP
+F07.2 is ◐. **F07.1 · Job screens patch** stays ◐ on its own pass (`docs/briefs/F07.1.md`),
+and **F07 · Job spine & crosswalk** on the pass job by job (restated 2026-10-01; the owner
+ticks it): 67 Elm Street passed on 2026-10-01; P0-1 gates only the links. The dev `wip`
+database is at 0012. **Deploying F07.2 runs migration 0012**, whose data step tracks every
+row already linked on `rye-beach` as of the link (no audit row; the link's row is the
+record).
 
-**D-02** (a deposit is one advance invoice, deferred by the WIP entry; 2420 not created)
-and **D-36** (the platform produces a pay application with a schedule of values; the
-invoice refers to it) were decided 2026-10-01 and are in `docs/DECISIONS.md`; BLUEPRINT
-§8.6, §13.4, §14 and ROADMAP F08.1 say so. **F06.1**, **F06** are closed; **F05.2 ·
-Brand assets** closed 2026-10-02 (swap test and the owner's browser pass on jobcost.dev,
-`docs/briefs/F05.2.md`).
+**D-37** (a person picks the QuickBooks customers and projects the platform works on;
+everything else is held and stays out of the way) was decided 2026-10-04 and is in
+`docs/DECISIONS.md`; BLUEPRINT §5 and §10, CLAUDE.md Vocabulary ("Tracked") and
+OPERATIONS "Jobs" say so. **F05.2**, **F06.1**, **F06** are closed.
 
 Next per ROADMAP: **F08 · Sold Jobs Board & Job Detail (billing side)**: reports 1 and 2
 of §9, billing half only; the deposit identified by the `_DEP` document number and the
 tenant's deposit item (D-02), counted in billed to date; the unapplied-payment review
 item; XLSX/PDF export. It reads billed and collected by job through the `qbo_customer`
-aliases F07 writes. Not started; the owner supplies the brief. Copy it here, expand it,
-and restate the acceptance criteria before coding. After it, **F08.1 · Pay applications**
-as D-36 restates it.
+aliases F07 writes, and shows money on untracked rows as one not-on-a-job figure (D-37).
+Not started; the owner supplies the brief. Copy it here, expand it, and restate the
+acceptance criteria before coding. After it, **F08.1 · Pay applications** as D-36
+restates it.
 
-Standing state from F07 and F07.1: the job is the reporting unit; matching is by alias
-(`job_alias`), never by name; names reach only the pure suggestion functions in
-`app/domain/jobs/suggest.py` (rules in `names.py`). The revised contract, unapproved
-change orders and a job's EAC are computed on read (`app/domain/jobs/contract.py`),
-never stored. A work-area kind is the platform's suggestion until a person confirms it,
-one at a time or all at once ("Confirm all as suggested", one audit row per work area);
-a confirmed kind is carried to the next version when order number and name both match
-(`estimates.normalize`). A job may hold several QuickBooks rows; one row belongs to at
-most one job. Every job action writes one audit row (`entity_type = job`) naming the rows
-it touched; "(set when created)" on Sold on is read from that log. Review items are pure
-generators (`app/domain/jobs/issues.py`), §10 names where §10 has one; F09 persists them.
-The second 67 Elm Street fixture (`estimate_upload_EST6115758_v2.xlsx`, 29 work areas) is
-the job the owner is working; later features are accepted against it.
-
-Standing state from F06.1 and F06: burden is computed on read from the active
-`burden_rate` rows and never stored; the template is the only estimate source; per-estimate
-exceptions are pure generators; file-level facts live in `import_batch.issues`.
+Standing state from F07, F07.1 and F07.2: the job is the reporting unit; matching is by
+alias (`job_alias`), never by name; names reach only the pure suggestion functions in
+`app/domain/jobs/suggest.py` (rules in `names.py`) and the picker's search (a read). The
+revised contract, unapproved change orders and a job's EAC are computed on read
+(`app/domain/jobs/contract.py`), never stored. A work-area kind is the platform's
+suggestion until a person confirms it. A job may hold several QuickBooks rows; one row
+belongs to at most one job; linking a row tracks it (D-37), untrack waits for unlink.
+Every job, track and untrack action writes one audit row naming the rows it touched.
+Review items are pure generators (`app/domain/jobs/issues.py`); `LEDGER_PROJECT_NO_JOB`
+is raised for tracked, active rows with no job only; F09 persists them. The second 67 Elm
+Street fixture (`estimate_upload_EST6115758_v2.xlsx`, 29 work areas) is the job the owner
+is working; later features are accepted against it.
 
 ## Discovered
+From the owner's session of 2026-10-04 (recorded in the F07.2 brief):
+- Connections, no chart loaded: "Numbered in QuickBooks but not in the chart" lists every numbered account; it should say that no chart is loaded and where to load one.
+- Connections: "Accounts without a number" gives a count only; a list of the names would save a trip to QuickBooks.
+- Chart of accounts for a connected tenant: build it from the synced QuickBooks accounts, accept the QuickBooks Account List export as it comes, or offer a template on Imports. The owner decides; a separate F04 patch.
+- OPERATIONS.md has no runbook for resetting production while pre-launch (drop and recreate `wip`, redeploy, bootstrap, tenants); the local reset steps stop before `create-tenant` and `add-entry`.
+
 F07.1 (2026-10-01):
 - The job screens were not rendered in a browser by Claude Code (the owner's pass checks 390 px; `.actions` wraps on a narrow row).
 - A kept work area never lacks a kind suggestion (`suggested_kind` is total over F06's boolean flag); the "no suggestion" branch of "Confirm all as suggested" is proven on the pure selector only. If the suggestion rule ever yields "none", add an API test with a workbook.

@@ -83,6 +83,8 @@ can_view_estimates = require_roles(*ALL_ROLES)
 can_view_jobs = require_roles(*ALL_ROLES)
 can_manage_jobs = require_roles(*FIRM_AND_CLIENT_ADMIN)
 can_view_customer_duplicates = require_roles(*FIRM_AND_CLIENT_ADMIN)
+# F07.2 (D-37): picking the QuickBooks rows to work on follows the roles that link a job.
+can_track_customers = require_roles(*FIRM_AND_CLIENT_ADMIN)
 # Firm-level (no active tenant needed)
 can_manage_users = require_firm_role(Role.firm_admin)
 can_manage_memberships = require_firm_role(Role.firm_admin)
@@ -118,6 +120,7 @@ CAPABILITIES: dict[str, tuple[Guard, frozenset[Role], str]] = {
         frozenset(FIRM_AND_CLIENT_ADMIN),
         "tenant",
     ),
+    "track_customers": (can_track_customers, frozenset(FIRM_AND_CLIENT_ADMIN), "tenant"),
     "manage_users": (can_manage_users, frozenset({Role.firm_admin}), "firm"),
     "manage_memberships": (can_manage_memberships, frozenset({Role.firm_admin}), "firm"),
     "manage_firm_memberships": (

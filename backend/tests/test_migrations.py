@@ -58,6 +58,7 @@ EXPECTED_TABLES = {
 F06_TABLES = {"estimate", "estimate_version", "estimate_work_area", "estimate_cost"}
 F07_TABLES = {"job", "job_estimate", "job_alias"}
 F07_WORK_AREA_COLUMNS = {"kind", "kind_confirmed_by", "kind_confirmed_at"}
+F07_2_CUSTOMER_COLUMNS = {"tracked_at", "tracked_by"}  # 0012 (D-37)
 F03_TABLES = {"connection", "sync_run", "import_batch", "raw_record", "task"}
 F05_TABLES = {"customer", "billing", "billing_line", "payment", "payment_application"}
 F04_TABLES = {
@@ -182,6 +183,14 @@ def test_upgrade_head_then_downgrade_base(scratch_db_url: str) -> None:
         "CREATE UNIQUE INDEX uq_job_estimate_one_original ON public.job_estimate "
         "USING btree (tenant_id, job_id) WHERE ((role)::text = 'original'::text)"
     }
+    # 0012 alone is reversible (F07.2): the two tracked columns and their CHECK on
+    # customer come and go; nothing else is touched.
+    assert F07_2_CUSTOMER_COLUMNS <= _columns(scratch_db_url, "customer")
+    assert "ck_customer_tracked" in _constraints(scratch_db_url, "customer")
+    command.downgrade(cfg, "0011")
+    assert F07_2_CUSTOMER_COLUMNS.isdisjoint(_columns(scratch_db_url, "customer"))
+    assert "ck_customer_tracked" not in _constraints(scratch_db_url, "customer")
+    assert F07_TABLES <= _public_tables(scratch_db_url)
     command.downgrade(cfg, "0010")
     assert F07_TABLES.isdisjoint(_public_tables(scratch_db_url))
     assert F07_WORK_AREA_COLUMNS.isdisjoint(_columns(scratch_db_url, "estimate_work_area"))
@@ -590,5 +599,133 @@ def test_0006_downgrade_renames_nothing_loaded_per_tenant_and_upgrade_rewrites_n
         ) == {True}
         command.upgrade(cfg, "head")
         assert statuses()[str(ta)] == ["loaded", "loaded_with_issues"]  # not rewritten
+    finally:
+        engine.dispose()
+
+
+def test_0012_data_step_tracks_linked_rows_per_tenant_and_is_reversible(
+    scratch_db_url: str,
+) -> None:
+    """D-37: a customer row already linked to a job is tracked as of the link, with
+    ``tracked_by`` = the user who made the link (``job_alias.linked_by``) and
+    ``tracked_at`` = ``linked_at``; an unlinked row stays untracked; both tenants; RLS
+    still forced; no audit row written. The downgrade drops the columns and the upgrade
+    derives them again."""
+    cfg = alembic_config(scratch_db_url)
+    command.upgrade(cfg, "0011")
+    engine = create_engine(scratch_db_url)
+    firm, user = uuid.uuid4(), uuid.uuid4()
+    tenants = {uuid.uuid4(): "a", uuid.uuid4(): "b"}
+    linked_at = "2026-10-01T15:04:05+00:00"
+
+    def tracked() -> dict[str, list[tuple[str, str | None, str | None]]]:
+        out = {}
+        with engine.begin() as conn:
+            for t, slug in tenants.items():
+                conn.execute(text("SELECT set_config('app.tenant_id', :t, true)"), {"t": str(t)})
+                out[slug] = [
+                    (
+                        r.external_id,
+                        r.tracked_by and str(r.tracked_by),
+                        r.tracked_at and r.tracked_at.isoformat(),
+                    )
+                    for r in conn.execute(
+                        text(
+                            "SELECT external_id, tracked_by, tracked_at FROM customer "
+                            "ORDER BY external_id"
+                        )
+                    ).all()
+                ]
+        return out
+
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("INSERT INTO firm (id, name) VALUES (:f, 'F')"), {"f": firm})
+            conn.execute(
+                text('INSERT INTO "user" (id, email, display_name) VALUES (:u, :e, :n)'),
+                {"u": user, "e": f"{user}@example.test", "n": "Linker"},
+            )
+            for t, slug in tenants.items():
+                conn.execute(
+                    text("INSERT INTO tenant (id, firm_id, name, slug) VALUES (:t, :f, :n, :s)"),
+                    {"t": t, "f": firm, "n": slug.upper(), "s": slug},
+                )
+                conn.execute(text("SELECT set_config('app.tenant_id', :t, true)"), {"t": str(t)})
+                conn_id, run_id, raw_id, job_id = (uuid.uuid4() for _ in range(4))
+                conn.execute(
+                    text(
+                        "INSERT INTO connection (id, tenant_id, system, status) "
+                        "VALUES (:id, :t, 'qbo', 'connected')"
+                    ),
+                    {"id": conn_id, "t": t},
+                )
+                conn.execute(
+                    text(
+                        "INSERT INTO sync_run (id, tenant_id, connection_id, kind, "
+                        "records_fetched, records_stored) "
+                        "VALUES (:id, :t, :c, 'backfill', 0, 0)"
+                    ),
+                    {"id": run_id, "t": t, "c": conn_id},
+                )
+                conn.execute(
+                    text(
+                        "INSERT INTO raw_record (id, tenant_id, source, entity_type, "
+                        "external_id, version, "
+                        "payload, payload_sha256, is_deleted, sync_run_id) "
+                        "VALUES (:id, :t, 'qbo', 'Customer', 'x', 1, '{}', :sha, false, :r)"
+                    ),
+                    {"id": raw_id, "t": t, "sha": uuid.uuid4().hex * 2, "r": run_id},
+                )
+                for ext in ("linked", "unlinked"):
+                    conn.execute(
+                        text(
+                            "INSERT INTO customer (id, tenant_id, source, external_id, "
+                            "display_name, is_project, "
+                            "active, raw_record_id) VALUES (:id, :t, 'qbo', :e, :e, true, true, :r)"
+                        ),
+                        {"id": uuid.uuid4(), "t": t, "e": ext, "r": raw_id},
+                    )
+                conn.execute(
+                    text(
+                        "INSERT INTO job (id, tenant_id, name, revenue_method, status, sold_on) "
+                        "VALUES (:id, :t, 'J', 'fixed_price', 'in_progress', '2026-09-01')"
+                    ),
+                    {"id": job_id, "t": t},
+                )
+                conn.execute(
+                    text(
+                        "INSERT INTO job_alias (id, tenant_id, job_id, system, external_id, "
+                        "linked_by, linked_at) "
+                        "VALUES (:id, :t, :j, 'qbo_customer', 'linked', :u, :at)"
+                    ),
+                    {"id": uuid.uuid4(), "t": t, "j": job_id, "u": user, "at": linked_at},
+                )
+            audit_before = conn.execute(text("SELECT count(*) FROM audit_log")).scalar_one()
+
+        command.upgrade(cfg, "head")
+        expected = [("linked", str(user), "2026-10-01T15:04:05+00:00"), ("unlinked", None, None)]
+        assert tracked() == {"a": expected, "b": expected}
+        assert _query(
+            scratch_db_url,
+            "SELECT relrowsecurity AND relforcerowsecurity FROM pg_class "
+            "WHERE relname = 'customer'",
+        ) == {True}
+        with engine.begin() as conn:
+            assert conn.execute(text("SELECT count(*) FROM audit_log")).scalar_one() == audit_before
+            # the CHECK: who without when is refused
+            conn.execute(
+                text("SELECT set_config('app.tenant_id', :t, true)"),
+                {"t": str(next(iter(tenants)))},
+            )
+            with pytest.raises(Exception, match="ck_customer_tracked"):
+                conn.execute(
+                    text("UPDATE customer SET tracked_by = :u WHERE external_id = 'unlinked'"),
+                    {"u": user},
+                )
+
+        command.downgrade(cfg, "0011")
+        assert F07_2_CUSTOMER_COLUMNS.isdisjoint(_columns(scratch_db_url, "customer"))
+        command.upgrade(cfg, "head")
+        assert tracked() == {"a": expected, "b": expected}  # derived again from the links
     finally:
         engine.dispose()

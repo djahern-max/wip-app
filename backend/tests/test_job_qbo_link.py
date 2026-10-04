@@ -134,12 +134,21 @@ def test_link_sets_the_paying_customer_and_unlink_offers_the_row_again(t: Tenant
     assert r.status_code == 422
 
 
+def _track(t: Tenant, key: str) -> None:
+    t.send("POST", f"/api/customers/{t.customers[key]['id']}/track")
+
+
 def test_review_items_on_the_crosswalk(t: Tenant) -> None:
+    # D-37 (F07.2): a row nobody picked raises nothing, documents or not.
+    assert t.get("/api/jobs")["ledger_items"] == []
+    _track(t, "ocean")
     ocean_items = [
         i for i in t.get("/api/jobs")["ledger_items"] if i["code"] == "LEDGER_PROJECT_NO_JOB"
     ]
     assert [("1701 Ocean Boulevard" in i["message"]) for i in ocean_items] == [True]
-    add_payment(t.engine, t.id, t.customers["old"])  # a sub-customer with activity
+    add_payment(t.engine, t.id, t.customers["old"])  # a sub-customer with activity, untracked
+    assert len(t.get("/api/jobs")["ledger_items"]) == 1
+    _track(t, "old")
     items = t.get("/api/jobs")["ledger_items"]
     assert len(items) == 2 and any('sub-customer "Old"' in i["message"] for i in items)
     job = t.new_job(DEVELLIS_ID, "LS")

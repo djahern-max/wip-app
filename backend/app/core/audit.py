@@ -115,6 +115,9 @@ class TenantEvent(enum.StrEnum):
     job_estimate_detached = "job_estimate_detached"
     job_alias_linked = "job_alias_linked"
     job_alias_unlinked = "job_alias_unlinked"
+    # F07.2 (D-37): a person picks the QuickBooks rows the platform works on
+    customer_tracked = "customer_tracked"
+    customer_untracked = "customer_untracked"
     work_area_kind_confirmed = "work_area_kind_confirmed"
 
 

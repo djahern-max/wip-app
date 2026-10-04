@@ -161,7 +161,7 @@ export default function Shell({ me, onChanged, onLogout }) {
         ) : active && view === "jobs" ? (
           <Jobs me={me} canManage={canManageJobs} target={jobTarget} onOpenEstimate={openEstimate} />
         ) : active && view === "customers" && canManageJobs ? (
-          <Customers me={me} />
+          <Customers me={me} onOpenJob={openJob} />
         ) : active && view === "imports" && canImport ? (
           <Imports me={me} />
         ) : active && view === "config" && canConfig ? (

@@ -45,6 +45,7 @@ from app.domain.jobs.issues import (
     JobState,
     LedgerRow,
     job_issues,
+    ledger_issue,
     ledger_issues,
     second_estimate_issue,
     unattached_issue,
@@ -74,6 +75,7 @@ from app.tenancy.models import User
 LMN = "lmn_estimate"
 QBO = "qbo_customer"
 SEARCH_LIMIT = 25
+PAGE_SIZE = 50  # F07.2: the picker's search, one page
 
 
 class JobError(Exception):
@@ -109,21 +111,23 @@ def _local_date(db: Session, moment: datetime) -> date:
     return moment.astimezone(ZoneInfo(str(tz.value))).date() if tz is not None else moment.date()
 
 
+def _customer_row(c: Customer, names: dict[UUID, str]) -> CustomerRow:
+    return CustomerRow(
+        c.id,
+        c.external_id,
+        c.display_name,
+        c.parent_customer_id,
+        names.get(c.parent_customer_id) if c.parent_customer_id else None,
+        c.is_project,
+        c.active,
+        c.tracked_at is not None,
+    )
+
+
 def customer_rows(db: Session) -> list[CustomerRow]:
     customers = list(db.execute(select(Customer).where(Customer.source == QBO_SOURCE)).scalars())
     names = {c.id: c.display_name for c in customers}
-    return [
-        CustomerRow(
-            c.id,
-            c.external_id,
-            c.display_name,
-            c.parent_customer_id,
-            names.get(c.parent_customer_id) if c.parent_customer_id else None,
-            c.is_project,
-            c.active,
-        )
-        for c in customers
-    ]
+    return [_customer_row(c, names) for c in customers]
 
 
 def _qbo_aliased(db: Session) -> dict[str, UUID]:
@@ -336,42 +340,144 @@ def job_detail(db: Session, tenant_id: UUID, job_id: UUID) -> JobView:
     return load_job_views(db, tenant_id, [job])[0]
 
 
+def _ledger_row(r: CustomerRow, documents: int, aliased: bool) -> LedgerRow:
+    return LedgerRow(
+        r.id, r.external_id, r.display_name, r.kind_label, documents, aliased, r.tracked, r.active
+    )
+
+
 def ledger_items(db: Session) -> list[Issue]:
-    """LEDGER_PROJECT_NO_JOB for every active project or sub-customer with at least one
-    billing or payment row (owner's answers 3 and 20) and no alias."""
+    """LEDGER_PROJECT_NO_JOB (D-37): every tracked, active row with no alias, with or
+    without documents; a row nobody picked raises nothing."""
     aliased = _qbo_aliased(db)
-    counts = _document_counts(db)
+    tracked = [r for r in customer_rows(db) if r.tracked and r.active]
+    counts = _document_counts(db, [r.id for r in tracked])
     rows = [
-        LedgerRow(
-            r.id,
-            r.external_id,
-            r.display_name,
-            r.kind_label,
-            sum(counts.get(r.id, (0, 0))),
-            r.external_id in aliased,
-        )
-        for r in customer_rows(db)
-        if r.active and r.parent_id is not None
+        _ledger_row(r, sum(counts.get(r.id, (0, 0))), r.external_id in aliased) for r in tracked
     ]
     return ledger_issues(sorted(rows, key=lambda r: r.display_name.casefold()))
 
 
-def _document_counts(db: Session) -> dict[UUID, tuple[int, int]]:
-    billing = dict(
-        db.execute(
-            select(Billing.customer_id, func.count())
-            .where(Billing.customer_id.is_not(None))
-            .group_by(Billing.customer_id)
-        ).all()
-    )
-    payment = dict(
-        db.execute(
-            select(Payment.customer_id, func.count())
-            .where(Payment.customer_id.is_not(None))
-            .group_by(Payment.customer_id)
-        ).all()
-    )
+def _document_counts(db: Session, ids: Sequence[UUID] | None = None) -> dict[UUID, tuple[int, int]]:
+    if ids is not None and len(ids) == 0:
+        return {}
+
+    def counted(model):
+        stmt = (
+            select(model.customer_id, func.count())
+            .where(model.customer_id.is_not(None))
+            .group_by(model.customer_id)
+        )
+        if ids is not None:
+            stmt = stmt.where(model.customer_id.in_(list(ids)))
+        return dict(db.execute(stmt).all())
+
+    billing, payment = counted(Billing), counted(Payment)
     return {cid: (billing.get(cid, 0), payment.get(cid, 0)) for cid in set(billing) | set(payment)}
+
+
+# --- the picker (F07.2, D-37) -------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PickRow:
+    row: CustomerRow
+    billing_count: int
+    payment_count: int
+    job: tuple[UUID, str] | None
+    needs_job: str | None  # the LEDGER_PROJECT_NO_JOB sentence, when this row raises it
+
+
+@dataclass(frozen=True)
+class CustomersPage:
+    rows: list[PickRow]
+    page: int
+    pages: int
+    total: int
+
+
+# Projects, then sub-customers, then plain customers; by name, then id.
+_PICK_ORDER = (
+    Customer.is_project.desc(),
+    Customer.parent_customer_id.is_not(None).desc(),
+    func.lower(Customer.display_name),
+    Customer.external_id,
+)
+
+
+def _escape_like(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _pick_rows(db: Session, customers: Sequence[Customer]) -> list[PickRow]:
+    if not customers:
+        return []
+    parent_ids = {c.parent_customer_id for c in customers if c.parent_customer_id}
+    names: dict[UUID, str] = {}
+    if parent_ids:
+        names = dict(
+            db.execute(
+                select(Customer.id, Customer.display_name).where(Customer.id.in_(list(parent_ids)))
+            ).all()
+        )
+    counts = _document_counts(db, [c.id for c in customers])
+    jobs = {
+        ext: (job_id, name)
+        for ext, job_id, name in db.execute(
+            select(JobAlias.external_id, Job.id, Job.name)
+            .join(Job, Job.id == JobAlias.job_id)
+            .where(
+                JobAlias.system == QBO, JobAlias.external_id.in_([c.external_id for c in customers])
+            )
+        ).all()
+    }
+    out: list[PickRow] = []
+    for c in customers:
+        row = _customer_row(c, names)
+        b, p = counts.get(c.id, (0, 0))
+        job = jobs.get(c.external_id)
+        issue = ledger_issue(_ledger_row(row, b + p, job is not None))
+        out.append(PickRow(row, b, p, job, issue.message if issue else None))
+    return out
+
+
+def search_customers(db: Session, q: str, page: int) -> CustomersPage:
+    """The picker's search: the tenant's active QuickBooks rows whose name contains the
+    text (a read; the name reaches no write path), one page at a time. Empty text
+    returns no rows (owner, 2026-10-04): the picker stays quiet."""
+    needle = " ".join((q or "").split())
+    if not needle:
+        return CustomersPage([], 1, 0, 0)
+    where = (
+        Customer.source == QBO_SOURCE,
+        Customer.active.is_(True),
+        Customer.display_name.ilike(f"%{_escape_like(needle)}%", escape="\\"),
+    )
+    total = db.execute(select(func.count()).select_from(Customer).where(*where)).scalar_one()
+    pages = -(-total // PAGE_SIZE)
+    page = min(max(page, 1), max(pages, 1))
+    customers = list(
+        db.execute(
+            select(Customer)
+            .where(*where)
+            .order_by(*_PICK_ORDER)
+            .limit(PAGE_SIZE)
+            .offset((page - 1) * PAGE_SIZE)
+        ).scalars()
+    )
+    return CustomersPage(_pick_rows(db, customers), page, pages, total)
+
+
+def tracked_customers(db: Session) -> list[PickRow]:
+    """Every tracked row, active or not, with its job or the sentence that it needs one."""
+    customers = list(
+        db.execute(
+            select(Customer)
+            .where(Customer.source == QBO_SOURCE, Customer.tracked_at.is_not(None))
+            .order_by(*_PICK_ORDER)
+        ).scalars()
+    )
+    return _pick_rows(db, customers)
 
 
 # --- the review queue (D-03) ---------------------------------------------------------
@@ -866,6 +972,71 @@ def detach_estimate(
     )
 
 
+def _customer(db: Session, customer_id: UUID) -> Customer:
+    row = db.get(Customer, customer_id)
+    if row is None or row.source != QBO_SOURCE:
+        raise NotFound(
+            "That QuickBooks customer is not in the platform's copy; sync and try again."
+        )
+    return row
+
+
+def _tracked_fields(c: Customer) -> dict:
+    return {
+        "customer_id": str(c.id),
+        "external_id": c.external_id,
+        "display_name": c.display_name,
+        "tracked_at": c.tracked_at.isoformat() if c.tracked_at else None,
+        "tracked_by": str(c.tracked_by) if c.tracked_by else None,
+    }
+
+
+def _track(row: Customer, actor: Actor) -> None:
+    row.tracked_at = datetime.now(UTC)
+    row.tracked_by = actor.user_id
+
+
+def track_customer(db: Session, tenant_id: UUID, customer_id: UUID, actor: Actor) -> Customer:
+    """D-37: a person picks one QuickBooks row, by its id. One audit row."""
+    row = _customer(db, customer_id)
+    if row.tracked_at is not None:
+        raise Conflict(f'"{row.display_name}" is already tracked.')
+    if not row.active:
+        raise Invalid(f'"{row.display_name}" is inactive in QuickBooks; track an active row.')
+    _track(row, actor)
+    db.flush()
+    audit(
+        db,
+        tenant_id,
+        TenantEvent.customer_tracked,
+        "customer",
+        row.id,
+        actor,
+        after=_tracked_fields(row),
+    )
+    return row
+
+
+def untrack_customer(db: Session, tenant_id: UUID, customer_id: UUID, actor: Actor) -> Customer:
+    """Refused while the row is linked to a job: unlink there first. One audit row."""
+    row = _customer(db, customer_id)
+    if row.tracked_at is None:
+        raise Conflict(f'"{row.display_name}" is not tracked.')
+    linked = db.execute(
+        select(Job.name)
+        .join(JobAlias, JobAlias.job_id == Job.id)
+        .where(JobAlias.system == QBO, JobAlias.external_id == row.external_id)
+    ).scalar_one_or_none()
+    if linked is not None:
+        raise Conflict(f'"{row.display_name}" is linked to job "{linked}"; unlink it there first.')
+    before = _tracked_fields(row)
+    row.tracked_at = None
+    row.tracked_by = None
+    db.flush()
+    audit(db, tenant_id, TenantEvent.customer_untracked, "customer", row.id, actor, before=before)
+    return row
+
+
 def link_alias(
     db: Session,
     tenant_id: UUID,
@@ -911,6 +1082,9 @@ def link_alias(
         linked_by=actor.user_id,
     )
     db.add(alias)
+    before_tracked = row.tracked_at.isoformat() if row.tracked_at else None
+    if row.tracked_at is None:
+        _track(row, actor)  # D-37: the link tracks the row in the same action
     if job.customer_id is None:
         job.customer_id = row.parent_customer_id or row.id
     before_status = job.status
@@ -932,6 +1106,7 @@ def link_alias(
                 str(job.customer_id) if job.customer_id else None,
             ],
             "job.status": [before_status, job.status],
+            "customer.tracked_at": [before_tracked, row.tracked_at.isoformat()],
         },
     )
     return alias

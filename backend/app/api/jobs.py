@@ -20,6 +20,8 @@ from app.api.schemas import (
     AttachCandidateOut,
     ChoiceOut,
     ConfirmSuggestedOut,
+    CustomerPickOut,
+    CustomersPageOut,
     DivisionChoiceOut,
     DuplicatePairOut,
     DuplicateSideOut,
@@ -28,6 +30,7 @@ from app.api.schemas import (
     JobAliasOut,
     JobDetailOut,
     JobEstimateOut,
+    JobRefOut,
     JobRowOut,
     JobsOut,
     JobWorkAreaOut,
@@ -35,10 +38,16 @@ from app.api.schemas import (
     QboRowsOut,
     ReviewEntryOut,
     ReviewOut,
+    TrackedOut,
 )
 from app.core.audit import request_meta
 from app.core.auth import Principal, TenantSession
-from app.core.authz import can_manage_jobs, can_view_customer_duplicates, can_view_jobs
+from app.core.authz import (
+    can_manage_jobs,
+    can_track_customers,
+    can_view_customer_duplicates,
+    can_view_jobs,
+)
 from app.domain.config.audit import Actor
 from app.domain.config.models import Division
 from app.domain.estimates.exceptions import Issue
@@ -63,6 +72,7 @@ customers_router = APIRouter(prefix="/customers", tags=["customers"])
 Viewer = Annotated[Principal, Depends(can_view_jobs)]
 Manager = Annotated[Principal, Depends(can_manage_jobs)]
 DuplicatesViewer = Annotated[Principal, Depends(can_view_customer_duplicates)]
+Tracker = Annotated[Principal, Depends(can_track_customers)]  # F07.2 (D-37)
 
 
 class _In(BaseModel):
@@ -400,6 +410,72 @@ def qbo_search(
     except service.JobError as exc:
         _raise(exc)
     return QboRowsOut(rows=[_qbo_row(r, None) for r in service.qbo_search(db, q)])
+
+
+def _pick_row(p: service.PickRow) -> CustomerPickOut:
+    r = p.row
+    return CustomerPickOut(
+        customer_id=str(r.id),
+        external_id=r.external_id,
+        display_name=r.display_name,
+        parent_name=r.parent_name,
+        kind_label=r.kind_label,
+        active=r.active,
+        billing_count=p.billing_count,
+        payment_count=p.payment_count,
+        tracked=r.tracked,
+        job=JobRefOut(id=str(p.job[0]), name=p.job[1]) if p.job else None,
+        needs_job=p.needs_job,
+    )
+
+
+def _tracked(db: Session) -> TrackedOut:
+    return TrackedOut(rows=[_pick_row(p) for p in service.tracked_customers(db)])
+
+
+@customers_router.get("", response_model=CustomersPageOut)
+def search_customers(
+    tracker: Tracker,
+    db: TenantSession,
+    q: Annotated[str, Query(max_length=200)] = "",
+    page: Annotated[int, Query(ge=1, le=100000)] = 1,
+):
+    """The picker's search (F07.2): active QuickBooks rows by name, projects first, one
+    page at a time; empty text returns no rows."""
+    found = service.search_customers(db, q, page)
+    return CustomersPageOut(
+        rows=[_pick_row(p) for p in found.rows],
+        page=found.page,
+        pages=found.pages,
+        total=found.total,
+        page_size=service.PAGE_SIZE,
+    )
+
+
+@customers_router.get("/tracked", response_model=TrackedOut)
+def tracked_customers(tracker: Tracker, db: TenantSession):
+    return _tracked(db)
+
+
+@customers_router.post("/{customer_id}/track", response_model=TrackedOut)
+def track_customer(request: Request, tracker: Tracker, db: TenantSession, customer_id: UUID):
+    """The id and nothing else: no body, no name (D-37)."""
+    try:
+        service.track_customer(db, tracker.active_tenant_id, customer_id, _actor(tracker, request))
+    except service.JobError as exc:
+        _raise(exc)
+    return _tracked(db)
+
+
+@customers_router.post("/{customer_id}/untrack", response_model=TrackedOut)
+def untrack_customer(request: Request, tracker: Tracker, db: TenantSession, customer_id: UUID):
+    try:
+        service.untrack_customer(
+            db, tracker.active_tenant_id, customer_id, _actor(tracker, request)
+        )
+    except service.JobError as exc:
+        _raise(exc)
+    return _tracked(db)
 
 
 @customers_router.get("/duplicates", response_model=DuplicatesOut)

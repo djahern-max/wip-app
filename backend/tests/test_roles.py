@@ -144,6 +144,21 @@ def _routes() -> list[Route]:
         Route("GET", f"/api/jobs/{_NO_JOB}/qbo-candidates", ALL, also_ok=frozenset({404})),
         Route("GET", f"/api/jobs/{_NO_JOB}/qbo-search?q=a", ALL, also_ok=frozenset({404})),
         Route("GET", "/api/customers/duplicates", frozenset({FA, FS, CA})),
+        # F07.2 (D-37): the picker follows the roles that link a job.
+        Route("GET", "/api/customers?q=a", frozenset({FA, FS, CA})),
+        Route("GET", "/api/customers/tracked", frozenset({FA, FS, CA})),
+        Route(
+            "POST",
+            f"/api/customers/{uuid.uuid4()}/track",
+            frozenset({FA, FS, CA}),
+            also_ok=frozenset({404}),
+        ),
+        Route(
+            "POST",
+            f"/api/customers/{uuid.uuid4()}/untrack",
+            frozenset({FA, FS, CA}),
+            also_ok=frozenset({404}),
+        ),
         Route(
             "POST",
             "/api/jobs",

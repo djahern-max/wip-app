@@ -635,6 +635,39 @@ class QboRowsOut(_Out):
     rows: list[QboRowOut]
 
 
+class JobRefOut(_Out):
+    id: str
+    name: str
+
+
+class CustomerPickOut(_Out):
+    """One row of the picker (F07.2, D-37): the search, and the Tracked list."""
+
+    customer_id: str
+    external_id: str
+    display_name: str
+    parent_name: str | None
+    kind_label: str  # Project | Sub-customer | Customer
+    active: bool
+    billing_count: int
+    payment_count: int
+    tracked: bool
+    job: JobRefOut | None
+    needs_job: str | None  # the LEDGER_PROJECT_NO_JOB sentence, when this row raises it
+
+
+class CustomersPageOut(_Out):
+    rows: list[CustomerPickOut]
+    page: int
+    pages: int  # 0 when nothing matched or nothing was asked
+    total: int
+    page_size: int
+
+
+class TrackedOut(_Out):
+    rows: list[CustomerPickOut]
+
+
 class DuplicateSideOut(_Out):
     customer_id: str
     external_id: str

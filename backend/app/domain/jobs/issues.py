@@ -29,10 +29,10 @@ SENTENCES: dict[str, str] = {
         "read. Link its project on the job's QuickBooks section; the project is created "
         "when the first money moves (D-35)."
     ),
-    # §10 LEDGER_PROJECT_NO_JOB (the brief's QBO_PROJECT_NO_JOB)
+    # §10 LEDGER_PROJECT_NO_JOB (the brief's QBO_PROJECT_NO_JOB); D-37: tracked rows only
     "LEDGER_PROJECT_NO_JOB": (
-        'QuickBooks {kind} "{name}" has {count} billing or payment document{s} and no '
-        "job. Link it to its job, or make the job first."
+        'QuickBooks {kind} "{name}" is tracked and has no job{documents}. Link it to its '
+        "job, or make the job first."
     ),
     # new: §10 has none
     "JOB_DIVISION_UNSET": 'Job "{name}" has no division. Set the division on the job.',
@@ -108,28 +108,36 @@ class LedgerRow:
     id: UUID
     external_id: str
     display_name: str
-    kind_label: str  # Project | Sub-customer
+    kind_label: str  # Project | Sub-customer | Customer
     documents: int  # billing and payment rows on this customer row
     aliased: bool
+    tracked: bool = False  # D-37: picked by a person or linked to a job
+    active: bool = True  # D-37 (owner, 2026-10-04): an inactive tracked row raises nothing
+
+
+def _documents(count: int) -> str:
+    if count == 0:
+        return ""
+    return f" ({count} billing or payment document{'' if count == 1 else 's'})"
+
+
+def ledger_issue(r: LedgerRow) -> Issue | None:
+    """D-37: a tracked, active row with no job, whether or not it has documents yet; no
+    other row raises anything (the F07 rule, any project or sub-customer with a
+    document, is replaced)."""
+    if not (r.tracked and r.active and not r.aliased):
+        return None
+    return Issue(
+        "LEDGER_PROJECT_NO_JOB",
+        sentence(
+            "LEDGER_PROJECT_NO_JOB",
+            kind=r.kind_label.lower(),
+            name=r.display_name,
+            documents=_documents(r.documents),
+        ),
+        {"customer_id": str(r.id), "external_id": r.external_id, "documents": r.documents},
+    )
 
 
 def ledger_issues(rows: Sequence[LedgerRow]) -> list[Issue]:
-    """Owner's answers 3 and 20: a project or sub-customer with at least one billing or
-    payment row and no job."""
-    out: list[Issue] = []
-    for r in rows:
-        if r.documents > 0 and not r.aliased:
-            out.append(
-                Issue(
-                    "LEDGER_PROJECT_NO_JOB",
-                    sentence(
-                        "LEDGER_PROJECT_NO_JOB",
-                        kind=r.kind_label.lower(),
-                        name=r.display_name,
-                        count=r.documents,
-                        s="" if r.documents == 1 else "s",
-                    ),
-                    {"customer_id": str(r.id), "external_id": r.external_id},
-                )
-            )
-    return out
+    return [issue for r in rows if (issue := ledger_issue(r)) is not None]

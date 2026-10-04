@@ -91,11 +91,16 @@ def _updated_at() -> Mapped[datetime]:
     )
 
 
+TRACKED_CHECK = "ck_customer_tracked"
+TRACKED_CHECK_SQL = "tracked_by IS NULL OR tracked_at IS NOT NULL"
+
+
 class Customer(Base):
     __tablename__ = "customer"
     __table_args__ = (
         UniqueConstraint("tenant_id", "source", "external_id", name="uq_customer_tenant_source_id"),
         Index("ix_customer_tenant_id_parent_customer_id", "tenant_id", "parent_customer_id"),
+        CheckConstraint(TRACKED_CHECK_SQL, name=TRACKED_CHECK),
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
@@ -109,9 +114,19 @@ class Customer(Base):
     )
     is_project: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # F07.2 (D-37): a person picked this row to work on, or linked it to a job. NULL is
+    # "not tracked". The sync writer never names these two columns.
+    tracked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    tracked_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("user.id", ondelete="RESTRICT")
+    )
     raw_record_id: Mapped[uuid.UUID] = _raw_record_id()
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _updated_at()
+
+    @property
+    def tracked(self) -> bool:
+        return self.tracked_at is not None
 
 
 class Billing(Base):

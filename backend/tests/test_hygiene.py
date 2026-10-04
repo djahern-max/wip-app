@@ -530,3 +530,25 @@ def test_frontend_never_parses_money_with_parsefloat_or_number() -> None:
     assert hits == []
     money = (src / "money.js").read_text()
     assert "BigInt(" in money  # digits handled as integers, not as a binary float
+
+
+def test_crosswalk_write_actions_take_ids_and_compare_no_customer_name() -> None:
+    """F07, F07.2 (D-37): track, untrack, link and unlink are made by id; a customer's
+    name reaches no comparison in them. The one name match in the module is the
+    picker's search, a read."""
+    import inspect
+
+    from app.domain.jobs import service
+
+    for fn in (
+        service.track_customer,
+        service.untrack_customer,
+        service.link_alias,
+        service.unlink_alias,
+    ):
+        src = inspect.getsource(fn)
+        for needle in ("display_name ==", ".ilike(", ".like(", "casefold", "lower("):
+            assert needle not in src, f"{fn.__name__} compares a name: {needle}"
+    module = inspect.getsource(service)
+    assert module.count(".ilike(") == 1
+    assert ".ilike(" in inspect.getsource(service.search_customers)

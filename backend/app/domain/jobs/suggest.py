@@ -69,6 +69,7 @@ class CustomerRow:
     parent_name: str | None
     is_project: bool
     active: bool
+    tracked: bool = False  # F07.2 (D-37): picked by a person or linked to a job
 
     @property
     def paying_customer_id(self) -> UUID:

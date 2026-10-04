@@ -127,7 +127,7 @@ Rules:
 
 - A **job** is the unit of the WIP schedule. It has one customer, one division, one revenue method, one status (`sold`, `in_progress`, `substantially_complete`, `closed`, `cancelled`), and a contract value that is always *computed* from its attached estimates plus manual adjustments, never typed over.
 - An **estimate** becomes relevant when its status is Sold. The tool proposes: "new job" or "attach to existing job as change order" (same customer + same jobsite → suggest attach). A person confirms.
-- A **QBO project/sub-customer** links to exactly one job. A sold job with no QBO link is an exception. A QBO project with activity and no job is an exception.
+- A **QBO project/sub-customer** links to exactly one job. A sold job with no QBO link is an exception. A **tracked** QBO row (a customer, sub-customer or project a person picked, or one linked to a job) with no job is an exception; a row nobody has picked raises nothing and is listed nowhere except in the picker's search (D-37, replacing "a QBO project with activity and no job").
 - **Division** comes from the estimate or is set on the job; cost lines whose GL account maps to a *different* division than their job raise a soft warning (mis-coding detector).
 - `revenue_method` gains the value `pool` (D-30, D-31); the values are now `fixed_price`, `time_and_materials`, `recurring_service`, `none`, `pool`. A pool holds shared supplies until month-end allocation; it has no estimate and no contract, and a person sets the value (never inferred from the name).
 
@@ -139,6 +139,8 @@ Rules:
 - Revised contract = Σ kept work areas confirmed original on the original estimate (its header price when it has no work areas loaded). Change orders (confirmed on the original, or every kept work area of an estimate attached as `change_order`) are shown unapproved until the sign-off feature. EAC = Σ of the attached estimates' EAC in the basis, `ignored` excluded. T&M: no revised contract (D-24); pool: no contract, no EAC (D-30); `recurring_service` (a maintenance or snow program, one per division-season): recognised as billed, no contract, no EAC (D-35).
 - A QuickBooks project is created when the first money moves (D-35); linking a `sold` job offers to set it `in_progress` in the same action. A job at `in_progress` or `substantially_complete` with no QuickBooks link raises `JOB_NO_LEDGER_LINK`; a `sold`, `closed` or `cancelled` job never does. A `recurring_service` job accepts an estimate only as `ignored` (a sold maintenance or snow estimate, with a note).
 - Suggestions (never decisions): attach candidates *same customer* / *by client name only* / *by name only*; QuickBooks candidates *estimate id in name* / *customer name* / *address* (exact token rules, `app/domain/jobs/names.py`), plus a search by name from which a person links by id. Customer duplicates are a read-only list; they are merged in QuickBooks.
+
+**As built (F07.2, 2026-10-04, D-37).** Migration 0012: `customer.tracked_at` and `customer.tracked_by` (NULL = not tracked; a CHECK keeps who with when; no new table). A person tracks a row by its id on the Customers page (the picker: a paged search over active rows by name, projects first; empty text returns nothing), or the link to a job tracks it in the same action (the `job_alias_linked` row records `customer.tracked_at` before and after); untrack is refused while a link exists; one audit row per track and untrack (`customer_tracked`, `customer_untracked`). Rows linked before 0012 were tracked by the migration's data step as of the link, by the user who made it. The sync writer never names the two columns, so a change poll leaves the flag alone. `LEDGER_PROJECT_NO_JOB` is raised for a tracked, active row with no job, with or without documents, and for no other row; a tracked row QuickBooks makes inactive stays tracked, is listed as inactive and raises nothing. The duplicates list is unchanged behind a link. What is fetched and held, the month totals and every contract figure are unchanged.
 
 ---
 
@@ -285,7 +287,7 @@ All reports: on-screen, XLSX, PDF. XLSX exports contain values, not float artifa
 | `EST_UNATTACHED` | Sold estimate not attached to a job (F07: the review queue; the brief's `EST_SOLD_UNREVIEWED`) | block-close |
 | `EST_NO_COST` | Sold estimate without cost breakdown (cannot enter WIP) | block-close for fixed-price |
 | `JOB_NO_LEDGER_LINK` | Open job has no QBO project/customer (F07; the brief's `JOB_NO_QBO_LINK`) | block-close |
-| `LEDGER_PROJECT_NO_JOB` | Active QBO project or sub-customer has a billing or payment row, no job (F07; the brief's `QBO_PROJECT_NO_JOB`) | block-close |
+| `LEDGER_PROJECT_NO_JOB` | Tracked, active QBO row (customer, sub-customer or project) with no job, with or without documents (F07.2, D-37; F07 raised it for any project or sub-customer with a document; the brief's `QBO_PROJECT_NO_JOB`) | block-close |
 | `JOB_SECOND_ESTIMATE_FOR_CUSTOMER` | Sold estimate to review whose customer already has a job, by project id or client name (F07, D-03) | warn |
 | `JOB_DIVISION_UNSET` | Job with no division (F07; only data made outside the review) | warn |
 | `COST_UNASSIGNED` | In-job-cost GL line with no job | warn, totals shown on tie-out |

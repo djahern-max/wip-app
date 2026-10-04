@@ -719,8 +719,9 @@ yet linked. For anything else (a pool, a project named without the id), **search
 name: any active, unlinked QuickBooks row. **Link** is made by the row's id; the job's
 customer becomes the row's parent (or the row itself when it has none). A job may have
 several QuickBooks rows; one QuickBooks row belongs to at most one job (a second link is
-refused: unlink it from the other job first). **Unlink** removes the link; unlinking the
-last one clears the job's customer.
+refused: unlink it from the other job first). The link also **tracks** the row (D-37, below)
+in the same action and audit row. **Unlink** removes the link; unlinking the
+last one clears the job's customer; the row stays tracked until someone untracks it.
 
 ### When a QuickBooks project is created (D-35)
 - A construction or excavation job (fixed price or T&M) gets its QuickBooks project when
@@ -754,13 +755,35 @@ last one clears the job's customer.
   material group, one program project per maintenance or snow season. Everything else is
   a plain customer.
 
+### Picking the customers and projects to work on (F07.2, D-37)
+The platform works on the QuickBooks rows a person has **tracked** and on nothing else;
+the sync still copies the whole company, and the month totals, the drift check and every
+tie-out read the full copy. Customers (roles `firm_admin`, `firm_staff`, `client_admin`):
+- **Tracked** lists every tracked row (projects, then sub-customers, then customers) with
+  its job (a link to the job) or the sentence that it needs one. A row QuickBooks has made
+  inactive stays tracked, reads "Inactive in QuickBooks" and raises nothing. **Untrack**
+  is offered only for a row with no job; a linked row says "Unlink on the job first".
+- **Find a customer or project**: type part of the QuickBooks name and **Search**. Active
+  rows only, projects first, 50 a page (Previous page / Next page); an empty box returns
+  nothing. Each row shows its parent, what it is, the QuickBooks id, the invoice and
+  payment counts, its job when linked, and **Track**. Track and untrack send the row's id
+  and nothing else; the name is only searched.
+- Linking a job to a QuickBooks row (above) tracks the row in the same action; its
+  `job_alias_linked` audit row records `customer.tracked_at` before and after. Every
+  track and untrack by hand writes one audit row (`customer_tracked`,
+  `customer_untracked`). Rows linked before migration 0012 were tracked by the migration
+  as of the link, by the user who made it (no audit row: the link's row is the record).
+- A fresh company shows a quiet Jobs page: `LEDGER_PROJECT_NO_JOB` is raised only for a
+  tracked, active row with no job, with or without documents, and the block "QuickBooks
+  projects with no job" is drawn only when there is one.
+
 ### Possible duplicate customers
-Customers (roles `firm_admin`, `firm_staff`, `client_admin`) lists pairs of active
-top-level QuickBooks customers whose names have the same words once punctuation, "and",
-"&" and suffixes are dropped, or differ by one word (a first name), with each one's
-invoice and payment counts. Merge them in QuickBooks; the platform follows on the next
-sync. Nothing on the page writes anything. (Before trusting links across a merge, check
-what QuickBooks sends after one: F05.1 Discovered.)
+Behind the link **Possible duplicate customers** on the Customers page (same roles):
+pairs of active top-level QuickBooks customers whose names have the same words once
+punctuation, "and", "&" and suffixes are dropped, or differ by one word (a first name),
+with each one's invoice and payment counts. Merge them in QuickBooks; the platform follows
+on the next sync. Nothing on the page writes anything. (Before trusting links across a
+merge, check what QuickBooks sends after one: F05.1 Discovered.)
 
 ### What each message means
 | Code (in the API; never shown alone) | The sentence says | What to do |
@@ -768,7 +791,7 @@ what QuickBooks sends after one: F05.1 Discovered.)
 | `EST_UNATTACHED` | A sold estimate is on no job, with how long it has been sold. | Review it: new job or attach. |
 | `JOB_SECOND_ESTIMATE_FOR_CUSTOMER` | A sold estimate's customer already has a job (by project id or by client name). | Decide per D-03: new job for separate scope, attach as a change order for an addition. |
 | `JOB_NO_LEDGER_LINK` | An In progress or Substantially complete job has no QuickBooks link, so its billing cannot be read. Never raised for a Sold (backlog, D-35), Closed or Cancelled job. | Link its project; create it in QuickBooks first if needed (§13.2). If no money has moved yet, the job should be Sold. |
-| `LEDGER_PROJECT_NO_JOB` | An active QuickBooks project or sub-customer has invoices or payments and no job. | Link it to its job, or make the job first. |
+| `LEDGER_PROJECT_NO_JOB` | A tracked, active QuickBooks row (customer, sub-customer or project) has no job, with or without documents (D-37). An untracked or inactive row never raises it. | Link it to its job, or make the job first; untrack it if it is not a job. |
 | `JOB_DIVISION_UNSET` | A job has no division (only for data made outside the review). | Set the division on the job. |
 | `CUSTOMER_FUZZY` | Two customers look like one (Customers page). | Merge in QuickBooks. |
 

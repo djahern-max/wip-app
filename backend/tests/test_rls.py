@@ -1,7 +1,7 @@
 """Tenant isolation is enforced by the database (BLUEPRINT §3.8, §11; F01 acceptance)."""
 
 import uuid
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 import pytest
@@ -285,6 +285,7 @@ def _seed_f05_rows(owner_engine: Engine, tenant_id: uuid.UUID, marker: str) -> N
             display_name=marker,
             is_project=False,
             active=True,
+            tracked_at=datetime.now(UTC),  # F07.2 (D-37)
             raw_record_id=raw.id,
         )
         s.add(customer)

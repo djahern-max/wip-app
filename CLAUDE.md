@@ -93,6 +93,7 @@ The owner is a CPA and the domain expert. When accounting treatment is unclear, 
 - **Burden rate**: fraction of wages per division, effective-dated, applied to labor on both sides of percent complete; computed, never stored on a line (D-05, D-34).
 - **Pay application**: the customer's statement of earned to date by work area and the amount due; the invoice refers to it (D-36).
 - **Schedule of values**: the kept, approved work areas and their prices (D-36).
+- **Tracked**: a QuickBooks customer, sub-customer or project a person has picked to work on, or one linked to a job; the screens show tracked rows only (D-37).
 
 ## When to stop and ask
 - Any change to BLUEPRINT §8 behavior or to golden files.

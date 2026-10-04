@@ -299,17 +299,23 @@ def test_job_items_and_ledger_items() -> None:
     linked = JobState(_id(), "Job C", "in_progress", _id(), 2)
     assert job_issues(linked) == []
 
+    # D-37 (F07.2): tracked, active rows with no job raise, documents or not; an
+    # untracked row with documents, a linked row and an inactive tracked row never do.
     rows = [
-        LedgerRow(_id(), "13", "1701 Ocean Boulevard", "Project", 1, False),
-        LedgerRow(_id(), "10", "6115758 Client 05", "Project", 0, False),
-        LedgerRow(_id(), "15", "Old", "Sub-customer", 3, True),
+        LedgerRow(_id(), "13", "1701 Ocean Boulevard", "Project", 1, False, tracked=True),
+        LedgerRow(_id(), "10", "6115758 Client 05", "Project", 0, False, tracked=True),
+        LedgerRow(_id(), "15", "Old", "Sub-customer", 3, True, tracked=True),
+        LedgerRow(_id(), "16", "Untracked with money", "Sub-customer", 4, False),
+        LedgerRow(_id(), "17", "Gone", "Customer", 0, False, tracked=True, active=False),
     ]
     issues = ledger_issues(rows)
-    assert [i.code for i in issues] == ["LEDGER_PROJECT_NO_JOB"]
+    assert [i.code for i in issues] == ["LEDGER_PROJECT_NO_JOB", "LEDGER_PROJECT_NO_JOB"]
     assert (
         "1701 Ocean Boulevard" in issues[0].message
-        and "1 billing or payment document " in issues[0].message
+        and "is tracked and has no job (1 billing or payment document)." in issues[0].message
     )
+    assert '"6115758 Client 05" is tracked and has no job. Link' in issues[1].message
+    assert issues[1].detail["documents"] == 0
     u = unattached_issue("EST6115758", date(2026, 9, 20), date(2026, 9, 29))
     assert u.code == "EST_UNATTACHED" and "9 days ago" in u.message and u.detail["age_days"] == 9
     for issue in (*issues, u, *job_issues(open_job)):
