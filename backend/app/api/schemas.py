@@ -635,6 +635,53 @@ class QboRowsOut(_Out):
     rows: list[QboRowOut]
 
 
+class HomeLinkOut(_Out):
+    """Where a Home line sends the person (F07.3): a page the role can open, and for
+    Configuration its section, for Jobs a job or the review queue."""
+
+    page: str
+    section: str | None
+    job_id: str | None
+    review: bool
+
+
+class HomeLineOut(_Out):
+    code: str
+    label: str
+    done: bool
+    message: str
+    note: str | None
+    link: HomeLinkOut | None
+    count: int | None
+    total: int | None
+    primary: bool  # true on at most one line: the first not-done line with an action
+
+
+class HomeItemOut(_Out):
+    code: str
+    message: str
+    link: HomeLinkOut | None
+    count: int | None
+
+
+class HomeJobOut(_Out):
+    id: str
+    name: str
+    status: str
+    status_label: str
+    code: str | None  # None: nothing needed
+    message: str
+    link: HomeLinkOut | None
+    count: int | None
+
+
+class HomeOut(_Out):
+    setup: list[HomeLineOut] | None  # None for a role without tenant-configuration view
+    review: HomeItemOut | None
+    jobs: list[HomeJobOut]
+    tracked_without_job: list[HomeItemOut]
+
+
 class JobRefOut(_Out):
     id: str
     name: str

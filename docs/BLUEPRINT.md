@@ -20,6 +20,7 @@ A multi-tenant web application that sits **beside** each client's accounting sys
 
 - The **firm console** (you, across all clients: who is synced, who has exceptions, whose WIP is unapproved) matters more than the client-facing portal.
 - **Onboarding a messy client** (crosswalks, account mapping, opening balances for jobs already in progress) is a first-class workflow, not an afterthought. Every client you take on will look like Rye Beach did before cleanup.
+  - As built (F07.3, 2026-10-04): Home is the set-up checklist (QuickBooks, suggestion rules, chart, account mapping, policy, burden rates; done or not, computed on read, one link each) and the job path (sold estimates to review, each open job's next need, tracked QuickBooks rows with no job). On a fresh company it is the onboarding guide; on a working one the worklist.
 
 ---
 

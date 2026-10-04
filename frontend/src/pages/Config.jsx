@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Accounts from "./config/Accounts.jsx";
 import BurdenRates from "./config/BurdenRates.jsx";
 import CostCategories from "./config/CostCategories.jsx";
@@ -18,8 +18,11 @@ const SECTIONS = [
   ["policy", "Policy"],
 ];
 
-export default function Config({ me }) {
-  const [section, setSection] = useState("accounts");
+export default function Config({ me, target }) {
+  const [section, setSection] = useState(target || "accounts");
+  useEffect(() => {
+    if (target) setSection(target); // F07.3: Home opens the section it named
+  }, [target]);
   const canManage = me.role === "firm_admin" || me.role === "firm_staff";
   const canSetPolicy = me.role === "firm_admin";
   return (

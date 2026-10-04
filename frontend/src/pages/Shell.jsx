@@ -6,6 +6,7 @@ import Config from "./Config.jsx";
 import Connections from "./Connections.jsx";
 import Customers from "./Customers.jsx";
 import Estimates from "./Estimates.jsx";
+import Home from "./Home.jsx";
 import Imports from "./Imports.jsx";
 import Jobs from "./Jobs.jsx";
 
@@ -38,13 +39,31 @@ export default function Shell({ me, onChanged, onLogout }) {
   // F07: what another screen asked to open (a job, the review queue, an estimate).
   const [jobTarget, setJobTarget] = useState(null);
   const [estimateTarget, setEstimateTarget] = useState(null);
+  const [configTarget, setConfigTarget] = useState(null); // F07.3: the Configuration section Home asked for
 
   // Leaving a screen forgets the message QuickBooks came back with.
   function go(next) {
     setReturned(null);
     setJobTarget(null);
     setEstimateTarget(null);
+    setConfigTarget(null);
     setView(next);
+  }
+
+  // F07.3: a Home line sends the person to the page (and section, job or queue) that
+  // completes it. The API only sends links the role can open.
+  function openLink(link) {
+    if (!link) return;
+    if (link.page === "config") {
+      go("config");
+      setConfigTarget(link.section || "accounts");
+    } else if (link.page === "jobs" && link.review) {
+      openReview(null, null);
+    } else if (link.page === "jobs" && link.job_id) {
+      openJob(link.job_id);
+    } else {
+      go(link.page);
+    }
   }
 
   function openJob(jobId) {
@@ -165,16 +184,11 @@ export default function Shell({ me, onChanged, onLogout }) {
         ) : active && view === "imports" && canImport ? (
           <Imports me={me} />
         ) : active && view === "config" && canConfig ? (
-          <Config me={me} />
+          <Config me={me} target={configTarget} />
         ) : active && view === "connections" && canConnections ? (
           <Connections me={me} result={returned ? returned.result : ""} />
         ) : active ? (
-          <>
-            <h1>{active.name}</h1>
-            <p>
-              Your role here: <strong>{active.role}</strong>. Job cost &amp; WIP reporting arrives with the next features.
-            </p>
-          </>
+          <Home me={me} companyName={active.name} role={active.role} onOpen={openLink} />
         ) : (
           <p>Choose a company to start.</p>
         )}

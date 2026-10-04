@@ -424,6 +424,35 @@ as it does from the local store.
   `upload refused request_id=… : …`, and the request id is the response's
   `X-Request-Id` header.
 
+## New client set-up (F07.3)
+
+Home shows this list for the active company, computed each time it is read, with "Done"
+or "Not done" on each line, one sentence, and a link to the action that completes it;
+the first not-done line with an action is the page's one primary action. Nothing is
+stored: a step is done when the data says so. The order below is the order on Home
+(owner, 2026-10-04: Policy before Burden rates). Before the list, the tenant itself:
+`scripts/create_user.py create-tenant --name … --slug …`, then `add-entry` for the firm
+admin and `create-user --entry <slug>` for each firm_staff user (see "Rebuild local dev
+data" above for the exact commands).
+
+| # | Step | Done when | Not done: what Home says and where it sends you |
+|---|---|---|---|
+| 1 | QuickBooks | A connection is `connected` and a backfill has succeeded (no `backfill_needed` or `needs_reconnect` attention). | "Connect to QuickBooks." → Connections (`POST /api/qbo/connect`, firm_admin). After a reconnect or a stale copy: the Connections sentence, "Run a backfill on Connections." Shown to roles that can view connections. |
+| 2 | Suggestion rules | At least one active `account_suggest_rule`. | "No suggestion rules are loaded…": the firm loads the client's rules file with `scripts/load_suggest_rules.py` or `PUT /api/config/suggest-rules` ("Editing suggestion rules" below). No link: there is no screen. |
+| 3 | Chart of accounts | Active `gl_account` rows exist. | "Upload the chart of accounts." → Imports ("Loading a chart of accounts" below). |
+| 4 | Account mapping | No active account lacks a confirmed mapping (the Accounts page's unmapped count). | "n of m accounts to confirm; k have a suggestion." → Configuration, Accounts: "Confirm all suggestions", then map the rest by hand. A chart loaded before the rules leaves every account unmapped with no suggestion; load the rules and "Re-run suggestions". |
+| 5 | Policy | `timezone` and `wip_basis` decided (the keys a feature reads today; `REQUIRED_POLICY_KEYS` in `app/domain/home/checklist.py`, extended by each feature that starts reading a key). | "n of 2 policy keys needed now are not decided: …" → Configuration, Policy (firm_admin). Done reads with a note of the keys that wait for their features. |
+| 6 | Burden rates | Every active division with a cost-code digit has a rate in force on the company's today (a tenant-wide row counts for all). Done with a note when Labor Burden is not in a decided WIP basis. | While the basis is undecided: "Burden rates are set after the WIP basis is decided." → Policy. Else: "No burden rate in force today for EX, SNOW." → Configuration, Burden rates ("Burden rates" below). |
+
+Below the list Home shows the jobs: "n sold estimates to review" (→ Review sold
+estimates) or "Upload an estimate" when the company has none; one line per job that is
+not closed or cancelled with its status and the first thing it needs (work areas to
+confirm → the job; needs its QuickBooks project → the job; a Sold job with no link is
+backlog, D-35, and needs nothing); and the tracked QuickBooks rows with no job (D-37,
+→ Customers). Client roles see the jobs part with links only to pages they can open and
+no checklist. The order of job needs is `JOB_NEEDS` in `app/domain/home/checklist.py`;
+F08 onward append to it.
+
 ## Tenant configuration (F04)
 
 ### Loading a chart of accounts

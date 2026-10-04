@@ -1,45 +1,53 @@
 # current-feature.md
 
-_No feature in flight (2026-10-04)._ **F07.2 · Pick what to work on is built** (2026-10-04;
-migration 0012; D-37 appended) and waits for the owner's pass on jobcost.dev, tenant
-`rye-beach`: Jobs quiet on arrival; find the 67 Elm Street project by its number, track
-it, link it to its job, and see only that project under Tracked. Its brief, with the
-Plan, the owner's amendments and the build notes, is `docs/briefs/F07.2.md`. ROADMAP
-F07.2 is ◐. **F07.1 · Job screens patch** stays ◐ on its own pass (`docs/briefs/F07.1.md`),
-and **F07 · Job spine & crosswalk** on the pass job by job (restated 2026-10-01; the owner
-ticks it): 67 Elm Street passed on 2026-10-01; P0-1 gates only the links. The dev `wip`
-database is at 0012. **Deploying F07.2 runs migration 0012**, whose data step tracks every
-row already linked on `rye-beach` as of the link (no audit row; the link's row is the
-record).
+_No feature in flight (2026-10-04)._ **F07.3 · Home says what to do next is built**
+(2026-10-04; no migration; nothing stored) and waits for the owner's pass on jobcost.dev,
+tenant `rye-beach`: Home names the next step at each point while the owner takes 67 Elm
+Street from estimate upload to linked project. Its brief, with the Plan, the owner's
+answers to questions 2 and 3 and the build notes, is `docs/briefs/F07.3.md`. ROADMAP
+F07.3 is ◐. **F07.2 · Pick what to work on** (`docs/briefs/F07.2.md`) waits for its own
+pass on `rye-beach` (Jobs quiet on arrival; find 6115758 by its number, track, link, see
+only it under Tracked); deploying it runs migration 0012, whose data step tracks every
+row already linked as of the link. **F07.1** stays ◐ on its pass (`docs/briefs/F07.1.md`)
+and **F07** on the pass job by job (67 Elm Street passed 2026-10-01; P0-1 gates only the
+links). The dev `wip` database is at 0012.
 
-**D-37** (a person picks the QuickBooks customers and projects the platform works on;
-everything else is held and stays out of the way) was decided 2026-10-04 and is in
-`docs/DECISIONS.md`; BLUEPRINT §5 and §10, CLAUDE.md Vocabulary ("Tracked") and
-OPERATIONS "Jobs" say so. **F05.2**, **F06.1**, **F06** are closed.
+**D-37** (a person picks the QuickBooks rows the platform works on) and **D-38** (an
+inactive tracked row raises no review item) were decided 2026-10-04 and are in
+`docs/DECISIONS.md` and BLUEPRINT §14. **F05.2**, **F06.1**, **F06** are closed.
 
 Next per ROADMAP: **F08 · Sold Jobs Board & Job Detail (billing side)**: reports 1 and 2
 of §9, billing half only; the deposit identified by the `_DEP` document number and the
 tenant's deposit item (D-02), counted in billed to date; the unapplied-payment review
 item; XLSX/PDF export. It reads billed and collected by job through the `qbo_customer`
-aliases F07 writes, and shows money on untracked rows as one not-on-a-job figure (D-37).
-Not started; the owner supplies the brief. Copy it here, expand it, and restate the
-acceptance criteria before coding. After it, **F08.1 · Pay applications** as D-36
-restates it.
+aliases F07 writes, shows money on untracked rows as one not-on-a-job figure (D-37), and
+adds its own lines to Home's `JOB_NEEDS` (`app/domain/home/checklist.py`) rather than
+rewriting the page. Not started; the owner supplies the brief. Copy it here, expand it,
+and restate the acceptance criteria before coding. After it, **F08.1 · Pay applications**
+as D-36 restates it.
 
-Standing state from F07, F07.1 and F07.2: the job is the reporting unit; matching is by
-alias (`job_alias`), never by name; names reach only the pure suggestion functions in
-`app/domain/jobs/suggest.py` (rules in `names.py`) and the picker's search (a read). The
+Standing state from F07 to F07.3: the job is the reporting unit; matching is by alias
+(`job_alias`), never by name; names reach only the pure suggestion functions
+(`app/domain/jobs/suggest.py`, rules in `names.py`) and the picker's search (a read). The
 revised contract, unapproved change orders and a job's EAC are computed on read
 (`app/domain/jobs/contract.py`), never stored. A work-area kind is the platform's
-suggestion until a person confirms it. A job may hold several QuickBooks rows; one row
-belongs to at most one job; linking a row tracks it (D-37), untrack waits for unlink.
-Every job, track and untrack action writes one audit row naming the rows it touched.
-Review items are pure generators (`app/domain/jobs/issues.py`); `LEDGER_PROJECT_NO_JOB`
-is raised for tracked, active rows with no job only; F09 persists them. The second 67 Elm
-Street fixture (`estimate_upload_EST6115758_v2.xlsx`, 29 work areas) is the job the owner
-is working; later features are accepted against it.
+suggestion until a person confirms it. Linking a QuickBooks row tracks it (D-37); untrack
+waits for unlink. Every job, track and untrack action writes one audit row naming the
+rows it touched. Review items are pure generators (`app/domain/jobs/issues.py`);
+`LEDGER_PROJECT_NO_JOB` is raised for tracked, active rows with no job only (D-37, D-38);
+F09 persists them. Home (`GET /api/home`) composes the functions the linked pages call;
+its lines and the job-need order are pure (`app/domain/home/checklist.py`); the policy
+keys needed now are `REQUIRED_POLICY_KEYS` there, extended by each feature that starts
+reading a key. The second 67 Elm Street fixture (`estimate_upload_EST6115758_v2.xlsx`,
+29 work areas) is the job the owner is working; later features are accepted against it.
 
 ## Discovered
+From the owner's session of 2026-10-04, after F07.2 (recorded in the F07.3 brief):
+- Configuration, Accounts: with no suggestion rules loaded the page gives no reason for "0 suggested"; one sentence would do.
+- Two pytest sessions against `wip_test` at once destroy each other without warning (a second run's teardown drops the first run's tables); a lock or a per-run database.
+- Each client's suggestion-rules file needs a home outside `tests/fixtures/` (a client pack); Rye Beach's is the only one today.
+- D-38 (an inactive tracked row raises nothing) was drafted after the F07.2 commit; confirm it is in `docs/DECISIONS.md`. **Confirmed 2026-10-04: in `docs/DECISIONS.md` and BLUEPRINT §14 (commit a45c6e5).**
+
 From the owner's session of 2026-10-04 (recorded in the F07.2 brief):
 - Connections, no chart loaded: "Numbered in QuickBooks but not in the chart" lists every numbered account; it should say that no chart is loaded and where to load one.
 - Connections: "Accounts without a number" gives a count only; a list of the names would save a trip to QuickBooks.
