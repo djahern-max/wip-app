@@ -47,7 +47,7 @@ Firm authority as a `firm_membership` row with entry rows in tenants (D-15), act
 `division`, `cost_category` (seeded), `account_map`, `tenant_policy`, `burden_rate`. Admin UI to map GL accounts → division + cost category + in-job-cost flag, with a "suggest from account number pattern" helper.
 **Accept**: loading the Rye Beach chart auto-suggests the correct division and category for every 4xxx/5xxx account from the slot scheme; unmapped accounts are listed.
 
-### F04.1 · Policy screen a person can answer  ◐ (built 2026-10-05; the owner's pass on jobcost.dev, tenant `rye-beach`, is open, see `docs/briefs/F04.1.md`)
+### F04.1 · Policy screen a person can answer  ☑ (2026-10-05; built and owner's pass on jobcost.dev, tenant `rye-beach`, the same day, see `docs/briefs/F04.1.md`)
 A patch under F04 (no table, no migration, no policy key, no default). The time zone is a list of the United States zones in plain words; the decision reference is optional (who and when are still recorded); the three keys whose features have not arrived show why in place of "Decide" and refuse a PUT; "Not decided" lines up on the left; the WIP basis edit says what to tick.
 **Accept**: as in `docs/briefs/F04.1.md`: a PUT with no reference or a blank one returns 200 with who, when, no reference and one audit row; the waiting keys are refused with their sentence, writing nothing, and a value already stored on one is still read; a valid zone off the list is kept; no default anywhere; the role matrix and Home's Policy line unchanged. Owner's pass on `rye-beach`: Eastern with no reference; the WIP basis with "D-04, D-05"; the three sentences; Home's Policy line reads done.
 

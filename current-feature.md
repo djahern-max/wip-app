@@ -1,12 +1,12 @@
 # current-feature.md
 
-_No feature in flight (2026-10-05)._ **F04.1 · Policy screen a person can answer is built**
-(2026-10-05; no migration; no table, key or default) and waits for the owner's pass on
-jobcost.dev, tenant `rye-beach`: Eastern from the time zone list with no reference; the WIP
-basis slots 10, 20, 30, 35, 40, 50, 60, 70, 90 with reference "D-04, D-05"; the three waiting
-keys show their sentences and no "Decide" link; "Not decided" lines up on the left; Home's
-Policy line reads done. Its brief, with the Plan, the owner's answers and the build notes, is
-`docs/briefs/F04.1.md`. ROADMAP F04.1 is ◐. **F07.3 · Home says what to do next** (built
+_No feature in flight (2026-10-05)._ **F04.1 · Policy screen a person can answer is closed**
+(built 2026-10-05, ba0eda0; no migration; no table, key or default; the owner's pass on
+jobcost.dev, tenant `rye-beach`, passed the same day: Eastern with no reference, the WIP basis
+slots 10, 20, 30, 35, 40, 50, 60, 70, 90 with "D-04, D-05", the three waiting sentences, "Not
+decided" on the left, Home's Policy line done). Its brief, with the Plan, the owner's answers
+and the build notes, is `docs/briefs/F04.1.md`. ROADMAP F04.1 is ☑. On `rye-beach` the
+`timezone` and `wip_basis` keys are now decided. **F07.3 · Home says what to do next** (built
 2026-10-04, `docs/briefs/F07.3.md`) waits for its pass on `rye-beach`: Home names the next
 step at each point while the owner takes 67 Elm Street from estimate upload to linked
 project; ROADMAP F07.3 is ◐. **F07.2 · Pick what to work on** (`docs/briefs/F07.2.md`) waits
