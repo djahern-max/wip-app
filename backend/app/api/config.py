@@ -24,6 +24,7 @@ from app.api.schemas import (
     CostCodesOut,
     DivisionOut,
     GlAccountOut,
+    PolicyOptionOut,
     PolicyOut,
     SuggestRuleOut,
 )
@@ -429,16 +430,27 @@ def deactivate_burden_rate(request: Request, m: Manager, db: TenantSession, rate
 
 
 def _policy_out(spec: policy.PolicyKey, row: TenantPolicy | None, email: str | None) -> PolicyOut:
+    value = policy._plain(row.value) if row is not None else None
+    zone = spec.key == policy.TIMEZONE  # the key name is a literal only in the registry
     return PolicyOut(
         key=spec.key,
         label=spec.label,
         kind=spec.kind,
         description=spec.description,
         decided=row is not None,
-        value=policy._plain(row.value) if row is not None else None,
+        value=value,
+        value_label=policy.time_zone_label(value) if zone and row is not None else None,
         decided_by_email=email,
         decided_at=row.decided_at.isoformat() if row is not None else None,
-        decision_ref=row.decision_ref if row is not None else None,
+        # F04.1: a blank reference is stored as "" and read as none.
+        decision_ref=(row.decision_ref or None) if row is not None else None,
+        waiting=spec.waiting,
+        options=[
+            PolicyOptionOut(value=v, label=label)
+            for v, label in policy.time_zone_options(value if row is not None else None)
+        ]
+        if zone
+        else None,
     )
 
 
@@ -454,13 +466,18 @@ def policies(_v: Viewer, db: TenantSession):
 
 class PolicyIn(_In):
     value: object
-    decision_ref: str
+    decision_ref: str | None = None  # F04.1: optional
 
 
 @router.put("/policy/{key}", response_model=PolicyOut)
 def set_policy(request: Request, p: PolicySetter, db: TenantSession, key: str, body: PolicyIn):
     if key not in policy.POLICY_KEYS:
         raise HTTPException(status_code=404, detail="That policy key does not exist.")
+    try:
+        policy.check_settable(key)
+    except policy.PolicyWaiting as exc:
+        # F04.1: the key's feature has not arrived; the sentence is the screen's.
+        raise HTTPException(status_code=409, detail=str(exc)) from None
     try:
         row = policy.set_policy(
             db,

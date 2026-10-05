@@ -250,6 +250,11 @@ class BurdenRateOut(_Out):
     active: bool
 
 
+class PolicyOptionOut(_Out):
+    value: str
+    label: str
+
+
 class PolicyOut(_Out):
     key: str
     label: str
@@ -257,9 +262,12 @@ class PolicyOut(_Out):
     description: str
     decided: bool
     value: object | None  # money as a string
+    value_label: str | None  # F04.1: a decided time zone in plain words; else None
     decided_by_email: str | None
     decided_at: str | None
-    decision_ref: str | None
+    decision_ref: str | None  # None when no reference was given (F04.1)
+    waiting: str | None  # F04.1: why the key cannot be set on the screen yet
+    options: list[PolicyOptionOut] | None  # F04.1: the time zone drop-down; else None
 
 
 class SuggestRuleOut(_Out):

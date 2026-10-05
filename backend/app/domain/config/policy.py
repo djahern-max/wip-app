@@ -2,7 +2,14 @@
 default anywhere**: an unset key reads as "not decided" and ``require_policy``
 raises ``PolicyNotDecided`` naming the key, which later features surface rather than
 guess (BLUEPRINT §8.3, D-04). Setting a key is a ``firm_admin`` action recorded with
-who, when, and a decision reference, audited with before and after.
+who, when, and an optional reference to where the decision is written down (F04.1),
+audited with before and after.
+
+A key whose feature has not arrived carries a ``waiting`` sentence (F04.1): the screen
+shows the sentence in place of "Decide" and the route refuses a PUT with it. The
+feature that first reads the key removes the sentence and gives the key its control.
+``set_policy`` itself accepts any key: a value a later feature or a test stores on a
+waiting key is still read back with who and when.
 
 Money values (``small_job_threshold``) are ``Decimal`` end to end: accepted as a
 string, stored as a JSON number by the F03 codec, returned as a string.
@@ -32,18 +39,59 @@ class PolicyValueError(ValueError):
     """The value does not fit the key's type; the message says what fits."""
 
 
+class PolicyWaiting(LookupError):
+    """The key cannot be set yet; the message is the registry's waiting sentence."""
+
+    def __init__(self, key: str) -> None:
+        super().__init__(POLICY_KEYS[key].waiting or "")
+        self.key = key
+
+
 @dataclass(frozen=True)
 class PolicyKey:
     key: str
     label: str
     kind: str  # timezone | month | category_slots | money | text
     description: str
+    waiting: str | None = None  # F04.1: why the key cannot be set on the screen yet
 
 
 # Key names other modules may import (tests/test_policy.py: a key name is a string
 # literal only in this file).
 WIP_BASIS = "wip_basis"
 TIMEZONE = "timezone"
+
+# F04.1: the United States time zones offered on the screen, zone name to plain words.
+# One mapping for the label and the stored value (D-22): the API returns the options
+# and the decided value's label, and the page never builds a label itself. Any valid
+# zone name is still accepted by ``validate_value``; one off this list is shown and
+# offered as its own name so saving never loses it.
+TIME_ZONE_LABELS: dict[str, str] = {
+    "America/New_York": "Eastern",
+    "America/Chicago": "Central",
+    "America/Denver": "Mountain",
+    "America/Phoenix": "Arizona",
+    "America/Los_Angeles": "Pacific",
+    "America/Anchorage": "Alaska",
+    "Pacific/Honolulu": "Hawaii",
+}
+
+
+def time_zone_label(zone: str) -> str:
+    """The plain words with the zone name, "Eastern (America/New_York)", for a listed
+    zone; the zone name alone for any other."""
+    words = TIME_ZONE_LABELS.get(zone)
+    return f"{words} ({zone})" if words else zone
+
+
+def time_zone_options(stored: str | None) -> list[tuple[str, str]]:
+    """The drop-down: (zone name, label) for each listed zone, plus the stored zone
+    when it is not on the list."""
+    options = [(zone, time_zone_label(zone)) for zone in TIME_ZONE_LABELS]
+    if stored and stored not in TIME_ZONE_LABELS:
+        options.append((stored, stored))
+    return options
+
 
 # The registry. Deliberately no ``default`` field: see the module docstring and the
 # static test in tests/test_policy.py.
@@ -68,18 +116,21 @@ POLICY_KEYS: dict[str, PolicyKey] = {
             "Small job threshold",
             "money",
             "Revised contract below which a job is treated as a small job.",
+            waiting="Not decided (D-08). Set when the WIP schedule arrives.",
         ),
         PolicyKey(
             "deposit_identification",
             "Deposit identification",
             "text",
-            "How a customer deposit is recognised in QuickBooks (D-02).",
+            "The QuickBooks item a deposit invoice uses (D-02).",
+            waiting="Set with the billing reports (F08).",
         ),
         PolicyKey(
             "fuel_surcharge_treatment",
             "Fuel surcharge treatment",
             "text",
-            "How a fuel surcharge on an invoice is treated (D-04).",
+            "How a fuel surcharge line on an invoice is recognised.",
+            waiting="Set with the billing reports (F08).",
         ),
     )
 }
@@ -127,6 +178,16 @@ def validate_value(db: Session, key: str, value):
     raise PolicyValueError(f"unknown policy kind {spec.kind!r}")
 
 
+def check_settable(key: str) -> None:
+    """Raise ``PolicyWaiting`` when the key's feature has not arrived (F04.1). Called
+    by the route, not by ``set_policy``."""
+    spec = POLICY_KEYS.get(key)
+    if spec is None:
+        raise PolicyValueError(f"unknown policy key {key!r}")
+    if spec.waiting:
+        raise PolicyWaiting(key)
+
+
 def get_policy(db: Session, key: str) -> TenantPolicy | None:
     if key not in POLICY_KEYS:
         raise PolicyValueError(f"unknown policy key {key!r}")
@@ -141,16 +202,20 @@ def require_policy(db: Session, key: str):
 
 
 def set_policy(
-    db: Session, tenant_id: UUID, key: str, value, *, decision_ref: str, actor: Actor
+    db: Session,
+    tenant_id: UUID,
+    key: str,
+    value,
+    *,
+    decision_ref: str | None = None,
+    actor: Actor,
 ) -> TenantPolicy:
     if POLICY_KEYS.get(key) and POLICY_KEYS[key].kind == "category_slots":
         from app.domain.config.categories import ensure_cost_categories
 
         ensure_cost_categories(db, tenant_id)
     stored = validate_value(db, key, value)
-    ref = (decision_ref or "").strip()
-    if not ref:
-        raise PolicyValueError("a decision reference (who decided, where it is written down)")
+    ref = (decision_ref or "").strip()  # F04.1: optional; blank is stored as ""
     row = get_policy(db, key)
     before = None if row is None else {"value": _plain(row.value), "decision_ref": row.decision_ref}
     if row is None:

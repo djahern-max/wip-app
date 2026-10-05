@@ -441,7 +441,7 @@ data" above for the exact commands).
 | 2 | Suggestion rules | At least one active `account_suggest_rule`. | "No suggestion rules are loaded…": the firm loads the client's rules file with `scripts/load_suggest_rules.py` or `PUT /api/config/suggest-rules` ("Editing suggestion rules" below). No link: there is no screen. |
 | 3 | Chart of accounts | Active `gl_account` rows exist. | "Upload the chart of accounts." → Imports ("Loading a chart of accounts" below). |
 | 4 | Account mapping | No active account lacks a confirmed mapping (the Accounts page's unmapped count). | "n of m accounts to confirm; k have a suggestion." → Configuration, Accounts: "Confirm all suggestions", then map the rest by hand. A chart loaded before the rules leaves every account unmapped with no suggestion; load the rules and "Re-run suggestions". |
-| 5 | Policy | `timezone` and `wip_basis` decided (the keys a feature reads today; `REQUIRED_POLICY_KEYS` in `app/domain/home/checklist.py`, extended by each feature that starts reading a key). | "n of 2 policy keys needed now are not decided: …" → Configuration, Policy (firm_admin). Done reads with a note of the keys that wait for their features. |
+| 5 | Policy | `timezone` and `wip_basis` decided (the keys a feature reads today; `REQUIRED_POLICY_KEYS` in `app/domain/home/checklist.py`, extended by each feature that starts reading a key). | "n of 2 policy keys needed now are not decided: …" → Configuration, Policy (firm_admin): choose the time zone from the list (Eastern, Central, Mountain, Arizona, Pacific, Alaska, Hawaii); tick the cost categories in the WIP basis; the reference is optional (F04.1). Three keys (`small_job_threshold`, `deposit_identification`, `fuel_surcharge_treatment`) wait for their features and show why in place of "Decide". Done reads with a note of the keys that wait for their features. |
 | 6 | Burden rates | Every active division with a cost-code digit has a rate in force on the company's today (a tenant-wide row counts for all). Done with a note when Labor Burden is not in a decided WIP basis. | While the basis is undecided: "Burden rates are set after the WIP basis is decided." → Policy. Else: "No burden rate in force today for EX, SNOW." → Configuration, Burden rates ("Burden rates" below). |
 
 Below the list Home shows the jobs: "n sold estimates to review" (→ Review sold
@@ -525,12 +525,21 @@ confirmed mapping. `PUT /api/config/suggest-rules` takes the same JSON.
 ### Setting a policy key
 
 Configuration → Policy (firm_admin only): each key shows its value or "Not decided",
-who decided, when, and the decision reference. Decide or Change → value + reference →
-Record decision. Keys: `timezone`, `fiscal_year_start_month`, `wip_basis` (cost
-category slots), `small_job_threshold` (an amount, entered as text), 
-`deposit_identification`, `fuel_surcharge_treatment`. **No key has a default**: a
-feature that needs an undecided key stops with a message naming it rather than
-assuming a value. Every change is audited `policy_set` with before and after.
+who decided, when, and the reference. Decide or Change → value, and a reference if
+there is one (optional since F04.1: where the decision is written down, e.g. D-04 or
+the engagement letter) → Record decision. Who and when are always recorded. Keys set
+today: `timezone` (a list of the United States zones in plain words; a zone off the
+list set through the API is shown by its name and kept), `fiscal_year_start_month`,
+`wip_basis` (tick the cost categories counted in both cost to date and EAC; nothing is
+pre-ticked). Keys that wait for their features show why in place of "Decide" and
+refuse a PUT with the same sentence (409): `small_job_threshold` (D-08 open; the WIP
+schedule), `deposit_identification` and `fuel_surcharge_treatment` (the billing
+reports, F08). A value already stored on a waiting key is still shown with who and
+when. The feature that first reads a key removes the sentence (`waiting` in
+`POLICY_KEYS`) and gives the key its control. **No key has a default**: a feature that
+needs an undecided key stops with a message naming it rather than assuming a value.
+Every change is audited `policy_set` with before and after; a blank reference is
+stored as the empty string.
 
 ### Divisions, cost categories, cost codes, burden rates
 

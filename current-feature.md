@@ -1,20 +1,25 @@
 # current-feature.md
 
-_No feature in flight (2026-10-04)._ **F07.3 · Home says what to do next is built**
-(2026-10-04; no migration; nothing stored) and waits for the owner's pass on jobcost.dev,
-tenant `rye-beach`: Home names the next step at each point while the owner takes 67 Elm
-Street from estimate upload to linked project. Its brief, with the Plan, the owner's
-answers to questions 2 and 3 and the build notes, is `docs/briefs/F07.3.md`. ROADMAP
-F07.3 is ◐. **F07.2 · Pick what to work on** (`docs/briefs/F07.2.md`) waits for its own
-pass on `rye-beach` (Jobs quiet on arrival; find 6115758 by its number, track, link, see
-only it under Tracked); deploying it runs migration 0012, whose data step tracks every
-row already linked as of the link. **F07.1** stays ◐ on its pass (`docs/briefs/F07.1.md`)
+_No feature in flight (2026-10-05)._ **F04.1 · Policy screen a person can answer is built**
+(2026-10-05; no migration; no table, key or default) and waits for the owner's pass on
+jobcost.dev, tenant `rye-beach`: Eastern from the time zone list with no reference; the WIP
+basis slots 10, 20, 30, 35, 40, 50, 60, 70, 90 with reference "D-04, D-05"; the three waiting
+keys show their sentences and no "Decide" link; "Not decided" lines up on the left; Home's
+Policy line reads done. Its brief, with the Plan, the owner's answers and the build notes, is
+`docs/briefs/F04.1.md`. ROADMAP F04.1 is ◐. **F07.3 · Home says what to do next** (built
+2026-10-04, `docs/briefs/F07.3.md`) waits for its pass on `rye-beach`: Home names the next
+step at each point while the owner takes 67 Elm Street from estimate upload to linked
+project; ROADMAP F07.3 is ◐. **F07.2 · Pick what to work on** (`docs/briefs/F07.2.md`) waits
+for its own pass on `rye-beach` (Jobs quiet on arrival; find 6115758 by its number, track,
+link, see only it under Tracked); deploying it runs migration 0012, whose data step tracks
+every row already linked as of the link. **F07.1** stays ◐ on its pass (`docs/briefs/F07.1.md`)
 and **F07** on the pass job by job (67 Elm Street passed 2026-10-01; P0-1 gates only the
 links). The dev `wip` database is at 0012.
 
 **D-37** (a person picks the QuickBooks rows the platform works on) and **D-38** (an
 inactive tracked row raises no review item) were decided 2026-10-04 and are in
-`docs/DECISIONS.md` and BLUEPRINT §14. **F05.2**, **F06.1**, **F06** are closed.
+`docs/DECISIONS.md` and BLUEPRINT §14. **F05.2**, **F06.1**, **F06** are closed. D-08 is still
+open; a fuel surcharge decision is drafted and arrives with the F08 brief.
 
 Next per ROADMAP: **F08 · Sold Jobs Board & Job Detail (billing side)**: reports 1 and 2
 of §9, billing half only; the deposit identified by the `_DEP` document number and the
@@ -22,9 +27,13 @@ tenant's deposit item (D-02), counted in billed to date; the unapplied-payment r
 item; XLSX/PDF export. It reads billed and collected by job through the `qbo_customer`
 aliases F07 writes, shows money on untracked rows as one not-on-a-job figure (D-37), and
 adds its own lines to Home's `JOB_NEEDS` (`app/domain/home/checklist.py`) rather than
-rewriting the page. Not started; the owner supplies the brief. Copy it here, expand it,
-and restate the acceptance criteria before coding. After it, **F08.1 · Pay applications**
-as D-36 restates it.
+rewriting the page. It is the feature that first reads `deposit_identification` and
+`fuel_surcharge_treatment`: it removes their `waiting` sentence in `POLICY_KEYS`, gives
+each key its control (a picker of QuickBooks items, once it confirms that synced invoice
+lines carry the item id) and adds them to `REQUIRED_POLICY_KEYS` in the same change
+(F04.1). Not started; the owner supplies the brief. Copy it here, expand it, and restate
+the acceptance criteria before coding. After it, **F08.1 · Pay applications** as D-36
+restates it.
 
 Standing state from F07 to F07.3: the job is the reporting unit; matching is by alias
 (`job_alias`), never by name; names reach only the pure suggestion functions
@@ -38,10 +47,15 @@ rows it touched. Review items are pure generators (`app/domain/jobs/issues.py`);
 F09 persists them. Home (`GET /api/home`) composes the functions the linked pages call;
 its lines and the job-need order are pure (`app/domain/home/checklist.py`); the policy
 keys needed now are `REQUIRED_POLICY_KEYS` there, extended by each feature that starts
-reading a key. The second 67 Elm Street fixture (`estimate_upload_EST6115758_v2.xlsx`,
+reading a key. Policy (F04.1): no key has a default; the reference is optional and who
+and when are always recorded; a key whose feature has not arrived carries `waiting` in
+`POLICY_KEYS`, shown in place of "Decide" and returned by the route as a 409; `set_policy`
+accepts any key. The second 67 Elm Street fixture (`estimate_upload_EST6115758_v2.xlsx`,
 29 work areas) is the job the owner is working; later features are accepted against it.
 
 ## Discovered
+Carried from the live `current-feature.md` stub of 2026-10-04 (copied unchanged 2026-10-05; nothing is dropped):
+
 From the owner's session of 2026-10-04, after F07.2 (recorded in the F07.3 brief):
 - Configuration, Accounts: with no suggestion rules loaded the page gives no reason for "0 suggested"; one sentence would do.
 - Two pytest sessions against `wip_test` at once destroy each other without warning (a second run's teardown drops the first run's tables); a lock or a per-run database.
@@ -106,3 +120,10 @@ Carried from the stubs of 2026-09-21 and 2026-09-22 (F05, F04, F03, F02.1), stil
 - F02.1: pending TOTP secret is per user, not per session (deferred; rule recorded there); no rendered-browser test dependency for now; a client user's optional enrol confirm records a second `login_success`.
 
 From this brief, for F07: EST6281138 (Sanford, pending, 998.71) and EST6346291 (Hess, sold, 39,032.44) are two estimates for the same project under two client names; the Turley pair EST6366990 and EST6120638; the Mijal row once it has an id; "Mighty Roots - Makarov | Site Work" has no LMN id in its QuickBooks project name (§13.2).
+
+New, from the owner's session of 2026-10-05, for later features and not fixed here:
+- F08: confirm that synced invoice and credit-memo lines keep the QuickBooks item id. BLUEPRINT §13.2 records line-level customer references on bills and expenses only. The deposit item (D-02) and the fuel surcharge treatment both depend on it.
+- F08: are QuickBooks items (products and services) held in a form a picker can list, or only inside raw payloads?
+- A fuel surcharge decision is drafted and waits on two owner answers; it arrives with the F08 brief. Until then `fuel_surcharge_treatment` stays undecided on every tenant.
+- D-08 (small job threshold) is still open; the key waits on it.
+- Home counts `fiscal_year_start_month` among the keys that wait for their features ("4 more keys are decided when their features arrive") although it can be set today; the sentence is out of scope here (owner, 2026-10-05: add, do not fix).
