@@ -216,6 +216,7 @@ export default function Jobs({ me, canManage, target, onOpenEstimate }) {
                   <th className="num">Billed to date</th>
                   <th className="num">Fuel surcharge billed</th>
                   <th className="num">Collected to date</th>
+                  <th className="num">Other credits applied</th>
                   <th className="num">Open A/R</th>
                   <th className="num">Remaining to bill</th>
                   <th className="num">Days since last activity</th>
@@ -253,6 +254,7 @@ export default function Jobs({ me, canManage, target, onOpenEstimate }) {
                     <td className="num">{figureOr(j.billing.billed_to_date, null, "Not decided")}</td>
                     <td className="num">{figureOr(j.billing.fuel_surcharge_billed, null, "Not decided")}</td>
                     <td className="num">{formatMoney(j.billing.collected_to_date)}</td>
+                    <td className="num">{formatMoney(j.billing.other_credits_applied)}</td>
                     <td className="num">{formatMoney(j.billing.open_ar)}</td>
                     <td className="num">
                       {figureOr(j.billing.remaining_to_bill, j.billing.remaining_to_bill_note, "Not decided")}
@@ -272,6 +274,7 @@ export default function Jobs({ me, canManage, target, onOpenEstimate }) {
                   <td className="num">{figureOr(data.totals.billed_to_date, null, "Not decided")}</td>
                   <td className="num">{figureOr(data.totals.fuel_surcharge_billed, null, "Not decided")}</td>
                   <td className="num">{formatMoney(data.totals.collected_to_date)}</td>
+                  <td className="num">{formatMoney(data.totals.other_credits_applied)}</td>
                   <td className="num">{formatMoney(data.totals.open_ar)}</td>
                   <td className="num">{figureOr(data.totals.remaining_to_bill, null, "None")}</td>
                   <td colSpan={3}></td>
@@ -288,6 +291,7 @@ export default function Jobs({ me, canManage, target, onOpenEstimate }) {
                   <td className="num">{figureOr(data.not_on_a_job.billed_to_date, null, "Not decided")}</td>
                   <td className="num">{figureOr(data.not_on_a_job.fuel_surcharge_billed, null, "Not decided")}</td>
                   <td className="num">{formatMoney(data.not_on_a_job.collected_to_date)}</td>
+                  <td className="num">{formatMoney(data.not_on_a_job.other_credits_applied)}</td>
                   <td className="num">{formatMoney(data.not_on_a_job.open_ar)}</td>
                   <td className="num"></td>
                   <td colSpan={3}></td>

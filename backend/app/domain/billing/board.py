@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.domain.billing.figures import (
     CREDIT_TXN_TYPES,
+    TYPED_TXN_TYPES,
     AppIn,
     BillingPolicy,
     DocIn,
@@ -221,7 +222,8 @@ def _job_inputs(
 
 
 def _incoming_stmt(side, *columns):
-    """Over the applications of live payments against the side's documents."""
+    """Over the typed lines of live payments against the side's documents (a line with
+    a ``billing_id`` is typed by construction)."""
     return (
         select(*columns)
         .select_from(PaymentApplication)
@@ -231,23 +233,60 @@ def _incoming_stmt(side, *columns):
     )
 
 
-def _loose_stmt(side, *columns):
-    """Over the applications of the side's live payments naming a document the copy
-    does not hold."""
+def _held_typed_stmt(side, *columns):
+    """Over the typed lines, against a held document, of the side's live payments: what
+    the remainder (D-41) takes back out of the payment's cash on its own row."""
     return (
         select(*columns)
         .select_from(PaymentApplication)
         .join(Payment, PaymentApplication.payment_id == Payment.id)
-        .where(PaymentApplication.billing_id.is_(None), Payment.deleted_at.is_(None), side(Payment))
+        .where(
+            PaymentApplication.billing_id.is_not(None),
+            PaymentApplication.linked_txn_type.in_(TYPED_TXN_TYPES),
+            Payment.deleted_at.is_(None),
+            side(Payment),
+        )
+    )
+
+
+def _cash_stmt(side, *columns):
+    """Over the side's live payments: cash is total less unapplied (D-41)."""
+    return select(*columns).where(Payment.deleted_at.is_(None), side(Payment))
+
+
+def _remainders(side):
+    """One row per live payment of the side: its remainder (D-41), cash less its typed
+    lines, held or not."""
+    signed = application_signed()
+    lines = (
+        select(
+            PaymentApplication.payment_id.label("payment_id"),
+            func.sum(signed).label("typed"),
+        )
+        .where(PaymentApplication.linked_txn_type.in_(TYPED_TXN_TYPES))
+        .group_by(PaymentApplication.payment_id)
+        .subquery()
+    )
+    return (
+        select(
+            Payment.id.label("payment_id"),
+            (Payment.total - Payment.unapplied_amount - func.coalesce(lines.c.typed, 0)).label(
+                "remainder"
+            ),
+        )
+        .outerjoin(lines, lines.c.payment_id == Payment.id)
+        .where(Payment.deleted_at.is_(None), side(Payment))
+        .subquery()
     )
 
 
 def month_sums(db: Session, side) -> tuple[dict[str, Decimal], dict[str, Decimal]]:
     """``(billed_by_month, collected_by_month)`` for one side (``on_a_job`` or
     ``not_on_a_job``), the sums ``figures.job_figures`` keeps per job, by the database:
-    billed is sign × total over counted documents by document month; collected is the
-    signed applications against the side's documents and the loose applications of
-    the side's payments, by payment month, plus the payments' unapplied money."""
+    billed is sign × total over counted documents by document month; collected is
+    D-41's pieces by payment month (below). A month whose collected sum is 0.00 is
+    left out (the pure figures may keep such a key from zero lines; the tie-out reads
+    both the same, and the ledger side lists the month anyway)."""
     billed: dict[str, Decimal] = {}
     month = month_of(Billing.txn_date)
     for m, total in db.execute(
@@ -256,20 +295,22 @@ def month_sums(db: Session, side) -> tuple[dict[str, Decimal], dict[str, Decimal
         .group_by(month)
     ).all():
         billed[m] = billed.get(m, ZERO) + decimal(total)
+    # D-41, in the same pieces the pure figures keep: lines against the side's
+    # documents by payment month (A); the side's payments' cash and unapplied, which is
+    # their total (B); less the typed lines of those payments against held documents
+    # (C), which the remainder gives back to the document's side. A + B − C.
     collected: dict[str, Decimal] = {}
     month = month_of(Payment.txn_date)
-    for build in (_incoming_stmt, _loose_stmt):
+    for build, sign in ((_incoming_stmt, 1), (_held_typed_stmt, -1)):
         for m, total in db.execute(
             build(side, month, func.sum(application_signed())).group_by(month)
         ).all():
-            collected[m] = collected.get(m, ZERO) + decimal(total)
+            collected[m] = collected.get(m, ZERO) + sign * decimal(total)
     for m, total in db.execute(
-        select(month, func.sum(Payment.unapplied_amount))
-        .where(Payment.deleted_at.is_(None), Payment.unapplied_amount != 0, side(Payment))
-        .group_by(month)
+        _cash_stmt(side, month, func.sum(Payment.total)).group_by(month)
     ).all():
         collected[m] = collected.get(m, ZERO) + decimal(total)
-    return billed, collected
+    return billed, {m: v for m, v in collected.items() if v != ZERO}
 
 
 def other_figures(db: Session, policy: BillingPolicy, today: date) -> JobFigures:
@@ -299,22 +340,26 @@ def other_figures(db: Session, policy: BillingPolicy, today: date) -> JobFigures
                 .where(counted, BillingLine.item_external_id.in_(policy.surcharge_items))
             ).scalar_one()
         )
-    collected = ZERO
-    last_incoming = None
-    for build in (_incoming_stmt, _loose_stmt):
-        total, latest = db.execute(
-            build(side, func.sum(application_signed()), func.max(Payment.txn_date))
-        ).one()
-        collected += decimal(total)
-        if latest is not None and (last_incoming is None or latest > last_incoming):
-            last_incoming = latest
-    unapplied, unapplied_count, last_own = db.execute(
-        select(
+    incoming_total, last_incoming = db.execute(
+        _incoming_stmt(side, func.sum(application_signed()), func.max(Payment.txn_date))
+    ).one()
+    held_typed = db.execute(_held_typed_stmt(side, func.sum(application_signed()))).scalar_one()
+    unapplied, unapplied_count, last_own, cash_total = db.execute(
+        _cash_stmt(
+            side,
             func.sum(Payment.unapplied_amount),
             func.count(case((Payment.unapplied_amount != 0, 1))),
             func.max(Payment.txn_date),
-        ).where(Payment.deleted_at.is_(None), side(Payment))
+            func.sum(Payment.total - Payment.unapplied_amount),
+        )
     ).one()
+    collected = decimal(incoming_total) + decimal(cash_total) - decimal(held_typed)
+    rem = _remainders(side)
+    other_credits = decimal(
+        db.execute(
+            select(func.sum(case((rem.c.remainder < 0, -rem.c.remainder), else_=0)))
+        ).scalar_one()
+    )
     payment_dates = [d for d in (last_incoming, last_own) if d is not None]
     last_payment = max(payment_dates) if payment_dates else None
     last = max((d for d in (last_billing, last_payment) if d is not None), default=None)
@@ -331,6 +376,7 @@ def other_figures(db: Session, policy: BillingPolicy, today: date) -> JobFigures
         unapplied_count=int(unapplied_count or 0),
         remaining_to_bill=None,
         tax_billed=decimal(tax),
+        other_credits_applied=other_credits,
         last_billing_date=last_billing,
         last_payment_date=last_payment,
         days_since_activity=(today - last).days if last is not None else None,

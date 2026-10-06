@@ -16,10 +16,18 @@ no figure and stay in the history rows, marked.
   other than surcharge lines, are all on a deposit item (D-02; owner's answer 2). One
   part without the other is not a deposit, still counts, and is reported.
 - **Deposit received**: Σ applications against the deposit documents.
-- **Collected to date**: Σ signed applications against the job's documents, dated by
-  the payment, plus applications of the job's own payments that name no document the
-  copy holds (owner, 2026-10-06, point 3). A sales receipt's collected side is its
+- **Collected to date** (D-41): cash only. A payment's cash is its total less its
+  unapplied amount. A line that points at an invoice or a sales receipt counts for
+  the job of that document, a credit memo line counts against it, both dated by the
+  payment; a typed line naming a document the copy does not hold counts on the
+  payment's own row. Lines of any other type (a journal entry, a deposit, an expense)
+  are not read one by one: their net is the **remainder**, the payment's cash less
+  its invoice lines plus its credit memo lines, counted on the payment's own customer
+  row, so every payment adds exactly its cash. A sales receipt's collected side is its
   self-application (F05), so a receipt is billed once and collected once.
+- **Other credits applied** (D-41): where a payment's remainder is a credit (its
+  invoices were settled by something other than cash), that amount, on the payment's
+  own row; billed less collected less other credits applied is open A/R.
 - **Open A/R**: Σ sign × balance over counted documents.
 - **Unapplied payments**: Σ ``unapplied_amount`` of the job's own payments (D-02).
 - **Remaining to bill**: revised contract − billed to date on a fixed-price job.
@@ -39,6 +47,11 @@ ZERO = Decimal("0.00")
 # sums in ``board.py`` read it too, so a change here is the change everywhere. Today:
 # CreditMemo only (F05, S-01 extra 2); item 1 of F08.2 waits on the diagnostic.
 CREDIT_TXN_TYPES: frozenset[str] = frozenset({"CreditMemo"})
+# D-41: the lines read one by one: those that point at an invoice (a sales receipt's
+# own line is its collected side, F05) and those that point at a credit memo. Every
+# other type goes into the payment's remainder.
+INVOICE_TXN_TYPES: frozenset[str] = frozenset({"Invoice", "SalesReceipt"})
+TYPED_TXN_TYPES: frozenset[str] = INVOICE_TXN_TYPES | CREDIT_TXN_TYPES
 SALES_ITEM = "SalesItemLineDetail"  # QuickBooks' DetailType of a priced line
 DEPOSIT_SUFFIX = "_DEP"  # D-26, D-02: <estimate number>_DEP
 KIND_LABELS = {"invoice": "Invoice", "credit_memo": "Credit memo", "sales_receipt": "Sales receipt"}
@@ -154,6 +167,27 @@ def signed_application(app: AppIn) -> Decimal:
     return -app.amount if app.linked_txn_type in CREDIT_TXN_TYPES else app.amount
 
 
+def typed(app: AppIn) -> bool:
+    return app.linked_txn_type in TYPED_TXN_TYPES
+
+
+def cash(p: "PaymentIn") -> Decimal:
+    """D-41: what the payment collected, whatever its lines say."""
+    return p.total - p.unapplied_amount
+
+
+def remainder(p: "PaymentIn") -> Decimal:
+    """D-41: the payment's cash less its invoice lines plus its credit memo lines (held
+    or not); the net of every line of another type, counted on the payment's own row."""
+    return cash(p) - sum((signed_application(a) for a in p.applications if typed(a)), ZERO)
+
+
+def other_credit(p: "PaymentIn") -> Decimal:
+    """D-41: the remainder where it is a credit, as a positive figure; else 0.00."""
+    r = remainder(p)
+    return -r if r < ZERO else ZERO
+
+
 def _deposit_parts(
     doc: DocIn, policy: BillingPolicy, estimate_numbers: frozenset[str]
 ) -> tuple[bool, str | None]:
@@ -235,6 +269,7 @@ class PaymentHistoryRow:
     unapplied: Decimal | None  # None: a payment on another customer row (applied here only)
     on_this_job: bool
     deleted: bool
+    other_credit: Decimal | None = None  # D-41: None on another row's payment; else 0.00 or more
 
     @property
     def kind_label(self) -> str:
@@ -260,6 +295,7 @@ class JobFigures:
     payments: tuple[PaymentHistoryRow, ...]  # newest first
     billed_by_month: dict[str, Decimal] = field(default_factory=dict)  # Σ sign × total
     collected_by_month: dict[str, Decimal] = field(default_factory=dict)
+    other_credits_applied: Decimal = ZERO  # D-41
 
     @property
     def deposit_mismatches(self) -> tuple[DocFigures, ...]:
@@ -298,14 +334,19 @@ def job_figures(
     counted = [f for f in figures if f.counted]
     decided = policy.decided
     deposit_ids = {f.doc.id for f in counted if f.is_deposit}
-    live_in = [a for a in incoming if not a.payment_deleted]
+    live_in = [a for a in incoming if not a.payment_deleted and typed(a)]
     own = [p for p in payments if not p.deleted]
     own_ids = {p.id for p in own}
-    loose = [a for p in own for a in p.applications if a.billing_id is None]
+    loose = [a for p in own for a in p.applications if a.billing_id is None and typed(a)]
 
-    collected = sum((signed_application(a) for a in live_in), ZERO) + sum(
-        (signed_application(a) for a in loose), ZERO
+    # D-41: lines against the job's documents, the job's own typed lines naming a
+    # document the copy does not hold, and the remainder of the job's own payments.
+    collected = (
+        sum((signed_application(a) for a in live_in), ZERO)
+        + sum((signed_application(a) for a in loose), ZERO)
+        + sum((remainder(p) for p in own), ZERO)
     )
+    other_credits = sum((other_credit(p) for p in own), ZERO)
     deposit_received = (
         sum((signed_application(a) for a in live_in if a.billing_id in deposit_ids), ZERO)
         if decided
@@ -336,8 +377,10 @@ def job_figures(
         _add(collected_by_month, month_key(a.payment_date), signed_application(a))
     for p in own:
         for a in p.applications:
-            if a.billing_id is None:
+            if a.billing_id is None and typed(a):
                 _add(collected_by_month, month_key(p.txn_date), signed_application(a))
+        if remainder(p) != ZERO:
+            _add(collected_by_month, month_key(p.txn_date), remainder(p))
         if p.unapplied_amount != ZERO:
             _add(collected_by_month, month_key(p.txn_date), p.unapplied_amount)
 
@@ -352,6 +395,7 @@ def job_figures(
         unapplied_count=unapplied_count,
         remaining_to_bill=remaining,
         tax_billed=sum((f.tax for f in counted), ZERO),
+        other_credits_applied=other_credits,
         last_billing_date=last_billing,
         last_payment_date=last_payment,
         days_since_activity=days,
@@ -393,6 +437,7 @@ def _payment_history(
             p.unapplied_amount,
             True,
             p.deleted,
+            other_credit(p) if not p.deleted else ZERO,
         )
     for a in incoming:
         if a.payment_id in own_ids or a.payment_id in rows:
@@ -427,6 +472,7 @@ class Totals:
     open_ar: Decimal
     unapplied_payments: Decimal
     remaining_to_bill: Decimal | None  # over the jobs that have one; None when none has
+    other_credits_applied: Decimal = ZERO  # D-41
 
 
 def _opt_sum(values: Iterable[Decimal | None]) -> Decimal | None:
@@ -449,6 +495,7 @@ def totals(rows: Sequence[JobFigures]) -> Totals:
         open_ar=sum((r.open_ar for r in rows), ZERO),
         unapplied_payments=sum((r.unapplied_payments for r in rows), ZERO),
         remaining_to_bill=_opt_sum(r.remaining_to_bill for r in rows),
+        other_credits_applied=sum((r.other_credits_applied for r in rows), ZERO),
     )
 
 

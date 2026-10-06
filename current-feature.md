@@ -1,180 +1,69 @@
 # current-feature.md
 
-## F08.2 · Board tie-out on the collected side, speed, and three screen fixes
-**Roadmap phase**: B · **Blueprint refs**: §8.5, §8.6, §9 (report 1), §12 · **Decisions**: D-22, D-35, D-37, D-39 referenced (none made here; if the tie-out cause turns out to need a treatment, stop: that is a decision)
-**Status**: drafted 2026-10-06 by the owner's design partner; Plan filled in by Claude Code 2026-10-06 (criteria restated, files listed, the seven answers, the speed measured before any change); go-ahead 2026-10-06 with the owner's four answers (under Plan); **items 2 to 5 and the item 1 diagnostic built 2026-10-06**; item 1's fix waits on the diagnostic's output from `rye-beach` and the owner's treatment (the second stop). No migration, no dependency. Not committed: one commit at close-out. A patch under F08 from the owner's pass on `rye-beach` (2026-10-06). It adds no table, no policy key and no dependency. F08's pass waits on item 1 of this patch; F08.1 stays next and unstarted.
+_No feature in flight (2026-10-06)._ **F08.2 · Board tie-out on the collected side, speed, and
+three screen fixes is built** (2026-10-06, two commits: items 2 to 5 and the item 1 diagnostic,
+then item 1 on **D-41**; no migration, no index, no dependency) and waits for the owner's pass
+on jobcost.dev, tenant `rye-beach` (the tie-out line ties in every month; the Jobs page, a job
+page and Connections open quickly enough to work with; the deposit pick-list shows active items
+and finds "Deposit" by search; linking a row shows it is working; 67 Elm Street's figures
+unchanged at 288,618.87, 250,293.87, 38,325.00 and 176,850.72). Its brief, with the Plan, the
+owner's answers, the finding, the build notes, the speed before and after and the Discovered
+list, is `docs/briefs/F08.2.md`. ROADMAP F08.2 is ◐. **D-41** (collected to date is cash; a
+payment's remainder on its own row; "Other credits applied"; `PAYMENT_OTHER_CREDIT`) was decided
+2026-10-06 on the diagnostic's finding and is in `docs/DECISIONS.md` and BLUEPRINT §14.
 
-### Goal
-The owner's pass on F08 found the job figures right to the cent (67 Elm Street, 6115758: billed to date 288,618.87, collected to date 250,293.87, open A/R 38,325.00, remaining to bill 176,850.72, against a QuickBooks export) and five things wrong around them. The board's tie-out does not balance on the collected side; the Jobs page, the job page and Connections take long enough to read as broken on a company with history back to 2000; the QuickBooks item pick-list shows every item the company has ever had; linking a QuickBooks row gives no sign it is working; and a project whose name carries the job's estimate number, but not at its start, is not suggested. This patch fixes those five and nothing else. Every figure is still computed on read and nothing is stored.
+Open passes carried: **F08 · Sold Jobs Board** (built 2026-10-06, `docs/briefs/F08.md`; the
+job figures passed to the cent on 6115758 on 2026-10-06; the pass closes with F08.2's; the
+§13.6 spreadsheet criterion is open), **F07.3 · Home says what to do next** (built 2026-10-04,
+`docs/briefs/F07.3.md`; ROADMAP ◐), **F07.2 · Pick what to work on** (`docs/briefs/F07.2.md`;
+deploying it runs migration 0012), **F07.1** (`docs/briefs/F07.1.md`) and **F07** (the pass job
+by job; 67 Elm Street passed 2026-10-01). The dev `wip` database is at 0012; F08 and F08.2 add
+no migration. D-08 is still open.
 
-### In scope
-**1. The collected side of the tie-out**
-- On `rye-beach` the billed side ties in all 308 months. The collected side does not tie in 18: 2003-12, 2018-12, 2019-01, 2019-04, 2019-05, 2019-08, 2019-12, 2020-03, 2021-10, 2021-11, 2022-03, 2022-04, 2022-07, 2022-08, 2022-09, 2022-10, 2026-05, 2026-07. In every one the board's jobs + not on a job is **higher** than QuickBooks payments + sales receipts; the differences run from 0.28 (2022-10) to 52,645.00 (2018-12) and total 261,929.94. Neither job on the board is affected.
-- **Find the cause first, then stop.** Write a read-only diagnostic (a script under `backend/scripts/`, run by the owner on the server, or by Claude Code against a restored copy if OPERATIONS provides one) that prints, for a given month, each payment whose applications do not sum to its total, and each application that does not point at an invoice: QuickBooks ids, dates, kinds and amounts only, no customer names. Report what the 18 months have in common before changing any figure.
-- The design partner's untested first suspect: a credit memo (or another credit) applied to an invoice through a payment, counted as money collected. It is a suspect, not a finding.
-- **Then fix it so that** collected to date is cash: for every month, jobs + not on a job + unapplied equals QuickBooks payments + sales receipts, to the cent, as F08's brief defines it. If the cause shows that a rule is missing rather than miscoded (what a credit applied through a payment does to collected to date and to open A/R, for example), stop and say so: the owner decides the treatment and the entry is drafted before the fix.
-- A constructed test on the sandbox fixture reproduces the cause and proves the tie.
+Next per ROADMAP: **F08.1 · Pay applications (billing requests)**, as D-36 restates it and
+D-39 extends it: capture the operations billing request per job (cumulative percent complete
+per work area, D-26), produce the pay application with its schedule of values on screen and
+as PDF (reportlab, D-40), the summary (earned to date, less retainage, less billed to date
+before this application: the deposit, D-02, and earlier applications; amount due), the fuel
+surcharge choice on each application with the printed line "Fuel surcharge (5.00%)" and the
+two-part tie of the invoice to its application (D-39), issue, void and re-issue audited,
+`job.retainage_pct` (a migration: wait for a yes), tables `pay_application` and
+`pay_application_line` (tenant-scoped, RLS forced). Not started; the owner supplies the brief.
+Copy it here, expand it, and restate the acceptance criteria before coding. It reads the rate
+from `fuel_surcharge_treatment` (`policy.surcharge_treatment`) and requires it.
 
-**2. Speed (the owner's choice: keep all the data, stop re-adding it)**
-- Everything QuickBooks holds is still synced and the "Not on a job" row is kept (D-37: the tie-out needs it). Bringing in only tracked projects, or only data from a start date, is **not** done here (Discovered).
-- Measure first: on a dev database seeded to the size of the problem (a script that adds documents and payments on untracked rows; say how many `rye-beach` holds if OPERATIONS lets you read the counts), report the time and the query count of `GET /api/jobs`, `GET /api/jobs/{id}`, the two exports and the Connections month totals, before and after.
-- The board's figures for jobs are read for the jobs' own QuickBooks rows only. The "Not on a job" totals and the tie-out's month totals are summed by the database, not by loading every document into Python.
-- The tie-out status is its own request: the board's rows show first, and the tie-out line reads "Tie-out: checking…" until its answer arrives. The export still carries the Tie-out tab.
-- The job page reads that job's documents, not the whole board.
-- Still computed on read: no table, column or cache holds a board figure. An index is a migration: name it and wait for a yes.
+Standing state from F07 to F08.2: the job is the reporting unit; matching is by alias
+(`job_alias`), never by name (a QuickBooks row is suggested when its name begins with or
+contains an attached estimate's number, within the F07 scope). The revised contract,
+unapproved change orders, EAC and every billing figure are computed on read
+(`app/domain/jobs/contract.py`, `app/domain/billing/figures.py` and `board.py`), never
+stored; nothing in `app/wip/` has been touched. Billed to date is total − sales tax − fuel
+surcharge lines, the deposit invoice (`<estimate number>_DEP` on a deposit item, both marks)
+counted from its date. Collected to date is cash (D-41): a payment's total less its unapplied
+amount; invoice, sales receipt and credit memo lines follow the document's job, dated by the
+payment; the net of every other line is the payment's remainder on the payment's own row; a
+credit remainder is "Other credits applied". The board reads the listed jobs' own rows; the
+"Not on a job" row (D-35, D-37), every per-month sum and the Connections month totals are
+summed by the database; the tie-out is `GET /api/jobs/tie-out`, over every job, and holds to
+the cent; the sign of a payment line is `CREDIT_TXN_TYPES` beside `INVOICE_TXN_TYPES` in
+`figures.py`, one place. Review items are pure generators (`app/domain/jobs/issues.py`: the
+F07 ones, `PAYMENT_UNAPPLIED`, `DEPOSIT_NOT_IDENTIFIED`, `BILLED_OVER_CONTRACT`,
+`PAYMENT_OTHER_CREDIT`); F09 persists them. Home composes the pages' functions; `JOB_NEEDS`
+has the three F08 rules after the F07 ones (not `PAYMENT_OTHER_CREDIT`, Discovered);
+`REQUIRED_POLICY_KEYS` holds the four keys read today. Policy: no key has a default; the two
+item keys take the company's QuickBooks items from the raw `Item` versions
+(`app/domain/config/items.py`: active, inactive and deleted, each with its flag and its label
+built on the server); `small_job_threshold` still waits (D-08). XLSX money cells are written
+as numeric strings holding the Decimal's digits (`export.py`, `_write_money`); PDFs are
+reportlab, uncompressed. `scripts/collected_tieout.py` (read-only, no customer name) and
+`scripts/seed_board_load.py` (dev only) are in OPERATIONS, "The Sold Jobs Board". The owner's
+reviewed 67 Elm Street workbook (`estimate_upload_EST6115758_reviewed_10.06.xlsx`; revised
+contract 465,469.59 after "Confirm all as suggested") is the job the owner is working; later
+features are accepted against it.
 
-**3. The QuickBooks item pick-list (both policy keys)**
-- Active items only, sorted by name, with a search box above the list that filters as it is typed. A "Show inactive items" switch adds the inactive and deleted ones.
-- An item that is already ticked is always shown, marked "(inactive)" if it is, so a decided value is never hidden.
-- The API returns each item's active flag from the raw `Item` version; the page builds no label and filters only what it was given.
+## Discovered
+Carried from `docs/briefs/F08.2.md` (copied unchanged 2026-10-06; nothing is dropped):
 
-**4. A busy state on the QuickBooks actions**
-- Track, Untrack, Link and Unlink: while the request is in flight the button is disabled and reads "Tracking…", "Linking…" and so on, following the convention the other save buttons use (D-22); on success the page shows the result; on failure the sentence is shown and the button returns.
-
-**5. Suggest the project that carries the estimate number**
-- On the job page, "Suggested QuickBooks rows" gains one rule: a QuickBooks row whose name contains the number of an estimate attached to the job anywhere, not only at its start (6115758 for `EST6115758`: "Est. 6115758 - 67 Elm", "67 Elm Street (6115758)"), is suggested, with the reason "name contains estimate number 6115758". The F07 scope is kept (owner, 2026-10-06): an active project or sub-customer not yet linked, tracked or not; never a top-level customer. A suggestion only: nothing is tracked or linked until a person presses the button. Names reach this suggestion function and nothing else (CLAUDE.md: no name matching in write paths).
-
-**Docs**
-- OPERATIONS.md, "The Sold Jobs Board": the tie-out line loads after the rows; what collected to date counts, in the words the fix settles on; the item pick-list's search and switch.
-- `docs/briefs/F08.md`: a dated note under the owner's-pass criterion: "2026-10-06: job figures passed to the cent on 6115758 against a QuickBooks export (the stand-in for the §13.6 spreadsheet); the tie-out tab does not balance on the collected side; see F08.2." Nothing else in that file is edited.
-- ROADMAP: add an `F08.2` line as a patch under F08 with its status. F08.1 keeps its place and its text.
-- BLUEPRINT and CLAUDE.md Vocabulary: no change, unless item 1 ends in a decision.
-
-**Dependencies**: none. Anything new: stop and ask.
-
-### Out of scope
-Pay applications (F08.1). Any change to what is synced from QuickBooks. Any stored or cached board figure. Any change to billed to date, the deposit rule or the fuel surcharge rule. An as-of-date selector. The sold date default (Discovered). The time-and-materials split of the ledge removal work on 6115758 (the owner's, with the project manager; D-24).
-
-### Acceptance criteria
-- [ ] The diagnostic exists, is read-only, prints no customer name, and its finding for the 18 months is written into this brief under Plan before any figure is changed. **Diagnostic built and tested 2026-10-06 (`backend/scripts/collected_tieout.py`); the finding waits on the owner's run on `rye-beach`.**
-- [ ] A constructed case on the sandbox fixture reproduces the cause: before the fix the collected side of that month does not tie by the constructed amount; after it, every month ties to the cent on billed and collected, and the F08 tie-out test still passes. **The before half exists: the diagnostic's test constructs a zero payment linking an invoice and a JournalEntry credit and shows the month off by twice the credit; the after half waits on the owner's treatment.**
-- [ ] 67 Elm Street's constructed states from F08 give the same collected to date, open A/R and unapplied payments as before (the F08 criteria pass unchanged, unless the finding shows one of them was wrong: then say which and why). **Holds after items 2 to 5 (the F08 tests pass unchanged, 2026-10-06); re-proven with the item 1 fix before it is ticked.**
-- [x] Speed: the number of queries issued by `GET /api/jobs` and by `GET /api/jobs/{id}` is the same with 10 and with 1,000 documents on untracked rows (a test counts them); the measured times before and after are in the CHANGELOG entry.
-- [x] The tie-out status is served by its own request; the board's rows are returned without it; the XLSX still has the Tie-out tab and it balances on the sandbox fixture.
-- [x] Nothing is stored: no table, column or cache holds a board figure (the F08 assertion still passes).
-- [x] Item pick-list: inactive items are absent by default and present with the switch; typing in the search box narrows the list; a ticked inactive item is shown and marked; setting a key still writes one `policy_set` audit row; an item id that is not the tenant's is still refused.
-- [x] Busy state: each of the four buttons is disabled and relabelled while its request is in flight and restored after success and after failure (frontend tests).
-- [x] Suggestion: a job with `EST6115758` attached is offered a QuickBooks row named "… 6115758 …" (the number anywhere in the name) with the reason shown; a row whose name lacks the number, and a top-level customer whatever its name, are not offered by this rule; pressing nothing changes nothing; no write path receives a name (the existing static check still passes).
-- [x] Isolation and roles unchanged: a second tenant's items, rows and documents never appear; the role matrix tests pass unchanged.
-- [x] Money in every changed response is a string with two decimals.
-- [ ] **Owner's pass on jobcost.dev, tenant `rye-beach`** (never ticked by Claude Code): the tie-out line reads that it ties in every month; the Jobs page, a job page and Connections each open quickly enough to work with (the owner says so); the deposit pick-list shows only active items and finds "Deposit" by search; linking a row shows it is working; 67 Elm Street's figures are unchanged at 288,618.87, 250,293.87, 38,325.00 and 176,850.72.
-
-### Plan
-Claude Code restates the criteria and lists the files it expects to touch before coding, answers the questions below, and waits for a go-ahead. Item 1 has a second stop: after the diagnostic's finding, before the fix.
-1. How will the diagnostic be run against `rye-beach` without copying production data into the repo or onto a laptop? Give the owner the exact command, with full paths, and say what it prints.
-2. In `payment_application`, what does a payment's line that points at a credit memo, a journal entry or a deposit look like today, and how do `figures.py` and the Connections month totals each treat it? (This is where the two sides can differ.)
-3. Which of the three slow pages is slow for which reason: rows loaded into Python, queries per row, or the 308-month tie-out? Measure before changing anything.
-4. Does any fix in item 2 need an index? Name the table and columns, and wait for a yes.
-5. Where does the raw `Item` carry its active state, and how are QuickBooks "deleted" items marked?
-6. What do "Suggested QuickBooks rows" use today, and does the list include untracked rows? The new rule follows the existing scope; say what that is.
-7. Which existing convention do the busy labels follow?
-
-_Filled in by Claude Code 2026-10-06, before coding; waiting for the go-ahead. Item 1 keeps its second stop: the diagnostic's finding is written here, under "Finding", before any figure changes, and a missing rule goes to the owner before the fix._
-
-**Housekeeping done first (2026-10-06)**: the Discovered list of the live stub of 2026-10-06 is carried under Discovered, unchanged (96 lines from `git show HEAD:current-feature.md`); the brief's "New, from the owner's pass" items follow it. No decision is drafted: none is needed unless item 1 ends in one.
-
-**Accounting check**: nothing here touches `app/wip/`, `contract.py`, the sync's fetch, store or normalizers, the drift check, billed to date, the deposit rule or the fuel surcharge rule. The one figure item 1 may change is collected to date, and that change waits for the diagnostic's finding and, if the finding is a missing rule, for the owner's treatment and its decision entry.
-
-**Acceptance criteria, restated**
-1. The diagnostic `backend/scripts/collected_tieout.py` exists, is read-only (SELECT only, as `app_rw` under RLS, no Intuit call, no write), prints no customer name (a test runs it on a seeded tenant and asserts no `display_name` in its output); its finding for the 18 months is written in this brief under Plan, "Finding", before any figure changes.
-2. A constructed case on the sandbox fixture (through `apply_raw`, in the payload shape the diagnostic finds) makes one month's collected side not tie by the constructed amount before the fix; after it, every month ties to the cent on billed and collected, and `test_billing_tieout.py` passes unchanged.
-3. 67 Elm Street's constructed states (`test_jobs_board.py`, the unapplied-then-applied test) give the same collected to date, open A/R and unapplied payments as before; if the finding shows one was wrong, which one and why is written here.
-4. Speed: a test counts SQL statements for `GET /api/jobs` and `GET /api/jobs/{id}` with 10 and with 1,000 documents and payments on untracked rows and asserts the two counts are equal; the times measured before (the table in answer 3) and after go in the CHANGELOG entry.
-5. The tie-out status is served by its own request, `GET /api/jobs/tie-out`; `GET /api/jobs` returns the rows, totals and not-on-a-job row without it; the XLSX still has its Tie-out tab and it balances on the sandbox fixture.
-6. Nothing stored: `test_nothing_is_stored_and_a_read_writes_nothing` passes, extended to the tie-out request; no table, column or cache holds a board figure.
-7. Item pick-list: inactive items absent by default and present with "Show inactive items"; typing in the search box narrows the list; a ticked inactive item is shown and marked "(inactive)"; a PUT still writes one `policy_set` audit row; an item id that is not the tenant's is still refused (the F08 policy tests pass unchanged).
-8. Busy state: Track, Untrack, Link and Unlink are disabled and read "Tracking…", "Untracking…", "Linking…", "Unlinking…" while in flight, and are restored after success and after failure (`node --test` on the pure label helpers; the pages use them).
-9. Suggestion: a job with `EST6115758` attached is offered a QuickBooks row named "… 6115758 …" with the reason "name contains estimate number 6115758"; a row whose name lacks the digits is not offered by this rule; pressing nothing changes nothing; `test_crosswalk_write_actions_take_ids_and_compare_no_customer_name` still passes.
-10. Isolation and roles: a second tenant's items, rows and documents never appear in the tie-out request, the pick-list or the suggestions; `test_roles.py` gains the tie-out route and the rest of the matrix passes unchanged.
-11. Money in every changed response is a string with two decimals (the response-wide scan runs on the tie-out and policy responses too).
-12. Owner's pass on jobcost.dev, tenant `rye-beach`: never ticked by Claude Code.
-
-**Files expected to touch**
-- Backend, scripts: `scripts/collected_tieout.py` (new; the diagnostic, answer 1; no write path, no name); `scripts/seed_board_load.py` (new; the dev-only seeding of item 2: synthetic documents and payments on untracked rows of a tenant it creates itself, `load-test`, so nothing synthetic lands on a real tenant; refuses `PROTECTED_TENANT_SLUGS` and any database not named `wip` or `wip_test`).
-- Backend, domain: `app/domain/billing/amounts.py` and `app/domain/billing/figures.py` (the sign rule for a payment line, read by both from one constant; changed only after the stop); `app/domain/billing/board.py` (the jobs' figures from the jobs' own rows only: documents by customer id, applications by document id, payments by customer id, three reads for all listed jobs together; the not-on-a-job totals and the per-month sums of jobs and of not-on-a-job as SQL aggregates; `tie_out` compares three aggregates); `app/domain/billing/totals.py` (the Connections month totals as one `GROUP BY` month per table); `app/domain/config/items.py` (`active` per item; deleted raw versions returned, marked); `app/domain/jobs/names.py` (`name_contains_estimate_number`), `app/domain/jobs/suggest.py` (the rule and its reason).
-- Backend, API: `app/api/jobs.py` (`GET /api/jobs/tie-out`, declared before `/{job_id}`; `JobsOut` loses `tie_out`; `_detail` reads one job's rows; the two exports keep the tab); `app/api/schemas.py` (`TieOutOut` stays; `PolicyOptionOut.active`); `app/api/config.py` (`_item_options` passes the flag).
-- Backend, tests: `tests/test_billing_tieout.py` (the constructed case; the tie-out route), `tests/test_billing_figures.py` (the sign rule, pure), `tests/test_jobs_board.py` (shape without `tie_out`; nothing stored; 67 Elm Street unchanged), `tests/test_jobs_export.py` (the tab), new `tests/test_board_speed.py` (statement counts at 10 and 1,000), `tests/test_policy.py` (the flag; a deleted item), `tests/test_job_domain.py` and `tests/test_job_qbo_link.py` (the rule), `tests/test_roles.py` (the route), new `tests/test_collected_tieout.py` (the script on a seeded tenant: read-only, no name in its output, the constructed month found).
-- Frontend: `src/pages/Jobs.jsx` (a second GET for the tie-out; "Tie-out: checking…" until it answers), `src/jobs.js` + `jobs.test.js` (the tie-out sentence; the Link/Unlink labels), `src/pages/Customers.jsx`, `src/customers.js` + `customers.test.js` (Tracking…/Untracking…), `src/pages/JobDetail.jsx` (Linking…/Unlinking…), `src/policyRow.js` + `policyRow.test.js` (the search box, the switch, the ticked-inactive rule, all pure), `src/pages/config/Policy.jsx` only if the row needs a new prop.
-- Docs: `docs/OPERATIONS.md` ("The Sold Jobs Board"), `docs/briefs/F08.md` (the one dated note), `ROADMAP.md` (the F08.2 line), `CHANGELOG.md`, this brief.
-- **No migration unless answer 4's index gets a yes. No new table. No new dependency. No new external call.**
-
-**Owner's answers (2026-10-06, the go-ahead)**: 1. Index: no; measure after the change and report; none in this pass. 2. Suggestions: keep the F07 scope (active projects and sub-customers not yet linked; never a top-level customer); item 5 becomes "match the estimate number anywhere in the row's name, not only at the start" (the brief's wording corrected above). 3. Deleted items: return them marked, show them only when "Show inactive items" is on, accept them on a PUT like inactive ones. 4. Busy labels: as proposed. Build items 2 to 5 and the diagnostic for item 1, then stop: the exact command for the diagnostic, and no collected figure changes until the owner brings its output and a decision.
-
-**Answers to the seven questions**
-
-1. **Running the diagnostic against `rye-beach`.** On the server, as the other hand-run scripts (OPERATIONS, "Restarting, and hand-run scripts"): as `wip` with the API's environment file, so it connects as `app_rw` under RLS and reads the production rows in place. Nothing is copied: OPERATIONS has no restored-copy procedure (the restore drill is F23) and production reads from a laptop are refused, so the owner runs it and pastes the output here:
-   ```
-   cd /opt/wip/backend && sudo -u wip ENV_FILE=/etc/wip/app.env .venv/bin/python \
-       scripts/collected_tieout.py --tenant rye-beach
-   ```
-   With no `--month` it finds the months whose collected side does not tie by calling the same `load_board` and `tie_out` the Jobs page calls (so the figure it reports is the screen's) and prints each; `--month 2018-12` limits it to one month; `--counts` prints only the row counts the copy holds (customers, documents, lines, payments, applications; the one place that says how many `rye-beach` has, for item 2's seeding). For each month it prints: the board's collected side (jobs, not on a job, of which unapplied), QuickBooks payments + sales receipts, the difference; then every payment dated in that month whose signed applications + unapplied ≠ total: QuickBooks id, kind, date, total, unapplied, Σ applications, the difference; then every application on a payment of that month whose linked type is not Invoice or SalesReceipt (an application that does not point at an invoice): payment id, line number, linked type, linked id, amount, whether the copy holds the document; last, one summary line per linked type over the months printed (how many, Σ amount, Σ 2 × amount) and one sentence saying whether the months' differences equal twice the sum of such lines. It selects ids, dates, kinds and amounts only; no `display_name` column is read, and the test asserts no customer name is in its output. Read-only by construction: a `tenant_session` whose only statements are SELECTs, and the test counts no INSERT, UPDATE or DELETE.
-
-2. **What a payment line that points at a credit memo, a journal entry or a deposit looks like today, and how each side treats it.** `normalize_payment` writes one `payment_application` per `LinkedTxn` on a payment line: `linked_txn_type` is QuickBooks' `TxnType` string as given, `linked_txn_external_id` is `TxnId`, `amount` is the line's `Amount` as given (positive for a credit memo, S-01 extra 2), and `billing_id` is set only when the type is Invoice, CreditMemo or SalesReceipt **and** the copy holds that document (`_billing_id` returns None for any other type). So a CreditMemo line is held with `linked_txn_type = "CreditMemo"` and, when held, its credit memo's `billing_id`; a JournalEntry or Deposit line (both are credits QuickBooks applies through a payment: a journal entry crediting A/R, a deposit recorded to A/R) is held with the type string, `billing_id` NULL and a positive amount. The sign is decided in two places with the same rule, `signed_application` in `amounts.py` (ORM rows) and in `figures.py` (`AppIn`): **negative only when the type is exactly `CreditMemo`; every other type positive.**
-   - The board (`figures.py`): collected to date and `collected_by_month` = Σ signed applications against the job's documents, dated by the payment + Σ signed applications of the job's own payments whose `billing_id` is NULL ("loose", on the payment's customer row) + unapplied. A JournalEntry or Deposit line is loose and positive, on the row of the payment's customer.
-   - The Connections month totals (`totals.py`): Payments = Σ `payment.total` over kind `payment`, not deleted; Sales receipts = Σ signed `billing.total`. Applications are not read at all.
-   - Where the two sides differ: for a payment of total T with invoice lines I, credit lines C and unapplied U, QuickBooks holds T + C = I + U. With C signed negative the board gives I − C + U = T and ties. With a credit line left positive (any type but CreditMemo) the board gives I + C + U = T + 2C: **higher than the ledger by twice the credit**, in the payment's month, on the payment's customer row. That fits the brief's three facts: always higher; the two jobs untouched (no such line on their payments); 0.28 is twice a 0.14 write-off by journal entry, 52,645.00 twice a 26,322.50 deposit to A/R. This sharpens the suspect; it is not the finding. The diagnostic says which types occur and whether each month's difference equals twice the sum of its non-CreditMemo credit lines. It also prints the other candidate it could be: a payment whose own `TotalAmt`, lines and `UnappliedAmt` do not reconcile in the payload (QuickBooks keeps a line to a document since deleted), which shows as a payment whose lines do not sum with no odd type on it.
-   - The rule question, if the finding is JournalEntry or Deposit lines: a credit applied through a payment is not cash, so collected to date (cash) should not count it, and the invoice's balance already carries it, so open A/R is unchanged. But a JournalEntry line on a payment can also be a **charge** (a journal entry debiting A/R, paid by the payment), positive like an invoice, and the payment line carries the type and amount only, not the entry's direction. Which types are credits, and what a journal entry line is, is accounting treatment the owner decides; that is the stop in item 1. Nothing changes until then.
-
-3. **Which page is slow for which reason: measured before changing anything.** Statement counts are flat; time grows with the rows loaded into Python. Measured on the Mac against the compose Postgres with a throwaway test (not in the repo) that seeds a fresh test tenant (the F07 customers, one job linked to its project, the two policy keys) and then N invoices and N payments on one untracked row, spread over 308 months (2001-01 to 2026-08, the span of `rye-beach`'s history); each read once, warm:
-
-   | Read | N = 10 | N = 1,000 | N = 10,000 |
-   |---|---|---|---|
-   | `GET /api/jobs` | 70 statements, 37 ms | 70, 131 ms | 71, 1,204 ms |
-   | `GET /api/jobs/{id}` | 35, 16 ms | 35, 52 ms | 35, 620 ms |
-   | `GET /api/jobs/export.xlsx` | 36, 22 ms | 36, 152 ms | 36, 1,224 ms |
-   | `GET /api/jobs/export.pdf` | 36, 21 ms | 36, 152 ms | 36, 1,003 ms |
-   | `GET /api/qbo/status` (Connections) | 24, 16 ms | 24, 871 ms | 24, 449 ms |
-   | `GET /api/home` | 91, 41 ms | 91, 960 ms | 91, 1,287 ms |
-
-   The droplet (two vCPUs, the managed Postgres over the network) is slower than this, and `rye-beach` holds more than 10,000 documents and payments if the 308 months are evenly filled (the diagnostic's `--counts` says how many). The reasons, from the code and a second throwaway profile at N = 10,000 inside one tenant session (`list_jobs` 11 ms; `load_board` over all jobs 790 ms; `load_board` for one job 598 ms; `tie_out` 161 ms after the board had loaded the rows and `month_totals` alone 360 ms; `copy_status` 646 ms, of which `current_counts` 30 ms and `skipped_counts` 57 ms; `review_queue` 30 ms; `ledger_items` 5 ms; `job_detail` 10 ms):
-   - **Jobs page and both exports: rows loaded into Python, twice.** `load_board` loads every `billing`, `billing_line`, `payment` and `payment_application` row of the tenant as ORM objects (four statements, every row) to compute one job's figures and the not-on-a-job row, then `tie_out` calls `month_totals`, which loads every `billing` and `payment` row again as ORM objects. Not queries per row: 70 statements at 10 and at 1,000 documents. The Python loop over 308 months is trivial.
-   - **Job page: the same whole-tenant load for one job.** `_detail` calls `load_board(db, tenant_id, [v])`, which reads the whole tenant to attribute one job's documents. 35 statements, flat; 620 ms at N = 10,000.
-   - **Connections: `copy_status`.** `month_totals` (every `billing` and `payment` row as ORM objects) and `skipped_counts` (every `raw_record_id` referenced by `customer`, `billing` and `payment` loaded into a Python set to subtract from the latest raw ids); `current_counts` is one SQL aggregate. The two runs gave 871 ms at 1,000 and 449 ms at 10,000, so part of that page's time is not row-proportional; the profile puts `month_totals` at 360 ms and `skipped_counts` at 57 ms of `copy_status`'s 646 ms, the rest in the raw-side reads the page already makes (accounts without a number, unlinked deposit lines, the run rows).
-   - **Home** is not in the brief's three but calls the same `load_board` over every job and the same `copy_status`; it gets faster by the same change with no Home code touched.
-   What the fix does, per the brief: the jobs' figures from the jobs' own rows (three targeted reads for all listed jobs together); the not-on-a-job totals and every per-month sum, on both sides, as SQL aggregates (`SUM … GROUP BY` month, with the sign rule as a `CASE` over `linked_txn_type` from the one constant `figures.py` also reads); the tie-out on its own request; the job page reading one job's rows. The statement count stays flat and the Python work becomes proportional to the listed jobs' documents, not the tenant's.
-
-4. **Index.** One candidate: `ix_payment_tenant_id_customer_id` on `payment (tenant_id, customer_id)`, migration `0013`, reversible, created plainly (`op.create_index`; the shared RLS helper is for tables). It would serve the new read of a job's own payments (`WHERE tenant_id = ? AND customer_id IN (…)`) on the board and the job page. Everything else the fix reads is already indexed: `billing (tenant_id, customer_id)`, `payment_application (tenant_id, billing_id)`, `payment_application (tenant_id, payment_id, line_no)` unique, `billing_line (tenant_id, billing_id, line_no)` unique; the aggregates (not on a job, the month sums, the Connections totals) read every row of the tenant whatever the index. **Recommendation: no index in this pass.** A sequential scan of one tenant's payments is a few milliseconds at 10,000 rows against the second-plus the Python load costs today; I build without it, measure after, and propose the migration only if the after-measurement shows the payments read is what remains. Waiting for a yes or a no; the default is no.
-
-5. **Where the raw `Item` carries its active state, and how a deleted item is marked.** `Active` is a boolean on the raw payload (`Item.json` in the sandbox fixture: every item `"Active": true`); `qbo_items` reads `payload.get("Active") is not False`, so a missing flag reads active. QuickBooks does not hard-delete a product or service: "Delete" in QuickBooks makes it inactive (`Active: false`) and QuickBooks renames it with " (deleted)" appended, so a deleted item reaches the copy as an inactive item under its new name. If Intuit ever sends a CDC `status: Deleted` stub for an Item, the store writes a raw version with `is_deleted` true carrying the last payload, and `qbo_items` leaves those versions out today, so such an item is neither listed nor settable. Proposed: `qbo_items` returns deleted versions too, `active` false, label "Name (deleted)"; the API adds `active` to `PolicyOptionOut` from that flag and keeps building the label on the server ("Name (inactive)" as today); the page filters on `active` and the search text and builds no label; `held_item_ids` accepts inactive and deleted items alike, as it accepts inactive ones today (an old invoice may sit on either; matching is by id). Say if a deleted item should be refused instead.
-
-6. **What "Suggested QuickBooks rows" use today, and the scope the new rule follows.** `job_qbo_candidates` hands `qbo_candidates` the estimates attached to the job (every role, ignored included), every QuickBooks customer row the copy holds (`customer_rows`: **tracked or not**; tracking is not a filter), and the set of external ids already aliased to any job. A row is suggestible when it is active, is a project or a sub-customer (owner's answer 3 in F07: never a top-level customer) and is not aliased to any job. Three rules, each with its reason: "estimate id in name" (the name **begins** with the digits, `EST` optional, next character not a digit; rank 0), "customer name and address" (rank 1), "customer name" or "address" (rank 2). The new rule follows that scope exactly: an active project or sub-customer, not aliased, tracked or not, whose name **contains** the digits of an attached estimate's number bounded by non-digits anywhere in the name ("Est. 6115758 - 67 Elm", "#6115758", "67 Elm Street (6115758)"), reason "name contains estimate number 6115758", rank 0, sorted after the begins-with rows. Names reach `qbo_candidates` and nothing else; `link_alias` still takes an id. **Two things for the owner.** (a) The brief says "a QuickBooks project or customer row": a top-level customer is outside answer 3's scope and no rule suggests one; if the row seen on `rye-beach` shows "Customer" in the kind column of the Customers page, this rule alone will not surface it, and widening to top-level customers is a change to answer 3 to say yes or no to. (b) Because the begins-with rule already exists, a project whose name begins with the number was not suggested for another reason: it is a top-level customer, inactive, already linked to another job, or its name has a prefix before the digits ("Est. ", "#", "Project ") that the contains rule covers. The diagnostic for this is the Customers page, not a script.
-
-7. **The busy-label convention.** One `busy` boolean per page; while a request is in flight every control of the form is `disabled={busy}` and the pressed control's label becomes the progressive form with the Unicode ellipsis: "Saving…" for "Save password" (Activate), "Signing in…" for "Sign in" (Login), "Uploading…" for "Upload file" (Imports), "Working…" for "Sync now", "Opening QuickBooks…" for "Reconnect", "Disconnecting…" for "Yes, disconnect" (Connections); on failure `error` holds the API's `detail` or a one-sentence fallback and `finally` clears `busy`, so the label returns. Track, Untrack (Customers) and Link, Unlink (the job page) already disable on `busy` and already follow the failure sentence, but keep their label, so a page with many rows says nothing about which row is working. Proposed: a `pending` value `{id, action}` beside `busy`; the pressed button reads "Tracking…", "Untracking…", "Linking…" or "Unlinking…" and the others stay disabled as today; the words come from pure helpers `actionLabel(action, pending, id)` in `customers.js` and `jobs.js`, tested with `node --test`, so each module holds its convention's words in one place (D-22).
-
-**Found while reading** (for the owner; none changes the plan unless answered otherwise)
-1. Item 5's scope, answer 6 (a): top-level customers are outside the suggestion scope by answer 3; say if that is where the missed row lives.
-2. Connections' `skipped_counts` loads three whole columns into a Python set, but the profile puts it at 57 ms of the page's 646 ms at 10,000 rows, so it is left alone (Discovered: an SQL anti-join if it ever matters); the month totals are the page's cost, as item 2 says.
-3. The statement-count test seeds its 10 and 1,000 rows directly (ORM inserts of `billing`, `payment` and one raw record), not through `apply_raw`: the count is what is under test, and 1,000 documents through the normalizer add seven seconds to the suite.
-4. `seed_board_load.py` writes synthetic rows to the dev database. It makes its own tenant (`load-test`) and refuses protected slugs and any database not named `wip` or `wip_test`; it is a script, not a table or a dependency, and runs only by hand.
-5. The 10,000-row count read 71 statements against 70: one statement more on the Jobs page at that size, from the same code paths (the audit-log read for "sold on set by person" or an `IN` list split by the driver). The criterion compares 10 with 1,000; the after-measurement will say whether it persists.
-
-**Tests first** (CLAUDE.md step 3; the figures and the normalizer-adjacent sign rule are domain code): the sign rule on constructed `AppIn` rows (pure); the constructed tie-out case through `apply_raw` in the payload shape the diagnostic finds, before and after; the SQL aggregates against the Python sums on the sandbox fixture (the two must agree to the cent, month by month, on both sides); the statement counts at 10 and 1,000; the tie-out route (shape, roles, isolation, money as strings, nothing written); 67 Elm Street unchanged; the pick-list flag and the deleted item; the suggestion rule (pure and through the API); the script (read-only, no name); the three `node --test` modules for the tie-out sentence, the labels and the pick-list filter.
-
-**Build notes (2026-10-06, items 2 to 5 and the item 1 diagnostic)**
-- Backend, domain: `app/domain/billing/figures.py` (`CREDIT_TXN_TYPES`, the one constant; `signed_application` reads it); `app/domain/billing/amounts.py` (reads the same constant); `app/domain/billing/totals.py` (one `GROUP BY` month per table; a deleted or voided document still makes its month appear at 0.00, a deleted payment does not, as before; `decimal`, `month_of`, `billing_sign`, `billing_counted` shared with the board); `app/domain/billing/board.py` (rewritten: `_job_inputs` reads the listed jobs' documents, lines, incoming applications and own payments in five statements bounded by the jobs' customer rows; `other_figures` and `month_sums` sum the not-on-a-job row and every per-month figure in SQL with `application_signed()` as a `CASE` over the constant; `aliased_customer_ids` is every alias, so a document on an unlisted job's row never counts as not on a job; `load_board(..., other=False)` for the job page and Home; `tie_out(db, tenant_id)` compares three database sums per side and loads no board); `app/domain/config/items.py` (`QboItem.deleted`, `active` false for a deletion stub, `label` built on the server: "(inactive)", "(deleted)"; `item_ids` includes them, so a PUT accepts them, owner's answer 3); `app/domain/jobs/names.py` (`name_contains_estimate_number`, digits bounded by non-digits); `app/domain/jobs/suggest.py` (`NUMBER_IN_NAME` and `number_in_name(digits)`; ranks are now 0 begins-with, 1 contains, 2 name and address, 3 one of the two; scope unchanged, owner's answer 2).
-- Backend, API: `app/api/jobs.py` (`GET /api/jobs/tie-out`, every role that reads jobs; `JobsOut` no longer carries `tie_out`; the exports compute the tie rows for the tab; `_detail` asks for one job's rows only); `app/api/schemas.py` (`PolicyOptionOut.active`); `app/api/config.py` (`_item_options` passes the label and the flag); `app/domain/home/service.py` (`other=False`).
-- Backend, scripts: `scripts/collected_tieout.py` (answer 1, as described; `--month` repeatable, `--counts`; `run()` and `report()` testable); `scripts/seed_board_load.py` (tenant `load-test` of its own; refuses protected slugs and any database not named `wip` or `wip_test`; `--documents N`).
-- Backend, tests: `tests/test_billing_tieout.py` (the SQL month sums equal the pure per-job sums and the not-on-a-job row's sums, month by month, on the sandbox fixture; the route), `tests/test_board_speed.py` (statement counts equal at 10 and 1,000 documents on untracked rows for the Jobs page, the job page, the tie-out and the XLSX; the summed figures and the 308-month tie), `tests/test_collected_tieout.py` (the diagnostic on a constructed JournalEntry line: read-only, the month, the payment, the line, "twice the credits = the difference", no customer name; `--counts`; the seed script's refusals and rows), `tests/test_billing_figures.py` (the one constant), `tests/test_job_domain.py` and `tests/test_job_qbo_link.py` (the contains rule; a top-level customer carrying the number is never offered), `tests/test_policy.py` (`active` on every option; a deleted item listed, marked and accepted), `tests/test_jobs_board.py`, `tests/test_jobs_export.py`, `tests/test_roles.py` (the route). Backend: 841 passed; frontend: 68 passed; build clean.
-- Frontend: `src/jobs.js` (`tieOutText`, `pendingLabel`, `PENDING_WORDS`), `src/customers.js` (`pendingLabel`, `PENDING_WORDS`), `src/policyRow.js` (`visibleOptions`, the "Find an item" search box, the "Show inactive items" switch, "No item is named like that."), `src/pages/Jobs.jsx` (a second GET for the tie-out; "Tie-out: checking…"; on failure "Tie-out: could not be checked. Refresh the page."), `src/pages/Customers.jsx` and `src/pages/JobDetail.jsx` (`pending` beside `busy`; the pressed control relabels, the rest stay disabled), the three `.test.js` files. Not rendered in a browser by Claude Code (the owner's pass checks the pick-list, the labels and the tie-out line).
-- Docs: `docs/OPERATIONS.md` ("The Sold Jobs Board": the pick-list's search and switch; the tie-out line after the rows; "Checking the collected side" with the three commands; "Speed" with the seed script), `docs/briefs/F08.md` (the one dated note), `ROADMAP.md` (the F08.2 line, ◐). CHANGELOG at close-out.
-- **Speed, measured after** (the same throwaway harness as answer 3, same machine, same seeding; statements, then milliseconds):
-
-   | Read | N = 10 | N = 1,000 | N = 10,000 | Before, N = 10,000 |
-   |---|---|---|---|---|
-   | `GET /api/jobs` | 76, 48 ms | 76, 41 ms | 77, 82 ms | 71, 1,204 ms |
-   | `GET /api/jobs/{id}` | 34, 21 ms | 34, 17 ms | 34, 21 ms | 35, 620 ms |
-   | `GET /api/jobs/export.xlsx` | 52, 41 ms | 52, 77 ms | 52, 148 ms | 36, 1,224 ms |
-   | `GET /api/jobs/export.pdf` | 52, 34 ms | 52, 63 ms | 52, 376 ms | 36, 1,003 ms |
-   | `GET /api/qbo/status` (Connections) | 24, 17 ms | 24, 22 ms | 24, 88 ms | 24, 449 ms |
-   | `GET /api/home` | 90, 44 ms | 90, 51 ms | 90, 116 ms | 91, 1,287 ms |
-
-   The statement counts rose on the Jobs page and the exports (the not-on-a-job row and the tie-out are now several small aggregates instead of four whole-table loads) and are flat in N; the one-statement step at 10,000 on the Jobs page is the same step as before (answer 3). What remains at 10,000 is the aggregates themselves (a sequential scan of the tenant's rows per `SUM`, under 20 ms each here) and, on the PDF, reportlab laying out 308 tie-out rows. No index was added (owner's answer 1); the payments read by customer id is not what remains.
-- Deviations from the Plan, none of substance: `Board.not_on_a_job` is `None` when a caller asks for the jobs only (the job page, Home); the suggestion ranks were renumbered to fit the new rule between begins-with and the name rules; the diagnostic reports a tying month too when asked for it by `--month`, so a month the owner names is always printed.
-
-**Finding** (written after the owner runs the diagnostic; empty until then)
-_Not yet run. The command is in answer 1 and in OPERATIONS, "Checking the collected side"._
-
-### Discovered
 Carried from the live `current-feature.md` stub of 2026-10-06 (copied unchanged 2026-10-06 from `git show HEAD:current-feature.md`; nothing is dropped). Closed by F08: the estimate number on the Jobs row (owner's pass, 2026-10-06).
 
 Carried from `docs/briefs/F08.md` (copied unchanged 2026-10-06; nothing is dropped):
@@ -281,7 +170,9 @@ New, from the owner's pass of 2026-10-06, not fixed here:
 - 6115758: the nine "CO: Ledge Removal per Day" work areas raise `EST_UNIT_PRICED` and, on the owner's facts, are time-and-materials work (D-24). They were billed on two invoices of their own (10,950.00 and 38,325.00). The split waits on the owner's talk with the project manager; until then the job's billed to date includes them.
 - There is no way to mark an `EST_UNIT_PRICED` sentence as resolved; dismissal with a note arrives with the exceptions queue (F09).
 
-### Close-out
-**Two commits (owner, 2026-10-06).** The first, made 2026-10-06, holds items 2 to 5 and the item 1 diagnostic as built (the brief with its Plan and build notes, the criteria ticked so far, OPERATIONS, the F08 note and the ROADMAP line). The second holds the item 1 fix after the owner's decision on the diagnostic's output: the finding under Plan, the sign rule, the constructed after-test, the three criteria that depend on it, the CHANGELOG entry, the copy of this brief to `docs/briefs/F08.2.md` and the stub. Nothing below happens before the second commit.
-
-Tick the criteria except the owner's pass; copy this brief to `docs/briefs/F08.2.md`; append the CHANGELOG entry (what, why, the cause found, the times before and after, migrations, tests, decisions referenced); set F08.2 to ◐ in ROADMAP; rewrite the live `current-feature.md` as the stub pointing at F08.1, keeping the open F07 to F08 passes and the Discovered list. One commit; the owner pushes.
+Found while building F08.2 (2026-10-06), not fixed here:
+- Home's `JOB_NEEDS` does not list `PAYMENT_OTHER_CREDIT` (D-41 names a review sentence; the board's Attention column and the job page carry it); F09 or a Home patch decides whether Home should.
+- The PDF export's time at 10,000 documents (376 ms on the Mac) is reportlab laying out the 308-row tie-out table, not a read; a later report feature may paginate or shorten that tab.
+- The SQL month sums leave out a month whose collected sum is 0.00, while the pure per-job figures may keep such a key from zero-amount lines; harmless to the tie-out (the ledger side lists the month) and compared on non-zero months in the test; F13's tie-outs should settle on one rule.
+- The F08.2 screens (the pick-list's search box and switch, the busy labels, the tie-out line, the "Other credits applied" column) were not rendered in a browser by Claude Code; the owner's pass checks them at 390 px as well.
+- `test_collected_tieout.py` imports the two scripts by path like `test_accounts_without_number.py`; a `scripts` package with tests importing it as one would be tidier.

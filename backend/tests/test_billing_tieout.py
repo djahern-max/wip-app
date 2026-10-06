@@ -51,10 +51,14 @@ def _check(engine: Engine, tenant_id: uuid.UUID) -> list:
         jobs_b, jobs_c = month_sums(s, on_a_job)
         other_b, other_c = month_sums(s, not_on_a_job)
     assert board.not_on_a_job is not None
+
+    def nonzero(d: dict) -> dict:
+        return {m: v for m, v in d.items() if v != D("0.00")}
+
     assert jobs_b == months_billed(list(board.per_job.values()))
-    assert jobs_c == months_collected(list(board.per_job.values()))
+    assert jobs_c == nonzero(months_collected(list(board.per_job.values())))
     assert other_b == board.not_on_a_job.billed_by_month
-    assert other_c == board.not_on_a_job.collected_by_month
+    assert other_c == nonzero(board.not_on_a_job.collected_by_month)
     oracle = _oracle()
     assert [r.month for r in rows] == sorted(oracle)
     for r in rows:
@@ -134,3 +138,33 @@ def test_jobs_plus_not_on_a_job_equal_the_month_totals_for_every_month(
     after = next(j for j in t.get("/api/jobs")["jobs"] if j["id"] == job["id"])
     assert D(after["billing"]["billed_to_date"]) <= D(row["billing"]["billed_to_date"])
     _check(rw_engine, fresh_tenant)
+
+    # F08.2 item 1 (D-41), the constructed case: the cause found on rye-beach, a
+    # journal-entry credit applied to the job's invoice through a zero payment. Before
+    # D-41 the month was off by twice the credit (the first commit's diagnostic test);
+    # now the payment adds its cash, 0.00, the credit is "other credits applied" on the
+    # job, and every month still ties on both sides.
+    from tests.billing_helpers import payment_payload
+
+    target = next(
+        inv
+        for inv in invoices
+        if inv["CustomerRef"]["value"] == busiest and inv["Id"] != moved["Id"]
+    )
+    credit = payment_payload(
+        "9901",
+        customer=busiest,
+        date=target["TxnDate"],
+        total="0",
+        applied=[("25.00", "Invoice", target["Id"]), ("25.00", "JournalEntry", "JE9901")],
+    )
+    apply_payloads(rw_engine, fresh_tenant, [("Payment", credit)])
+    rows = _check(rw_engine, fresh_tenant)
+    assert all(r.balanced for r in rows)
+    later = next(j for j in t.get("/api/jobs")["jobs"] if j["id"] == job["id"])
+    assert D(later["billing"]["collected_to_date"]) == D(after["billing"]["collected_to_date"])
+    assert later["billing"]["other_credits_applied"] == "25.00"
+    assert [i["code"] for i in later["attention"] if i["code"] == "PAYMENT_OTHER_CREDIT"] == [
+        "PAYMENT_OTHER_CREDIT"
+    ]
+    assert t.get("/api/jobs/tie-out")["balanced"]

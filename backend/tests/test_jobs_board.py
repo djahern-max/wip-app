@@ -342,6 +342,81 @@ def test_67_elm_street_unapplied_then_applied_and_the_voided_deposit_invoice(t: 
     ]
 
 
+def test_d41_other_credits_applied_on_the_job_and_not_on_a_job_and_the_sentence(t: Tenant) -> None:
+    """F08.2 item 1 (D-41): an invoice settled through a payment by a journal entry is
+    not collected; the amount is "Other credits applied" on the row of the payment's
+    customer, with one review sentence per payment, and the tie-out holds."""
+    job = _elm(t)
+    on_job = document_payload(
+        "5801",
+        customer=ELM_CUSTOMER,
+        date="2026-09-01",
+        lines=[line("300.00", WORK_ITEM)],
+        balance="0",
+    )
+    settled = payment_payload(
+        "7801",
+        customer=ELM_CUSTOMER,
+        date="2026-09-14",
+        total="100.00",
+        applied=[("300.00", "Invoice", "5801"), ("200.00", "JournalEntry", "JE1")],
+    )
+    elsewhere = document_payload(
+        "5802", customer=UNTRACKED, date="2026-09-02", lines=[line("50.00", WORK_ITEM)], balance="0"
+    )
+    by_deposit = payment_payload(
+        "7802",
+        customer=UNTRACKED,
+        date="2026-09-15",
+        total="0",
+        applied=[("50.00", "Invoice", "5802"), ("50.00", "Deposit", "DEP1")],
+    )
+    apply_payloads(
+        t.engine,
+        t.id,
+        [
+            ("Invoice", on_job),
+            ("Payment", settled),
+            ("Invoice", elsewhere),
+            ("Payment", by_deposit),
+        ],
+    )
+    body = t.get("/api/jobs")
+    row = _row(t, job["id"])
+    b = row["billing"]
+    assert (
+        b["billed_to_date"],
+        b["collected_to_date"],
+        b["other_credits_applied"],
+        b["open_ar"],
+    ) == (
+        "300.00",
+        "100.00",
+        "200.00",
+        "0.00",
+    )
+    assert D(b["billed_to_date"]) - D(b["collected_to_date"]) - D(b["other_credits_applied"]) == D(
+        b["open_ar"]
+    )
+    (issue,) = [i for i in row["attention"] if i["code"] == "PAYMENT_OTHER_CREDIT"]
+    assert issue["message"] == (
+        f'Job "{job["name"]}" has 200.00 of other credits applied on 2026-09-14 (payment 7801): '
+        "an invoice was settled through a payment by something other than cash, such as a "
+        "journal entry or a deposit. Collected to date leaves it out (D-41)."
+    )
+    other = body["not_on_a_job"]
+    assert (other["collected_to_date"], other["other_credits_applied"]) == ("0.00", "50.00")
+    assert body["totals"]["other_credits_applied"] == "200.00"
+    tie = t.get("/api/jobs/tie-out")
+    assert tie["balanced"] and tie["months_off"] == []
+    # The job page: the figure and the payment's own column.
+    detail = t.job(job["id"])
+    assert detail["billing"]["other_credits_applied"] == "200.00"
+    payment = next(p for p in detail["payment_history"] if p["external_id"] == "7801")
+    assert payment["other_credit"] == "200.00" and payment["unapplied"] == "0.00"
+    assert [i["code"] for i in detail["attention"]].count("PAYMENT_OTHER_CREDIT") == 1
+
+
 def test_remaining_to_bill_follows_the_revenue_method_and_raises_over_contract(t: Tenant) -> None:
     unconfirmed = _elm(t, confirm=False)
     invoice = document_payload(

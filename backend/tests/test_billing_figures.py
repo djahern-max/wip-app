@@ -477,3 +477,101 @@ def test_the_credit_types_are_one_constant_read_by_both_sign_functions() -> None
     app = AppIn("p", "payment", "1", TODAY, D("0"), False, "JournalEntry", None, D("100.00"))
     credit = AppIn("p", "payment", "1", TODAY, D("0"), False, "CreditMemo", None, D("100.00"))
     assert signed_application(app) == D("100.00") and signed_application(credit) == D("-100.00")
+
+
+def _payment(ident: str, total: str, on: str, *apps: tuple[str, str, str | None]) -> PaymentIn:
+    """``apps``: (kind, amount, billing id or None)."""
+    lines = tuple(
+        AppIn(
+            ident, "payment", ident, date.fromisoformat(on), D(total), False, kind, billing, D(amt)
+        )
+        for kind, amt, billing in apps
+    )
+    return PaymentIn(
+        ident, "payment", ident, date.fromisoformat(on), D(total), D("0.00"), False, lines
+    )
+
+
+def test_d41_collected_is_cash_and_a_credit_through_a_payment_is_other_credits_applied() -> None:
+    """D-41: a zero payment linking the job's invoice and a journal-entry credit settles
+    the invoice without cash. Collected stays 0.00, other credits applied is 100.00,
+    and billed − collected − other credits applied = open A/R."""
+    from app.domain.billing.figures import cash, other_credit, remainder
+
+    invoice = doc("i1", total="100.00", balance="0.00", lines=(sales("100.00", "WORK"),))
+    p = _payment(
+        "p1", "0.00", "2026-09-12", ("Invoice", "100.00", "i1"), ("JournalEntry", "100.00", None)
+    )
+    assert (cash(p), remainder(p), other_credit(p)) == (D("0.00"), D("-100.00"), D("100.00"))
+    f = job_figures([invoice], [p], list(p.applications[:1]), POLICY, today=TODAY)
+    assert (f.collected_to_date, f.other_credits_applied, f.open_ar) == (
+        D("0.00"),
+        D("100.00"),
+        D("0.00"),
+    )
+    assert f.billed_to_date - f.collected_to_date - f.other_credits_applied == f.open_ar
+    # By month: the invoice line (+100) and the remainder (−100) both in the payment's month.
+    assert f.collected_by_month == {"2026-09": D("0.00")}
+    (row,) = f.payments
+    assert (row.on_this_job, row.other_credit, row.applied) == (
+        True,
+        D("100.00"),
+        (("i1", D("100.00")), ("JournalEntry", D("100.00"))),
+    )
+    # The same credit through a payment on another row (the parent): the invoice line
+    # follows the document to this job; the remainder, and the other-credit figure,
+    # stay on the payment's own row.
+    f2 = job_figures([invoice], [], list(p.applications[:1]), POLICY, today=TODAY)
+    assert (f2.collected_to_date, f2.other_credits_applied) == (D("100.00"), D("0.00"))
+    other = job_figures([], [p], [], POLICY, today=TODAY)
+    assert (other.collected_to_date, other.other_credits_applied) == (D("-100.00"), D("100.00"))
+    assert f2.collected_to_date + other.collected_to_date == cash(p)  # every payment adds its cash
+
+
+def test_d41_a_charge_of_another_type_paid_in_cash_is_collected_on_the_payments_row() -> None:
+    """A payment of 100.00 whose only line names a journal entry (a charge to A/R paid by
+    the payment): the line is not read; the remainder is the cash, counted on the
+    payment's row; nothing is an other credit. A deposit line, likewise, is only ever
+    the remainder."""
+    from app.domain.billing.figures import remainder
+
+    p = _payment("p1", "100.00", "2026-09-12", ("JournalEntry", "100.00", None))
+    assert remainder(p) == D("100.00")
+    f = job_figures([], [p], [], POLICY, today=TODAY)
+    assert (f.collected_to_date, f.other_credits_applied) == (D("100.00"), D("0.00"))
+    assert f.collected_by_month == {"2026-09": D("100.00")}
+    # Cash 50.00 against an invoice line of 80.00 with a deposit line of 30.00: the
+    # invoice line counts for the document's job, the remainder (−30.00) is a credit.
+    invoice = doc("i1", total="80.00", balance="0.00", lines=(sales("80.00", "WORK"),))
+    q = _payment(
+        "q1", "50.00", "2026-09-13", ("Invoice", "80.00", "i1"), ("Deposit", "30.00", None)
+    )
+    f = job_figures([invoice], [q], list(q.applications[:1]), POLICY, today=TODAY)
+    assert (f.collected_to_date, f.other_credits_applied) == (D("50.00"), D("30.00"))
+    # Unapplied money is outside cash: a 60.00 payment with 20.00 unapplied and one
+    # 40.00 invoice line has no remainder.
+    u = PaymentIn(
+        "u1",
+        "payment",
+        "u1",
+        date(2026, 9, 5),
+        D("60.00"),
+        D("20.00"),
+        False,
+        (
+            AppIn(
+                "u1",
+                "payment",
+                "u1",
+                date(2026, 9, 5),
+                D("60.00"),
+                False,
+                "Invoice",
+                None,
+                D("40.00"),
+            ),
+        ),
+    )
+    assert remainder(u) == D("0.00")
+    t_ = totals([f, job_figures([], [u], [], POLICY, today=TODAY)])
+    assert (t_.collected_to_date, t_.other_credits_applied) == (D("90.00"), D("30.00"))

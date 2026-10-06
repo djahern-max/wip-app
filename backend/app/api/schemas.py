@@ -559,6 +559,7 @@ class JobBillingOut(_Out):
     billed_to_date: str | None
     fuel_surcharge_billed: str | None
     collected_to_date: str
+    other_credits_applied: str  # D-41: invoices settled through a payment, not by cash
     open_ar: str
     unapplied_payments: str
     remaining_to_bill: str | None
@@ -577,6 +578,7 @@ class BillingTotalsOut(_Out):
     billed_to_date: str | None
     fuel_surcharge_billed: str | None
     collected_to_date: str
+    other_credits_applied: str  # D-41: invoices settled through a payment, not by cash
     open_ar: str
     unapplied_payments: str
     remaining_to_bill: str | None
@@ -622,6 +624,7 @@ class PaymentHistoryOut(_Out):
     total: str
     applied: list[PaymentAppliedOut]
     unapplied: str | None  # None: a payment on another customer row, applied here only
+    other_credit: str | None  # D-41: the payment's remainder where it is a credit; None as above
     on_this_job: bool
     state_label: str  # "", "Deleted"
 

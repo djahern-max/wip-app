@@ -53,6 +53,12 @@ SENTENCES: dict[str, str] = {
         "It counts in billed to date; fix the item or the document number in QuickBooks "
         "(D-02)."
     ),
+    # F08.2 (D-41): an invoice settled through a payment by something other than cash
+    "PAYMENT_OTHER_CREDIT": (
+        'Job "{name}" has {amount} of other credits applied on {date} (payment {payment}): '
+        "an invoice was settled through a payment by something other than cash, such as a "
+        "journal entry or a deposit. Collected to date leaves it out (D-41)."
+    ),
     # §10 BILLED_OVER_CONTRACT
     "BILLED_OVER_CONTRACT": (
         'Job "{name}" is billed {over} over its revised contract ({billed} billed against '
@@ -164,8 +170,9 @@ def ledger_issues(rows: Sequence[LedgerRow]) -> list[Issue]:
 
 
 def billing_issues(name: str, figures: JobFigures) -> list[Issue]:
-    """The three F08 review items of one job, in the brief's order; pure, from the
-    figures ``app.domain.billing.figures`` computed."""
+    """The three F08 review items of one job, in the brief's order, then D-41's one
+    sentence per payment with other credits applied; pure, from the figures
+    ``app.domain.billing.figures`` computed."""
     out: list[Issue] = []
     if figures.unapplied_count:
         n = figures.unapplied_count
@@ -223,4 +230,24 @@ def billing_issues(name: str, figures: JobFigures) -> list[Issue]:
                 },
             )
         )
+    for p in sorted(figures.payments, key=lambda r: (r.txn_date, r.external_id)):
+        if p.on_this_job and not p.deleted and p.other_credit:
+            out.append(
+                Issue(
+                    "PAYMENT_OTHER_CREDIT",
+                    sentence(
+                        "PAYMENT_OTHER_CREDIT",
+                        name=name,
+                        amount=words(p.other_credit),
+                        date=p.txn_date.isoformat(),
+                        payment=p.external_id,
+                    ),
+                    {
+                        "amount": str(p.other_credit),
+                        "date": p.txn_date.isoformat(),
+                        "payment_id": p.payment_id,
+                        "external_id": p.external_id,
+                    },
+                )
+            )
     return out

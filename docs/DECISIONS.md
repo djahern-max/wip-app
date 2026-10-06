@@ -333,3 +333,15 @@ When fuel is priced into an estimate, it is contract price like any other and th
 **Reasoning**: F08 is the first feature to export a PDF, and F08.1's pay application is a customer document with a schedule of values that can run over several pages, which needs tables with repeating headers. `fpdf2` was considered as the lighter alternative. One library for every PDF keeps the documents consistent.
 
 **Affected**: F08, F08.1 and later report features. BLUEPRINT §12 (stack). The backend dependency list.
+
+## D-41 · 2026-10-06 · Collected to date is cash; credits applied through a payment are shown apart
+
+**Decision**: Collected to date counts cash only. A payment's cash is its total less its unapplied amount. Within a payment, a line that points at an invoice or a sales receipt counts for the job of that document, a line that points at a credit memo counts against it, and both follow the document's job (F08). Lines that point at anything else (a journal entry, a deposit, an expense) are not read one by one, because the line does not say whether it is a charge or a credit and the platform does not hold those documents. Their net is the remainder: the payment's cash, less its invoice lines, plus its credit memo lines. The remainder counts in collected to date on the payment's own customer row, dated by the payment, so that every payment adds exactly its cash.
+
+Where the remainder is a credit (invoices settled by something other than cash), the amount is shown as its own figure, "Other credits applied", on the same row, so that billed less collected less other credits applied equals open A/R. A job with other credits applied raises a review sentence naming the amount and the payment date.
+
+For every month, jobs plus not on a job plus unapplied equals QuickBooks payments plus sales receipts, to the cent.
+
+**Reasoning**: On rye-beach the collected side of the board's tie-out failed in 18 of 308 months by 261,929.94 in total. A read-only diagnostic showed one cause in all 18: a journal entry credit (once, a deposit) applied to invoices through a payment was added as cash. Collected to date was defined in F08 as tying to QuickBooks payments and sales receipts; the owner kept that meaning over counting an invoice as collected whenever it is settled. Taking the remainder from the payment's cash needs no guess about any line. What each journal entry was (a write-off, a discount, a transfer between a customer and its project) is not known until journal entries are held, which belongs with the ledger work.
+
+**Affected**: F08.2 (the fix, the figure, the sentence, the tie-out). F08's figures and exports. F13 and later tie-outs. BLUEPRINT §8.2 memo columns, §9 report 1, §10 (PAYMENT_OTHER_CREDIT). CLAUDE.md Vocabulary gains "other credits applied". OPERATIONS.md, "The Sold Jobs Board".

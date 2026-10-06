@@ -274,6 +274,8 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
         <dd className="num">{figureOr(job.billing.fuel_surcharge_billed, null, "Not decided")}</dd>
         <dt>Collected to date</dt>
         <dd className="num">{formatMoney(job.billing.collected_to_date)}</dd>
+        <dt>Other credits applied</dt>
+        <dd className="num">{formatMoney(job.billing.other_credits_applied)}</dd>
         <dt>Open A/R</dt>
         <dd className="num">{formatMoney(job.billing.open_ar)}</dd>
         <dt>Unapplied payments</dt>
@@ -345,6 +347,7 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
                 <th className="num">Amount</th>
                 <th>Applied to</th>
                 <th className="num">Unapplied</th>
+                <th className="num">Other credits applied</th>
                 <th>State</th>
               </tr>
             </thead>
@@ -360,6 +363,7 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
                   <td className="num">{formatMoney(p.total)}</td>
                   <td>{appliedWords(p.applied)}</td>
                   <td className="num">{figureOr(p.unapplied, null, "Not on this row")}</td>
+                  <td className="num">{figureOr(p.other_credit, null, "Not on this row")}</td>
                   <td>{p.state_label}</td>
                 </tr>
               ))}

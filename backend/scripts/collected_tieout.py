@@ -19,7 +19,9 @@ on a payment of the month that does not point at an invoice (payment id, line, t
 linked type and id, amount, whether the copy holds the document). At the end, one
 line per linked type over the months printed and one sentence saying in how many
 months the difference equals twice the sum of the month's non-CreditMemo credit lines
-(the suspect: a credit applied through a payment counted as cash, Plan answer 2).
+(the cause found 2026-10-06 and settled by D-41: a credit applied through a payment
+had been counted as cash; since D-41 every payment adds exactly its cash and such
+lines sit in the payment's remainder, "Other credits applied").
 """
 
 import argparse
@@ -194,8 +196,8 @@ def report(reports: list[MonthReport], months_held: int, months_off: int) -> str
             f"difference {words(r.collected_difference)}"
         )
         lines.append(
-            f"  payments whose signed applications + unapplied differ from their total: "
-            f"{len(m.payments_off)}"
+            "  payments with a remainder (typed lines + unapplied differ from the total; "
+            f"D-41 counts the remainder on the payment's own row): {len(m.payments_off)}"
         )
         for p in m.payments_off:
             lines.append(

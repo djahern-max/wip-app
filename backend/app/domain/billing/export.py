@@ -41,6 +41,7 @@ COLUMNS: tuple[tuple[str, str], ...] = (
     ("billed_to_date", "Billed to date"),
     ("fuel_surcharge_billed", "Fuel surcharge billed"),
     ("collected_to_date", "Collected to date"),
+    ("other_credits_applied", "Other credits applied"),
     ("open_ar", "Open A/R"),
     ("remaining_to_bill", "Remaining to bill"),
     ("days_since_activity", "Days since last activity"),
@@ -53,6 +54,7 @@ MONEY_KEYS = frozenset(
         "billed_to_date",
         "fuel_surcharge_billed",
         "collected_to_date",
+        "other_credits_applied",
         "open_ar",
         "remaining_to_bill",
     }

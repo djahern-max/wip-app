@@ -75,32 +75,23 @@ def test_finds_the_month_a_credit_through_a_payment_throws_off_and_names_nobody(
             ),
         ],
     )
+    # D-41 (the second commit): the payment adds its cash, 0.00, so the month ties; the
+    # script still lists the odd line and the remainder when the month is asked for.
     (text, writes) = _writes_during(lambda: collected_tieout.run(rw_engine, t.id, None))
     assert writes == []
-    assert text.startswith("1 of 2 months do not tie on the collected side")  # 2026-08 seed row
-    assert "; 1 reported" in text.splitlines()[0]
+    assert text == "Every month ties on the collected side (2 months)."
+    only = collected_tieout.run(rw_engine, t.id, ["2026-09"])
+    assert only.startswith("0 of 2 months do not tie on the collected side; 1 reported")
     assert (
-        "2026-09  board 0.00 + 200.00 = 200.00 (of which unapplied 0.00); "
-        "QuickBooks 0.00; difference 200.00"
-    ) in text
-    assert (
-        "payment 9101  2026-09-12  total 0.00  unapplied 0.00  applications 200.00  "
-        "difference 200.00  lines: Invoice, JournalEntry"
-    ) in text
-    assert "payment 9101 line 2  JournalEntry JE7  100.00  (document not held)" in text
-    assert "twice the month's non-CreditMemo credit lines: 200.00 = the difference" in text
-    assert "JournalEntry: 1 lines, 100.00, twice 200.00" in text
-    assert "In 1 of 1 months that do not tie, the difference equals twice the sum" in text
+        "2026-09  board 0.00 + 0.00 = 0.00 (of which unapplied 0.00); "
+        "QuickBooks 0.00; difference 0.00"
+    ) in only
+    assert "payments with a remainder" in only and "payment 9101  2026-09-12  total 0.00" in only
+    assert "payment 9101 line 2  JournalEntry JE7  100.00  (document not held)" in only
+    assert "In 0 of 0 months that do not tie" in only
     for _ext, name, _parent, _project, _active in CUSTOMERS.values():
-        assert name not in text, name
-    # Limited to a month that ties: nothing is off there, and the sentence says so.
-    only = collected_tieout.run(rw_engine, t.id, ["2026-08"])
-    assert (
-        only.startswith("1 of 2 months do not tie on the collected side") and "; 1 reported" in only
-    )
-    assert (
-        "2026-08  board 0.00 + 0.00 = 0.00" in only and "In 0 of 0 months that do not tie" in only
-    )
+        assert name not in only, name
+    text = text  # the full run, pasted by main below
     # The command line: the slug, --counts, and an unknown slug.
     with tenant_session(rw_engine, t.id) as s:
         slug = s.execute(select(TenantRow.slug).where(TenantRow.id == t.id)).scalar_one()

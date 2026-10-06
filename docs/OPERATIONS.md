@@ -868,11 +868,20 @@ construction job, D-35, D-37). It is never dropped: the tie-out needs it. Money 
 parent customer for a construction job is a data error; move the document to the
 project in QuickBooks and the next poll moves the amount.
 
-**Collected to date.** A payment's application belongs to the job of the document it
-pays, dated by the payment; a payment's unapplied money, and an application naming a
-document the copy does not hold, belong to the payment's customer row. A payment with
-nothing to apply to raises `PAYMENT_UNAPPLIED` and is not billed or collected until it
-is applied in QuickBooks. A sales receipt is billed once and collected once.
+**Collected to date (D-41).** Cash only: a payment's cash is its total less its
+unapplied amount, and every payment adds exactly its cash. Within a payment, a line
+that points at an invoice or a sales receipt counts for the job of that document and a
+credit memo line counts against it, dated by the payment; a line naming a document the
+copy does not hold counts on the payment's customer row. Lines of any other type (a
+journal entry, a deposit, an expense) are not read one by one: their net, the payment's
+cash less its invoice lines plus its credit memo lines, is the payment's remainder and
+counts on the payment's own customer row. Where that remainder is a credit, an invoice
+was settled by something other than cash; the amount is shown apart as "Other credits
+applied" on the same row (billed − collected − other credits applied = open A/R) and the
+job raises `PAYMENT_OTHER_CREDIT`, one sentence per payment with the amount and the
+date. A payment with nothing to apply to raises `PAYMENT_UNAPPLIED` and is not billed or
+collected until it is applied in QuickBooks. A sales receipt is billed once and
+collected once.
 
 **Tie-out.** For every calendar month, jobs + not on a job = the Connections month
 totals: billed (invoices − credit memos + sales receipts, tax and surcharge included)
@@ -883,15 +892,17 @@ over every job whatever the filter) and the line reads "Tie-out: checking…" un
 answers (F08.2). "Does not tie" names the months; one cause is a payload the normalizer
 skipped (Connections, skipped payloads); on the collected side, run the diagnostic below.
 
-**Checking the collected side (F08.2).** `scripts/collected_tieout.py` is read-only,
+**Checking the collected side (F08.2).** On `rye-beach` the collected side failed in 18 of
+308 months (2026-10-06) because a journal-entry credit (once, a deposit) applied to
+invoices through a payment was counted as cash; D-41 settled it. The diagnostic stays
+for the next time. `scripts/collected_tieout.py` is read-only,
 prints no customer name, and reports every month whose collected side does not tie:
 the board's figure, QuickBooks' figure, the difference; each live payment of the month
 whose signed applications plus unapplied money differ from its total; each application
 on a payment of the month that does not point at an invoice (a CreditMemo, JournalEntry
 or Deposit line, with whether the copy holds that document); and whether the month's
-difference equals twice the sum of its non-CreditMemo credit lines (the sign of such a
-line decides whether a credit applied through a payment is counted as cash). On the
-server:
+difference equals twice the sum of its non-CreditMemo credit lines (what counting such
+a line as cash does, the pre-D-41 cause). On the server:
 
 ```sh
 cd /opt/wip/backend && sudo -u wip ENV_FILE=/etc/wip/app.env .venv/bin/python \
@@ -930,6 +941,7 @@ rows and totals (D-40). Every role that reads jobs can export.
 | `JOB_DIVISION_UNSET` | A job has no division (only for data made outside the review). | Set the division on the job. |
 | `CUSTOMER_FUZZY` | Two customers look like one (Customers page). | Merge in QuickBooks. |
 | `PAYMENT_UNAPPLIED` | Money received on the job is applied to no invoice (D-02; F08). It is not billed or collected to date. | Apply it in QuickBooks once the invoice exists (the deposit invoice, D-02, or the pay application's invoice). |
+| `PAYMENT_OTHER_CREDIT` | An invoice on the job was settled through a payment by something other than cash, a journal entry or a deposit (D-41; F08.2); the amount is "Other credits applied", outside collected to date. One sentence per payment, with the amount and the date. | Nothing in QuickBooks unless the entry was wrong; the figure is there so collected to date stays cash. |
 | `DEPOSIT_NOT_IDENTIFIED` | A `_DEP` invoice is not on a deposit item, or a deposit item is on a document that is not `<estimate number>_DEP` (F08). It still counts in billed to date. | Fix the item or the document number in QuickBooks; the next poll clears it. |
 | `BILLED_OVER_CONTRACT` | Billed to date exceeds the revised contract (F08; §10). | Likely a change order not yet approved: attach or approve it; or correct the invoice. |
 

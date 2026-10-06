@@ -102,6 +102,7 @@ MONEY = {
     "Billed to date": "billed_to_date",
     "Fuel surcharge billed": "fuel_surcharge_billed",
     "Collected to date": "collected_to_date",
+    "Other credits applied": "other_credits_applied",
     "Open A/R": "open_ar",
     "Remaining to bill": "remaining_to_bill",
 }
@@ -259,6 +260,7 @@ def test_the_pdf_and_the_xlsx_are_built_from_the_same_report() -> None:
             "billed_to_date": D("-1234.50"),
             "fuel_surcharge_billed": D("0.00"),
             "collected_to_date": D("0.00"),
+            "other_credits_applied": D("0.00"),
             "open_ar": D("0.00"),
             "remaining_to_bill": None,
             "days_since_activity": None,

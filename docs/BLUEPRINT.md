@@ -224,7 +224,7 @@ A job is on the schedule for period P if `revenue_method = fixed_price` and it h
 
 Loss jobs: when column 6 is negative, the full projected loss is recognized now (earned revenue is reduced so GP to date equals the total expected loss) and the line is flagged.
 
-Supporting memo columns: collected to date, open A/R, retainage held, deposit invoiced, deposit received, fuel surcharge billed (D-39), unapplied payments (D-02), last cost date, last billing date, EAC last reviewed date and by whom.
+Supporting memo columns: collected to date (cash only, D-41), other credits applied (D-41: invoices settled through a payment by something other than cash; billed − collected − other credits applied = open A/R), open A/R, retainage held, deposit invoiced, deposit received, fuel surcharge billed (D-39), unapplied payments (D-02), last cost date, last billing date, EAC last reviewed date and by whom.
 
 ### 8.3 What counts as "cost" (WIP basis)
 Controlled by `account_map.in_job_cost` and tenant policy. Both the numerator (cost to date) and denominator (EAC) must use the **same** categories. See Decision D-04 for owned equipment. Default recommendation: burdened labor + materials + supplies + subs + rentals + disposal + permits; owned equipment and fuel excluded from the WIP fraction and shown as memo on the profitability report. Pooled supplies reach jobs by month-end allocation per D-30 and are in the WIP basis on both sides.
@@ -246,7 +246,7 @@ Using separate 4x90 adjustment accounts keeps billed revenue visible and makes t
 ### 8.5 Tie-outs that gate approval
 A period cannot move to `approved` unless each of these passes or is explicitly waived with a note:
 
-1. **Revenue**: billed-in-period across all jobs + unassigned income = GL income accounts for the period. Fuel surcharge billed (D-39) and T&M revenue (D-24) are revenue outside the schedule and are shown as such; F08 ties the billing side month by month: jobs + not on a job = the QuickBooks month totals for billed (invoices − credit memos + sales receipts, tax and surcharge included) and for collected (payments + sales receipts), to the cent.
+1. **Revenue**: billed-in-period across all jobs + unassigned income = GL income accounts for the period. Fuel surcharge billed (D-39) and T&M revenue (D-24) are revenue outside the schedule and are shown as such; F08 ties the billing side month by month: jobs + not on a job = the QuickBooks month totals for billed (invoices − credit memos + sales receipts, tax and surcharge included) and for collected (payments + sales receipts), to the cent; collected to date is cash (D-41), so a credit applied through a payment never enters it.
 2. **Cost**: GL-direct job cost + unassigned COGS = GL 5xxx for the period.
 3. **Labor**: computed job labor (unburdened) vs GL gross payroll COGS accounts. The difference is shown as unallocated labor (shop time, travel, PTO) with a tenant-set tolerance.
 4. **A/R**: open balances by job + unassigned = GL 1200.
@@ -264,7 +264,7 @@ Every exported schedule carries a tenant-configurable footer (default: "Prepared
 
 ## 9. Reports (in build order)
 
-1. **Sold Jobs Board** — every sold job: contract, change orders, deposit invoiced/received, billed, fuel surcharge billed (D-39), collected, open A/R, remaining to bill, days since last activity, estimator. *This is the report that answers your deposit question.* **As built (F08, 2026-10-06)**: the Jobs page is the board; every figure is computed when read from the F05 rows through the `qbo_customer` aliases (nothing stored); a totals row and one "Not on a job" row (D-35, D-37); the tie-out status on screen; XLSX (values from Decimal, a tie-out tab) and PDF (D-40). Report 2's billing half: the job page's Billing section with the billing and payment histories.
+1. **Sold Jobs Board** — every sold job: contract, change orders, deposit invoiced/received, billed, fuel surcharge billed (D-39), collected (cash, D-41), other credits applied (D-41), open A/R, remaining to bill, days since last activity, estimator. *This is the report that answers your deposit question.* **As built (F08, 2026-10-06)**: the Jobs page is the board; every figure is computed when read from the F05 rows through the `qbo_customer` aliases (nothing stored); a totals row and one "Not on a job" row (D-35, D-37); the tie-out status on screen; XLSX (values from Decimal, a tie-out tab) and PDF (D-40). Report 2's billing half: the job page's Billing section with the billing and payment histories.
 2. **Job Detail** — one job: estimate vs actual by cost category, billing history, payment history, change orders, cost transactions drill-down to the QBO link, labor hours estimated vs actual.
 3. **Exceptions Queue** — see §10.
 4. **Backlog** — sold and unbilled, by division, by estimator, by expected start.
@@ -295,6 +295,7 @@ All reports: on-screen, XLSX, PDF. XLSX exports contain values, not float artifa
 | `COST_DIVISION_MISMATCH` | Line's account division ≠ job division | warn |
 | `BILLED_OVER_CONTRACT` | Billed > revised contract (likely missing change order); F08 raises it on read when remaining to bill is negative | warn |
 | `PAYMENT_UNAPPLIED` | A payment on the job's customer rows with money not applied to any invoice (D-02; F08). Not billed or collected to date until applied | warn |
+| `PAYMENT_OTHER_CREDIT` | An invoice on the job settled through a payment by something other than cash, a journal entry or a deposit (D-41; F08.2). Shown as other credits applied, outside collected to date; one sentence per payment with the amount and the date | warn |
 | `DEPOSIT_NOT_IDENTIFIED` | A `_DEP` document not on a deposit item, or a deposit item on a document that is not `<estimate number>_DEP` (D-02, owner's answer 2; F08). It still counts in billed to date | warn |
 | `COST_OVER_EAC` | Cost to date > EAC | block-close until EAC revised |
 | `EAC_STALE` | Job > X% complete or > N days since EAC review | warn |
@@ -427,6 +428,7 @@ For the 16 sold jobs, from QBO: first invoice date/amount, payments applied, tot
 | D-38 | Does a tracked row that QuickBooks has made inactive still ask for a job? | Closed by D-38 (2026-10-04, amends D-37): no; it stays tracked, reads "Inactive in QuickBooks" and raises nothing. F07.2 as built. |
 | D-39 | A fuel surcharge on a fixed-price job: contract, or recognised as billed? | Closed by D-39 (2026-10-06): outside the contract, recognised as billed, excluded from billed to date (§8.2 column 10) and shown as its own figure; recognised by item id (`fuel_surcharge_treatment`: the items and the rate); printed on the pay application. Applied by F08; the per-application choice and the two-part tie by F08.1. |
 | D-40 | Which library produces the platform's PDF documents? | Closed by D-40 (2026-10-06): `reportlab`, pinned, one library for every PDF; built from the same Decimal figures as the screen and the XLSX. Applied by F08. |
+| D-41 | Is an invoice settled through a payment by a journal entry or a deposit collected? | Closed by D-41 (2026-10-06): collected to date is cash (a payment's total less unapplied); the net of a payment's lines of any other type is its remainder, on the payment's own row; a credit remainder is shown as "Other credits applied" and raises `PAYMENT_OTHER_CREDIT`. Applied by F08.2. |
 
 ---
 
