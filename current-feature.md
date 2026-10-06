@@ -1,20 +1,19 @@
 # current-feature.md
 
-_No feature in flight (2026-10-06)._ **F08.2 · Board tie-out on the collected side, speed, and
-three screen fixes is built** (2026-10-06, two commits: items 2 to 5 and the item 1 diagnostic,
-then item 1 on **D-41**; no migration, no index, no dependency) and waits for the owner's pass
-on jobcost.dev, tenant `rye-beach` (the tie-out line ties in every month; the Jobs page, a job
-page and Connections open quickly enough to work with; the deposit pick-list shows active items
-and finds "Deposit" by search; linking a row shows it is working; 67 Elm Street's figures
-unchanged at 288,618.87, 250,293.87, 38,325.00 and 176,850.72). Its brief, with the Plan, the
-owner's answers, the finding, the build notes, the speed before and after and the Discovered
-list, is `docs/briefs/F08.2.md`. ROADMAP F08.2 is ◐. **D-41** (collected to date is cash; a
-payment's remainder on its own row; "Other credits applied"; `PAYMENT_OTHER_CREDIT`) was decided
-2026-10-06 on the diagnostic's finding and is in `docs/DECISIONS.md` and BLUEPRINT §14.
+_No feature in flight (2026-10-06)._ **F08 · Sold Jobs Board & Job Detail (billing side)
+and F08.2 · Board tie-out on the collected side, speed, and three screen fixes are closed**
+(the owner's pass on jobcost.dev, tenant `rye-beach`, passed 2026-10-06; ROADMAP ☑ for both;
+F08.2 was built in two commits, items 2 to 5 and the item 1 diagnostic, then item 1 on
+**D-41**; no migration, no index, no dependency). The briefs, with the Plans, the owner's
+answers, the finding, the build notes, the speed before and after and the Discovered lists,
+are `docs/briefs/F08.md` and `docs/briefs/F08.2.md`. F08's §13.6 spreadsheet criterion is not
+built and stays unticked, stood in for by the owner's check of 6115758 against a QuickBooks
+export (288,618.87, 250,293.87, 38,325.00, 176,850.72, to the cent). **D-41** (collected to
+date is cash; a payment's remainder on its own row; "Other credits applied";
+`PAYMENT_OTHER_CREDIT`) was decided 2026-10-06 on the diagnostic's finding and is in
+`docs/DECISIONS.md` and BLUEPRINT §14.
 
-Open passes carried: **F08 · Sold Jobs Board** (built 2026-10-06, `docs/briefs/F08.md`; the
-job figures passed to the cent on 6115758 on 2026-10-06; the pass closes with F08.2's; the
-§13.6 spreadsheet criterion is open), **F07.3 · Home says what to do next** (built 2026-10-04,
+Open passes carried: **F07.3 · Home says what to do next** (built 2026-10-04,
 `docs/briefs/F07.3.md`; ROADMAP ◐), **F07.2 · Pick what to work on** (`docs/briefs/F07.2.md`;
 deploying it runs migration 0012), **F07.1** (`docs/briefs/F07.1.md`) and **F07** (the pass job
 by job; 67 Elm Street passed 2026-10-01). The dev `wip` database is at 0012; F08 and F08.2 add
