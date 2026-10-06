@@ -1,5 +1,6 @@
 """F06: the estimate template parser on the Rye Beach fixtures and on test copies.
-Every number below is in the brief (`current-feature.md`, Acceptance criteria)."""
+The fixture numbers are the owner's reviewed workbooks of 2026-10-06 (CHANGELOG), read
+independently from the sheets; the test-copy numbers are in the F06 brief."""
 
 from decimal import Decimal
 
@@ -30,7 +31,7 @@ def _lines_by_order(payload: dict) -> dict[int, list[dict]]:
 
 
 # --- the 67 Elm Street fixture (EST6115758) -------------------------------------------------------
-def test_67_elm_parses_to_the_three_raw_items_with_the_replan_numbers() -> None:
+def test_67_elm_parses_to_the_three_raw_items_with_the_reviewed_numbers() -> None:
     items, rejected = parse_bytes(ELM.read_bytes())
     assert rejected == []
     got = by_entity(items)
@@ -40,40 +41,51 @@ def test_67_elm_parses_to_the_three_raw_items_with_the_replan_numbers() -> None:
         ("cost_lines", "EST6115758"),
     }
     est = got[("estimate", "EST6115758")]
-    assert (est["status"], est["status_norm"], est["price"]) == ("Sold", "sold", D("475129.68"))
+    assert (est["status"], est["status_norm"], est["price"]) == ("Sold", "sold", D("519173.72"))
     assert isinstance(est["price"], Decimal)
     was = got[("work_areas", "EST6115758")]["work_areas"]
-    assert len(was) == 21 and [w["order"] for w in was] == list(range(1, 22))
+    assert len(was) == 29 and [w["order"] for w in was] == list(range(1, 30))
     omitted = [w["order"] for w in was if not w["kept"]]
     assert omitted == [17] and next(w for w in was if w["order"] == 17)["price"] == D("15000.00")
     kept = [w for w in was if w["kept"]]
-    assert sum((w["price"] for w in kept), D(0)) == D("475129.68")
+    assert sum((w["price"] for w in kept), D(0)) == D("519173.72")
     assert next(w for w in was if w["order"] == 20)["price"] == D("0.00")
     assert all(isinstance(w["price"], Decimal) for w in was)
     lines = _lines_by_order(got[("cost_lines", "EST6115758")])
-    # 60 rows on the sheet; work area 1 carries two 250 lines, summed at parse into one.
-    assert sum(len(v) for v in lines.values()) == 59
-    assert sorted(ln["cost_code"] for ln in lines[1]).count("250") == 1
+    # 104 rows on the sheet, one line per code under each work area: nothing summed.
+    assert sum(len(v) for v in lines.values()) == 104
+    assert sorted(ln["cost_code"] for ln in lines[1]) == ["210", "247", "250", "290"]
     assert 17 not in lines and 20 not in lines
-    assert [ln["cost_code"] for ln in lines[5]] == ["290"]  # the placeholder
-    assert lines[5][0]["amount"] == D("46381.35")
+    assert sorted(ln["cost_code"] for ln in lines[5]) == ["210", "230", "245", "247", "250"]
+    assert sum((ln["amount"] for ln in lines[5]), D(0)) == D("46381.35")
     total = sum((ln["amount"] for v in lines.values() for ln in v), D(0))
-    assert total == D("315832.69")
+    assert total == D("343693.43")
     assert all(isinstance(ln["amount"], Decimal) for v in lines.values() for ln in v)
 
 
-def test_67_elm_name_rules_flag_18_to_21_and_not_the_concrete_rows() -> None:
+def test_67_elm_name_rules_flag_18_to_29_and_not_the_concrete_rows() -> None:
     items, _ = parse_bytes(ELM.read_bytes())
     was = by_entity(items)[("work_areas", "EST6115758")]["work_areas"]
     flagged = [w["order"] for w in was if suggests_change_order(w["name"])]
-    assert flagged == [18, 19, 20, 21]
-    assert [w["order"] for w in was if reads_as_unit_price(w["name"])] == [18]
+    assert flagged == list(range(18, 30))
+    # "CO: Ledge Removal per Day (dd/mm/yy)" reads as a rate on each of its nine rows.
+    assert [w["order"] for w in was if reads_as_unit_price(w["name"])] == [
+        18,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+    ]
     names = {w["order"]: w["name"] for w in was}
     assert names[13].startswith("Concrete") and names[14].startswith("Concrete")
 
 
 # --- the Turley fixture (EST6120638) --------------------------------------------------------------
-def test_turley_parses_to_32_work_areas_seven_omitted_and_20_lines_on_190() -> None:
+def test_turley_parses_to_32_work_areas_seven_omitted_and_74_lines_on_seven_codes() -> None:
     items, rejected = parse_bytes(TURLEY.read_bytes())
     assert rejected == []
     got = by_entity(items)
@@ -87,7 +99,8 @@ def test_turley_parses_to_32_work_areas_seven_omitted_and_20_lines_on_190() -> N
     assert [w["order"] for w in was if suggests_change_order(w["name"])] == list(range(23, 33))
     assert [w["order"] for w in was if w["price"] == 0] == [26, 27, 28, 29, 30]
     lines = got[("cost_lines", "EST6120638")]["lines"]
-    assert len(lines) == 20 and {ln["cost_code"] for ln in lines} == {"190"}
+    assert len(lines) == 74
+    assert {ln["cost_code"] for ln in lines} == {"110", "130", "140", "145", "147", "160", "190"}
     assert sum((ln["amount"] for ln in lines), D(0)) == D("212639.82")
     assert {ln["order"] for ln in lines}.isdisjoint({6, 7, 10, 20, 21, 22, 23, 26, 27, 28, 29, 30})
 

@@ -50,10 +50,15 @@ keys needed now are `REQUIRED_POLICY_KEYS` there, extended by each feature that 
 reading a key. Policy (F04.1): no key has a default; the reference is optional and who
 and when are always recorded; a key whose feature has not arrived carries `waiting` in
 `POLICY_KEYS`, shown in place of "Decide" and returned by the route as a 409; `set_policy`
-accepts any key. The second 67 Elm Street fixture (`estimate_upload_EST6115758_v2.xlsx`,
-29 work areas) is the job the owner is working; later features are accepted against it.
+accepts any key. The owner's reviewed 67 Elm Street workbook
+(`estimate_upload_EST6115758_reviewed_10.06.xlsx`, 29 work areas; it replaced the F06 and
+v2 files on 2026-10-06, with the reviewed Turley workbook) is the job the owner is working;
+later features are accepted against it.
 
 ## Discovered
+From the owner's pass of 2026-10-06 (not fixed here):
+- Jobs list: a job is shown by its name only; the estimate number (for example 6120638) is not on the row, so a job whose name does not describe it cannot be identified without opening it. Show the estimate number of the job's original estimate beside the name.
+
 Carried from the live `current-feature.md` stub of 2026-10-04 (copied unchanged 2026-10-05; nothing is dropped):
 
 From the owner's session of 2026-10-04, after F07.2 (recorded in the F07.3 brief):

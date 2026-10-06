@@ -21,9 +21,7 @@ from app.domain.billing.sync import apply_raw
 from app.ingest.raw import RawOrigin, store_raw
 from app.tenancy.models import Membership
 from app.tenancy.models import Tenant as TenantRow
-from tests.config_helpers import run_until_quiet
 from tests.conftest import CSRF, Seed
-from tests.estimate_helpers import ELM_V2, upload_template
 from tests.job_helpers import CUSTOMERS, ELM_ID, Tenant, make_tenant, seed_customers
 
 OCEAN = "1701 Ocean Boulevard"
@@ -40,11 +38,8 @@ def t(seed: Seed, rw_engine: Engine, login_as: Callable[..., TestClient], fresh_
 
 @pytest.fixture
 def elm(seed: Seed, rw_engine: Engine, login_as: Callable[..., TestClient], fresh_tenant) -> Tenant:
-    """67 Elm Street as production stands: both template files, in order (F07.1)."""
-    t = make_tenant(seed, rw_engine, login_as, fresh_tenant)
-    upload_template(t.client, ELM_V2.read_bytes(), "estimate_upload_EST6115758_v2.xlsx")
-    run_until_quiet(t.engine)
-    return t
+    """67 Elm Street as production stands (the reviewed workbook of 2026-10-06)."""
+    return make_tenant(seed, rw_engine, login_as, fresh_tenant)
 
 
 def _ledger(t: Tenant) -> list[str]:

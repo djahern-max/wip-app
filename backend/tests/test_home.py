@@ -30,7 +30,7 @@ from app.domain.home.checklist import (
 )
 from tests.config_helpers import CHART_CSV, load_rye_beach_rules, run_until_quiet, upload_chart
 from tests.conftest import CSRF, Seed
-from tests.estimate_helpers import D04_BASIS, ELM_V2, configure_tenant, upload_template
+from tests.estimate_helpers import D04_BASIS, configure_tenant
 from tests.job_helpers import D05_BASIS, ELM_ID, Tenant, actor, make_tenant, policy
 
 ORDER = [
@@ -447,8 +447,6 @@ def test_sixteen_sold_estimates_to_review(
 
 def test_the_job_path_d35_and_d37(seed: Seed, rw_engine: Engine, login_as, fresh_tenant) -> None:
     t = make_tenant(seed, rw_engine, login_as, fresh_tenant)
-    upload_template(t.client, ELM_V2.read_bytes(), "estimate_upload_EST6115758_v2.xlsx")
-    run_until_quiet(t.engine)
     job = t.new_job(ELM_ID)
 
     def mine() -> dict:

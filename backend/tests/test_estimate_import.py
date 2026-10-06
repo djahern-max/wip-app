@@ -82,7 +82,9 @@ def _wa(detail: dict, order: int) -> dict:
 # --- 67 Elm Street
 
 
-def test_67_elm_loads_with_every_number_in_the_brief(tenant: dict, rw_engine: Engine) -> None:
+def test_67_elm_loads_with_every_number_of_the_reviewed_workbook(
+    tenant: dict, rw_engine: Engine
+) -> None:
     b = _load(tenant, rw_engine, ELM.read_bytes(), "estimate_upload_EST6115758.xlsx")
     assert (b["status"], b["rows_loaded"], b["rows_rejected"]) == ("loaded", 3, 0)
     assert (b["followup_status"], b["message"]) == ("succeeded", "Loaded. Estimates updated.")
@@ -91,52 +93,57 @@ def test_67_elm_loads_with_every_number_in_the_brief(tenant: dict, rw_engine: En
     assert (est.status, est.status_norm, est.price, est.estimator) == (
         "Sold",
         "sold",
-        D("475129.68"),
-        None,
+        D("519173.72"),
+        "Estimator A",  # placeholder text in the fixture (CLAUDE.md: fixtures are anonymized)
     )
     (v1,) = versions_of(rw_engine, tenant["id"], EID)
     assert (v1.version_no, v1.is_baseline, v1.kept_total, v1.status_norm) == (
         1,
         True,
-        D("475129.68"),
+        D("519173.72"),
         "sold",
     )
     was = work_areas_of(rw_engine, tenant["id"], v1.id)
-    assert len(was) == 21 and [w["order"] for w in was if not w["kept"]] == [17]
-    assert [w["order"] for w in was if w["co"]] == [18, 19, 20, 21]
-    assert sum(len(w["lines"]) for w in was) == 59  # 60 rows; the two 250 lines of #1 summed
+    assert len(was) == 29 and [w["order"] for w in was if not w["kept"]] == [17]
+    assert [w["order"] for w in was if w["co"]] == list(range(18, 30))
+    assert sum(len(w["lines"]) for w in was) == 104  # one line per code under each work area
     assert all(ln["category"] and ln["division"] for w in was for ln in w["lines"])
-    assert [ln["code"] for ln in was[4]["lines"]] == ["290"]
+    assert sorted(ln["code"] for ln in was[4]["lines"]) == ["210", "230", "245", "247", "250"]
     assert was[16]["lines"] == [] and was[19]["lines"] == []
     d = _detail(tenant, EID)
     t = d["totals"]
     assert (t["kept_original"], t["kept_change_orders"], t["kept_total"], t["omitted"]) == (
         "465469.59",
-        "9660.09",
-        "475129.68",
+        "53704.13",
+        "519173.72",
         "15000.00",
     )
     assert (t["kept_cost"], t["kept_hours"], t["eac_in_basis"], t["basis_decided"]) == (
-        "315832.69",
-        "856.00",
-        "286634.20",
+        "343693.43",
+        "1636.00",
+        "316187.46",
         True,
     )
     by_slot = {c["slot"]: (c["amount"], c["in_basis_label"]) for c in t["by_category"]}
-    assert by_slot["10"] == ("32585.55", "Yes") and by_slot["45"] == ("14589.70", "No")
-    assert by_slot["90"] == ("46531.35", "Yes") and by_slot["20"] == ("0.00", "No")
-    assert _codes(d) == ["EST_UNIT_PRICED"]
-    assert d["attention"][0]["message"].startswith('Work area #18 "CO: Ledge Removal per Day"')
+    assert by_slot["10"] == ("59941.16", "Yes") and by_slot["45"] == ("20493.84", "No")
+    assert by_slot["90"] == ("1735.00", "Yes") and by_slot["20"] == ("0.00", "No")
+    assert _codes(d) == ["EST_UNIT_PRICED"] * 9  # the nine "Ledge Removal per Day" rows
+    assert d["attention"][0]["message"].startswith(
+        'Work area #18 "CO: Ledge Removal per Day (07/07/26)"'
+    )
     assert d["baseline_version_no"] == 1 and d["versions"] == 1
     wa5 = _wa(d, 5)
-    assert (wa5["cost"], wa5["lines"][0]["category_name"], wa5["lines"][0]["division_code"]) == (
-        "46381.35",
-        "Other",
-        "EX",
-    )
+    assert wa5["cost"] == "46381.35"
+    assert {(ln["category_name"], ln["division_code"]) for ln in wa5["lines"]} == {
+        ("Labor", "EX"),
+        ("Materials", "EX"),
+        ("Equipment (owned)", "EX"),
+        ("Vehicles (owned)", "EX"),
+        ("Equipment Rental", "EX"),
+    }
     actions = _audit(rw_engine, tenant["id"], EID)
     assert [a["action"] for a in actions] == ["estimate_created", "estimate_version_created"]
-    assert actions[0]["after"]["price"] == "475129.68"
+    assert actions[0]["after"]["price"] == "519173.72"
 
 
 def test_the_same_file_again_is_a_duplicate_and_a_re_export_changes_nothing(
@@ -169,7 +176,7 @@ def test_a_changed_header_updates_one_estimate_by_id_with_one_audit_row(
     assert b["followup_status"] == "succeeded"
     est = estimate_rows(rw_engine, tenant["id"])
     assert (est[TID].status_norm, est[TID].price) == ("pending", D("300000.00"))
-    assert (est[EID].status_norm, est[EID].price) == ("sold", D("475129.68"))
+    assert (est[EID].status_norm, est[EID].price) == ("sold", D("519173.72"))
     updated = [a for a in _audit(rw_engine, tenant["id"]) if a["action"] == "estimate_updated"]
     assert len(updated) == 1
     assert updated[0]["changed_fields"] == ["price", "status", "status_norm"]
@@ -270,7 +277,7 @@ def test_unknown_code_line_on_omitted_price_mismatch_and_missing_split(
     d = _detail(tenant, EID)
     assert sorted(_codes(d)) == sorted(
         [
-            "EST_UNIT_PRICED",
+            *["EST_UNIT_PRICED"] * 9,
             "EST_NO_CATEGORY_SPLIT",
             "EST_UNKNOWN_COST_CODE",
             "EST_COST_LINE_ON_OMITTED",
@@ -291,7 +298,7 @@ def test_unknown_code_line_on_omitted_price_mismatch_and_missing_split(
     line999 = next(ln for ln in _wa(d, 1)["lines"] if ln["cost_code"] == "999")
     assert line999["category_name"] is None and line999["division_code"] is None
     # Totals leave out #17's line and #2's missing lines (13,616.27 was never there here).
-    assert d["totals"]["kept_cost"] == str(D("315832.69") - D("7217.62"))
+    assert d["totals"]["kept_cost"] == str(D("343693.43") - D("7217.62"))
     # The price mismatch: kept prices no longer sum to the estimate price.
     rows = fixture_rows(ELM)
     rows["Estimates"][0]["price"] = "475000.00"
@@ -299,7 +306,7 @@ def test_unknown_code_line_on_omitted_price_mismatch_and_missing_split(
     d = _detail(tenant, EID)
     mismatch = next(i for i in d["attention"] if i["code"] == "EST_PRICE_MISMATCH")
     assert mismatch["message"].startswith(
-        "Kept work areas total 475129.68 but the estimate price is 475000.00"
+        "Kept work areas total 519173.72 but the estimate price is 475000.00"
     )
 
 
@@ -399,10 +406,10 @@ def test_three_csvs_in_any_order_equal_the_workbook(tenant: dict, rw_engine: Eng
     b3 = _load(tenant, rw_engine, build_csv("Estimates", rows["Estimates"]), "estimates.csv")
     assert b3["issues"] == [] and b3["followup_status"] == "succeeded"
     (v1,) = versions_of(rw_engine, tenant["id"], EID)
-    assert v1.is_baseline and v1.kept_total == D("475129.68")
+    assert v1.is_baseline and v1.kept_total == D("519173.72")
     d = _detail(tenant, EID)
-    assert (d["totals"]["kept_cost"], d["totals"]["eac_in_basis"]) == ("315832.69", "286634.20")
-    assert _codes(d) == ["EST_UNIT_PRICED"]
+    assert (d["totals"]["kept_cost"], d["totals"]["eac_in_basis"]) == ("343693.43", "316187.46")
+    assert _codes(d) == ["EST_UNIT_PRICED"] * 9
     # A costs-only file for a loaded estimate naming a work area it does not have.
     stray = [{"estimate_id": EID, "order": 99, "cost_code": "130", "amount": "1.00"}]
     b4 = _load(tenant, rw_engine, build_csv("Estimate costs", stray), "stray.csv")
@@ -412,7 +419,7 @@ def test_three_csvs_in_any_order_equal_the_workbook(tenant: dict, rw_engine: Eng
     d = _detail(tenant, EID)
     # The latest cost-lines sheet holds one line, and it is held: the version has none.
     assert d["versions"] == 2 and d["totals"]["kept_cost"] == "0.00"
-    assert d["totals"]["kept_total"] == "475129.68"
+    assert d["totals"]["kept_total"] == "519173.72"
 
 
 def test_a_malformed_row_and_a_bad_kept_value_leave_the_rest_loaded(
@@ -422,16 +429,16 @@ def test_a_malformed_row_and_a_bad_kept_value_leave_the_rest_loaded(
     next(w for w in rows["Work areas"] if w["order"] == 3)["kept"] = "maybe"
     next(c for c in rows["Estimate costs"] if c["order"] == 4)["amount"] = "lots"
     b = _load(tenant, rw_engine, build_workbook(sheets=rows))
-    # The bad work-area row takes its three cost lines with it (no such work area in
-    # this file), so five rows are named, each with its sentence.
-    assert (b["status"], b["rows_loaded"], b["rows_rejected"]) == ("loaded_with_issues", 3, 5)
+    # The bad work-area row takes its four cost lines with it (no such work area in
+    # this file), so six rows are named, each with its sentence.
+    assert (b["status"], b["rows_loaded"], b["rows_rejected"]) == ("loaded_with_issues", 3, 6)
     messages = sorted(i["message"] for i in b["issues"])
-    assert len(messages) == 5
+    assert len(messages) == 6
     assert 'Row 16 on "Estimate costs" was not loaded: not a number.' in messages
     assert 'Row 4 on "Work areas" was not loaded: kept must be Y or N.' in messages
-    assert sum('work area #3 of EST6115758 is not on "Work areas"' in m for m in messages) == 3
+    assert sum('work area #3 of EST6115758 is not on "Work areas"' in m for m in messages) == 4
     d = _detail(tenant, EID)
-    assert [w["order_no"] for w in d["work_areas"]] == [o for o in range(1, 22) if o != 3]
+    assert [w["order_no"] for w in d["work_areas"]] == [o for o in range(1, 30) if o != 3]
     assert "EST_PRICE_MISMATCH" in _codes(d)
 
 

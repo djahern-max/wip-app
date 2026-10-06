@@ -43,40 +43,42 @@ def _rows(was: tuple[WorkAreaIn, ...]) -> list[WorkAreaRow]:
 
 
 # --- totals ---------------------------------------------------------------------------------------
-def test_67_elm_totals_match_the_brief_and_the_read_me_summary() -> None:
+def test_67_elm_totals_match_the_reviewed_workbook() -> None:
+    """The owner's reviewed workbook of 2026-10-06; every figure read independently
+    from its sheets (29 work areas, #17 omitted, 104 cost lines)."""
     t = compute(_work_areas(ELM), D23_COST_CATEGORIES, frozenset(D04_BASIS))
     assert (t.kept_original, t.kept_change_orders, t.kept_total, t.omitted) == (
         D("465469.59"),
-        D("9660.09"),
-        D("475129.68"),
+        D("53704.13"),
+        D("519173.72"),
         D("15000.00"),
     )
-    assert (t.kept_cost, t.kept_hours) == (D("315832.69"), D("856.00"))
+    assert (t.kept_cost, t.kept_hours) == (D("343693.43"), D("1636.00"))
     by_slot = {c.slot: (c.amount, c.in_basis) for c in t.by_category}
     assert by_slot == {
-        "10": (D("32585.55"), "yes"),
+        "10": (D("59941.16"), "yes"),
         "20": (D("0.00"), "no"),
-        "30": (D("63940.80"), "yes"),
+        "30": (D("151416.30"), "yes"),
         "35": (D("0.00"), "yes"),
-        "40": (D("132965.00"), "yes"),
-        "45": (D("14589.70"), "no"),
-        "47": (D("14608.79"), "no"),
-        "50": (D("10491.50"), "yes"),
+        "40": (D("73645.00"), "yes"),
+        "45": (D("20493.84"), "no"),
+        "47": (D("7012.13"), "no"),
+        "50": (D("29330.00"), "yes"),
         "55": (D("0.00"), "no"),
         "60": (D("0.00"), "yes"),
         "65": (D("0.00"), "no"),
         "70": (D("120.00"), "yes"),
         "80": (D("0.00"), "no"),
-        "90": (D("46531.35"), "yes"),
+        "90": (D("1735.00"), "yes"),
     }
-    assert t.eac_in_basis == D("286634.20") and t.basis_decided
+    assert t.eac_in_basis == D("316187.46") and t.basis_decided
 
 
 def test_totals_without_a_decided_basis_give_no_eac() -> None:
     t = compute(_work_areas(ELM), D23_COST_CATEGORIES, None)
     assert t.eac_in_basis is None and not t.basis_decided
     assert {c.in_basis for c in t.by_category} == {"not_decided"}
-    assert t.kept_total == D("475129.68")
+    assert t.kept_total == D("519173.72")
 
 
 def test_lines_under_an_omitted_or_zero_work_area_stay_out_of_every_total() -> None:
@@ -181,7 +183,7 @@ def _state(was, **over) -> EstimateState:
         "external_id": "EST1",
         "status": "Sold",
         "status_norm": "sold",
-        "price": D("475129.68"),
+        "price": D("519173.72"),
         "work_areas": was,
         "baseline": None,
         "latest_is_baseline": False,
@@ -190,11 +192,13 @@ def _state(was, **over) -> EstimateState:
     return EstimateState(**fields)
 
 
-def test_67_elm_raises_unit_priced_on_row_18_and_nothing_else() -> None:
-    issues = issues_for(_state(_work_areas(ELM)))
-    assert [(i.code, i.detail.get("order")) for i in issues] == [("EST_UNIT_PRICED", 18)]
+def test_67_elm_raises_unit_priced_on_the_nine_ledge_removal_rows_and_nothing_else() -> None:
+    issues = issues_for(_state(_work_areas(ELM), price=D("519173.72")))
+    assert [(i.code, i.detail.get("order")) for i in issues] == [
+        ("EST_UNIT_PRICED", o) for o in [18, 22, 23, 24, 25, 26, 27, 28, 29]
+    ]
     assert issues[0].message.startswith(
-        'Work area #18 "CO: Ledge Removal per Day" reads as a rate.'
+        'Work area #18 "CO: Ledge Removal per Day (07/07/26)" reads as a rate.'
     )
 
 

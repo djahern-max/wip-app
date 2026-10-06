@@ -102,8 +102,8 @@ def test_filters_by_status_and_estimator(loaded: dict) -> None:
     c = loaded["client"]
     assert c.get("/api/estimates?status=sold").json()["total"] == 2
     assert c.get("/api/estimates?status=pending").json()["total"] == 0
-    assert c.get("/api/estimates?estimator=Stephanie%20Sanford").json()["total"] == 1
-    assert c.get("/api/estimates").json()["estimators"] == ["Stephanie Sanford"]
+    assert c.get("/api/estimates?estimator=Estimator%20B").json()["total"] == 1
+    assert c.get("/api/estimates").json()["estimators"] == ["Estimator A", "Estimator B"]
     assert c.get("/api/estimates?status=won").status_code == 422
     assert c.get("/api/estimates/not-a-uuid").status_code == 422
 

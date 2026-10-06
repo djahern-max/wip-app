@@ -298,7 +298,7 @@ def _expected_burden(d: dict, rates: dict[str, str]) -> tuple[Decimal, dict[int,
     return sum(per_area.values(), D("0.00")), per_area
 
 
-def test_67_elm_carries_ex_burden_6383_50_on_the_received_date(
+def test_67_elm_carries_ex_burden_11742_47_on_the_received_date(
     tenant: dict, rw_engine: Engine
 ) -> None:
     _load(tenant, rw_engine, ELM.read_bytes(), "estimate_upload_EST6115758.xlsx")
@@ -307,47 +307,56 @@ def test_67_elm_carries_ex_burden_6383_50_on_the_received_date(
     assert d["estimate_date"] is None
     assert (t["burden_date_source"], t["burden_computed"]) == ("received", True)
     assert t["burden_date"] == datetime.now(ZoneInfo("America/New_York")).date().isoformat()
-    assert t["burden_total"] == "6383.50" and q(D("32585.55") * D("0.1959")) == D("6383.51")
-    assert (t["cost_total_as_estimated"], t["kept_cost"]) == ("315832.69", "315832.69")
-    assert t["cost_total_with_burden"] == "322216.19"
+    # Per work area and division, quantized once (D-34): one cent over the flat product.
+    assert t["burden_total"] == "11742.47" and q(D("59941.16") * D("0.1959")) == D("11742.47")
+    assert (t["cost_total_as_estimated"], t["kept_cost"]) == ("343693.43", "343693.43")
+    assert t["cost_total_with_burden"] == "355435.90"
     assert (t["eac_in_basis"], t["eac_in_basis_as_estimated"], t["eac_not_computed"]) == (
-        "293017.70",
-        "286634.20",
+        "327929.93",
+        "316187.46",
         False,
     )
     assert t["burden_by_division"] == [
         {
             "division_code": "EX",
-            "labor_amount": "32585.55",
+            "labor_amount": "59941.16",
             "rate": "0.1959",
             "rate_percent": "19.59",
             "rate_effective_from": "2026-01-01",
             "basis_note": "worksheet 2026-09-27 (test)",
-            "burden": "6383.50",
+            "burden": "11742.47",
         }
     ]
     burden_row = _category(d, "20")
     assert (burden_row["amount"], burden_row["amount_with_burden"], burden_row["in_basis"]) == (
         "0.00",
-        "6383.50",
+        "11742.47",
         "yes",
     )
-    assert _category(d, "10")["amount"] == _category(d, "10")["amount_with_burden"] == "32585.55"
+    assert _category(d, "10")["amount"] == _category(d, "10")["amount_with_burden"] == "59941.16"
     total, per_area = _expected_burden(d, RATES)
-    assert total == D("6383.50") and len(per_area) == 13
+    assert total == D("11742.47") and len(per_area) == 22
     for w in d["work_areas"]:
         assert w["burden"] == str(per_area.get(w["order_no"], D("0.00"))), w["order_no"]
         assert w["cost"] == str(sum((D(ln["amount"]) for ln in w["lines"]), D("0.00")))
-    assert _codes(d) == ["EST_UNIT_PRICED"]
+    assert _codes(d) == ["EST_UNIT_PRICED"] * 9
 
 
-def test_turley_has_no_labor_and_so_no_burden(tenant: dict, rw_engine: Engine) -> None:
+def test_turley_carries_ls_burden_on_its_labor(tenant: dict, rw_engine: Engine) -> None:
+    """The reviewed Turley workbook (2026-10-06) splits its cost by category; its labor is
+    all LS (110), burdened at 0.2136 per work area."""
     _load(tenant, rw_engine, TURLEY.read_bytes(), "turley.xlsx")
-    t = _detail(tenant, TID)["totals"]
-    assert (t["burden_total"], t["burden_by_division"], t["burden_computed"]) == ("0.00", [], True)
-    assert t["eac_in_basis"] == t["eac_in_basis_as_estimated"] is not None
-    assert t["cost_total_with_burden"] == t["cost_total_as_estimated"]
-    assert "EST_NO_BURDEN_RATE" not in _codes(_detail(tenant, TID))
+    d = _detail(tenant, TID)
+    t = d["totals"]
+    assert (t["burden_total"], t["burden_computed"]) == ("13479.82", True)
+    assert [
+        (r["division_code"], r["labor_amount"], r["burden"]) for r in t["burden_by_division"]
+    ] == [("LS", "63107.77", "13479.82")]
+    assert (t["cost_total_as_estimated"], t["cost_total_with_burden"]) == ("212639.82", "226119.64")
+    assert (t["eac_in_basis_as_estimated"], t["eac_in_basis"]) == ("189908.94", "203388.76")
+    total, per_area = _expected_burden(d, RATES)
+    assert total == D("13479.82") and len(per_area) == 18
+    assert "EST_NO_BURDEN_RATE" not in _codes(d)
 
 
 def test_a_date_before_any_rate_leaves_eac_not_computed(tenant: dict, rw_engine: Engine) -> None:
@@ -371,7 +380,7 @@ def test_a_date_before_any_rate_leaves_eac_not_computed(tenant: dict, rw_engine:
     assert (t["eac_in_basis"], t["eac_not_computed"], t["eac_in_basis_as_estimated"]) == (
         None,
         True,
-        "286634.20",
+        "316187.46",
     )
     assert (
         t["burden_by_division"][0]["rate"] is None and t["burden_by_division"][0]["burden"] is None
@@ -400,17 +409,17 @@ def test_all_labor_on_ls_and_half_and_half(tenant: dict, rw_engine: Engine) -> N
     _load(tenant, rw_engine, _elm_copy(recode=lambda n: "110"))
     t = _detail(tenant, EID)["totals"]
     assert (t["burden_total"], t["eac_in_basis"]) == (
-        "6960.29",
-        "293594.49",
-    )  # not 6,960.27 (owner, Q4)
-    assert q(D("32585.55") * D("0.2136")) == D("6960.27")
+        "12803.48",
+        "328990.94",
+    )  # per work area, not the flat product (owner, Q4)
+    assert q(D("59941.16") * D("0.2136")) == D("12803.43")
     assert [r["division_code"] for r in t["burden_by_division"]] == ["LS"]
     _load(tenant, rw_engine, _elm_copy(recode=lambda n: "110" if n % 2 == 0 else "210"))
     d = _detail(tenant, EID)
     rows = d["totals"]["burden_by_division"]
     assert [r["division_code"] for r in rows] == ["EX", "LS"]
     assert sum(D(r["burden"]) for r in rows) == D(d["totals"]["burden_total"])
-    assert sum(D(r["labor_amount"]) for r in rows) == D("32585.55")
+    assert sum(D(r["labor_amount"]) for r in rows) == D("59941.16")
     total, per_area = _expected_burden(d, RATES)
     assert D(d["totals"]["burden_total"]) == total
     for w in d["work_areas"]:
@@ -424,9 +433,9 @@ def test_a_slot_20_line_loads_is_shown_as_estimated_and_is_left_out_of_burden(
     d = _detail(tenant, EID)
     t = d["totals"]
     row = _category(d, "20")
-    assert (row["amount"], row["amount_with_burden"]) == ("1000.00", "6383.50")
-    assert (t["eac_in_basis_as_estimated"], t["eac_in_basis"]) == ("287634.20", "293017.70")
-    assert (t["cost_total_as_estimated"], t["cost_total_with_burden"]) == ("316832.69", "322216.19")
+    assert (row["amount"], row["amount_with_burden"]) == ("1000.00", "11742.47")
+    assert (t["eac_in_basis_as_estimated"], t["eac_in_basis"]) == ("317187.46", "327929.93")
+    assert (t["cost_total_as_estimated"], t["cost_total_with_burden"]) == ("344693.43", "355435.90")
     burden_lines = [i for i in d["attention"] if i["code"] == "EST_BURDEN_LINE"]
     assert len(burden_lines) == 1 and "#1" in burden_lines[0]["message"]
     assert "#17" not in burden_lines[0]["message"]
@@ -450,8 +459,8 @@ def test_a_kept_work_area_priced_0_00_with_labor_carries_no_burden(
         "500.00",
         "0.00",
     )
-    assert d["totals"]["burden_total"] == "6383.50"
-    assert d["totals"]["burden_by_division"][0]["labor_amount"] == "32585.55"
+    assert d["totals"]["burden_total"] == "11742.47"
+    assert d["totals"]["burden_by_division"][0]["labor_amount"] == "59941.16"
     assert any(
         i["code"] == "EST_COST_LINE_ON_OMITTED"
         and i["message"].startswith("Work area #20 is priced 0.00")
@@ -466,10 +475,12 @@ def test_the_rate_in_force_follows_the_estimate_date(
     _add_rate(rw_engine, seed, t["id"], "EX", "0.1959", JAN1, date(2026, 7, 1))
     _add_rate(rw_engine, seed, t["id"], "EX", "0.2100", date(2026, 7, 1))
     _load(t, rw_engine, _elm_copy(estimate_date=date(2026, 6, 30)))
-    assert _detail(t, EID)["totals"]["burden_total"] == "6383.50"
+    assert _detail(t, EID)["totals"]["burden_total"] == "11742.47"
     _load(t, rw_engine, _elm_copy(estimate_date=date(2026, 7, 1)))
     rows = _detail(t, EID)["totals"]
-    assert rows["burden_total"] == "6842.96"  # not 6,842.97 (owner, Q4)
+    assert (
+        rows["burden_total"] == "12587.69"
+    )  # per work area (owner, Q4); 0.21 × 59,941.16 is 12,587.64
     assert rows["burden_by_division"][0]["rate_effective_from"] == "2026-07-01"
 
 
@@ -484,7 +495,7 @@ def test_the_company_rate_applies_only_where_no_division_rate_covers(
     assert D(d["totals"]["burden_total"]) == total
     assert d["totals"]["burden_by_division"][0]["rate"] == "0.3000"
     _add_rate(rw_engine, seed, t["id"], "EX", "0.1959")
-    assert _detail(t, EID)["totals"]["burden_total"] == "6383.50"
+    assert _detail(t, EID)["totals"]["burden_total"] == "11742.47"
 
 
 def test_inactive_rates_are_never_used(bare: dict, seed: Seed, rw_engine: Engine) -> None:
@@ -509,7 +520,7 @@ def test_no_burden_warning_when_slot_20_is_outside_the_basis(
     _load(t, rw_engine, ELM.read_bytes())
     d = _detail(t, EID)
     assert "EST_NO_BURDEN_RATE" not in _codes(d) and "EST_NO_BURDEN_DATE" not in _codes(d)
-    assert d["totals"]["eac_in_basis"] == d["totals"]["eac_in_basis_as_estimated"] == "286634.20"
+    assert d["totals"]["eac_in_basis"] == d["totals"]["eac_in_basis_as_estimated"] == "316187.46"
     assert d["totals"]["eac_not_computed"] is False
 
 
@@ -536,7 +547,7 @@ def test_reading_writes_nothing(tenant: dict, rw_engine: Engine, owner_engine: E
     before = snapshot()
     for _ in range(2):
         _detail(tenant, EID)
-    assert snapshot() == before and len(before[0]) == 59
+    assert snapshot() == before and len(before[0]) == 104
 
 
 def test_every_role_sees_burden_and_nobody_writes_it(
@@ -557,7 +568,7 @@ def test_every_role_sees_burden_and_nobody_writes_it(
         )
     viewer = login_as("client_viewer", tenant=tenant["id"])
     d = _detail({"client": viewer}, EID)
-    assert d["totals"]["burden_total"] == "6383.50" and d["totals"]["eac_in_basis"] == "293017.70"
+    assert d["totals"]["burden_total"] == "11742.47" and d["totals"]["eac_in_basis"] == "327929.93"
     for c in (viewer, tenant["client"]):
         for method in ("post", "put", "patch", "delete"):
             r = getattr(c, method)(f"/api/estimates/{d['id']}", headers=CSRF)

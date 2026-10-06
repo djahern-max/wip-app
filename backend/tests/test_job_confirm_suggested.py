@@ -1,5 +1,5 @@
-"""F07.1: 67 Elm Street as it stands on production (the v2 fixture loaded after the F06
-one, as production did) and "Confirm all as suggested" (D-01: the suggestion is the
+"""F07.1: 67 Elm Street as it stands on production (the owner's reviewed workbook of
+2026-10-06, 29 work areas) and "Confirm all as suggested" (D-01: the suggestion is the
 platform's, the confirmation is the person's; one press confirms each suggestion and
 writes one ``work_area_kind_confirmed`` row per work area, never a summary row)."""
 
@@ -17,7 +17,7 @@ from app.domain.estimates.models import EstimateWorkArea
 from app.domain.jobs.service import AreaChoice, as_suggested
 from tests.config_helpers import run_until_quiet
 from tests.conftest import Seed
-from tests.estimate_helpers import ELM_V2, upload_template
+from tests.estimate_helpers import ELM, build_workbook, fixture_rows, upload_template
 from tests.job_helpers import ELM_ID, Tenant, make_tenant
 
 D = Decimal
@@ -28,10 +28,7 @@ CHANGE_ORDERS = list(range(18, 30))
 
 @pytest.fixture
 def t(seed: Seed, rw_engine: Engine, login_as: Callable[..., TestClient], fresh_tenant) -> Tenant:
-    t = make_tenant(seed, rw_engine, login_as, fresh_tenant)
-    upload_template(t.client, ELM_V2.read_bytes(), "estimate_upload_EST6115758_v2.xlsx")
-    run_until_quiet(t.engine)
-    return t
+    return make_tenant(seed, rw_engine, login_as, fresh_tenant)
 
 
 def _areas(job: dict) -> dict[int, dict]:
@@ -59,9 +56,9 @@ def _confirmed_at(t: Tenant, ids: list[str]) -> dict[str, datetime]:
         return {str(r.id): r.kind_confirmed_at for r in rows}
 
 
-def test_the_second_file_is_the_latest_version_with_the_production_figures(t: Tenant) -> None:
+def test_the_reviewed_file_reads_with_the_production_figures(t: Tenant) -> None:
     d = t.get(f"/api/estimates/{t.estimate_id(ELM_ID)}")
-    assert d["versions"] == 2 and d["price"] == "519173.72"
+    assert d["versions"] == 1 and d["price"] == "519173.72"
     areas = {w["order_no"]: w for w in d["work_areas"]}
     assert len(areas) == 29 and sum(1 for w in areas.values() if w["kept"]) == 28
     assert [o for o, w in areas.items() if not w["kept"]] == [17]
@@ -122,6 +119,46 @@ def test_confirm_all_as_suggested_writes_one_row_per_work_area_and_is_idempotent
         assert again[key] == out[key], key
 
 
+def test_a_work_area_added_in_a_later_version_is_suggested_as_a_change_order(t: Tenant) -> None:
+    """D-01: a row beyond the baseline is a change order by definition, with no name rule
+    involved; the job reads the latest version and "Confirm all as suggested" takes it.
+    The second version is built in the test from the reviewed workbook: one added work
+    area #30, "Extra planting", kept, 100.00, with one 230 line of 60.00."""
+    job = t.new_job(ELM_ID)
+    assert len(_areas(job)) == 29
+    rows = fixture_rows(ELM)
+    rows["Estimates"][0]["price"] = str(D("519173.72") + D("100.00"))
+    rows["Work areas"].append(
+        {
+            "estimate_id": ELM_ID,
+            "order": 30,
+            "kept": "Y",
+            "name": "Extra planting",
+            "price": "100.00",
+        }
+    )
+    rows["Estimate costs"].append(
+        {"estimate_id": ELM_ID, "order": 30, "cost_code": "230", "amount": "60.00"}
+    )
+    upload_template(t.client, build_workbook(sheets=rows), "elm_v2.xlsx")
+    run_until_quiet(t.engine)
+    d = t.get(f"/api/estimates/{t.estimate_id(ELM_ID)}")
+    assert (d["versions"], d["baseline_version_no"], d["price"]) == (2, 1, "519273.72")
+    assert [i["code"] for i in d["attention"]] == ["EST_UNIT_PRICED"] * 9  # nothing deductive
+    job = t.job(job["id"])
+    areas = _areas(job)
+    assert len(areas) == 30 and areas[30]["suggested_kind"] == "change_order"
+    assert areas[30]["kind_label"] == "Change order (suggested)"
+    assert [o for o, w in areas.items() if w["suggested_kind"] == "original"] == ORIGINALS
+    assert (job["to_confirm"], job["revised_contract_note"]) == (29, "29 work areas to confirm")
+    out = _confirm_all(t, job["id"])
+    assert (out["confirmed"], out["skipped"]) == (29, 0)
+    assert out["revised_contract"] == "465469.59"
+    assert out["unapproved_change_orders"] == str(D("53704.13") + D("100.00"))
+    assert out["eac_in_basis"] == str(D("327929.93") + D("60.00"))  # 230 is in the basis
+    assert _areas(out)[30]["kind_label"] == "Change order, confirmed"
+
+
 def test_hand_confirmed_work_areas_are_untouched_by_confirm_all(t: Tenant) -> None:
     job = t.new_job(ELM_ID)
     job = _confirm(t, job, [1, 2, 3], "original")
@@ -137,21 +174,6 @@ def test_hand_confirmed_work_areas_are_untouched_by_confirm_all(t: Tenant) -> No
     assert sorted(r.detail["rows"]["order_no"] for r in rows) == ORIGINALS[3:] + CHANGE_ORDERS
     assert _confirmed_at(t, by_hand) == stamped
     assert out["revised_contract"] == "465469.59"
-
-
-def test_the_first_fixture_alone_still_reads_as_f07_left_it(
-    seed: Seed, rw_engine: Engine, login_as: Callable[..., TestClient], fresh_tenant
-) -> None:
-    """The F06 file's job (20 kept) through the same action: the F07 figures."""
-    t = make_tenant(seed, rw_engine, login_as, fresh_tenant)
-    job = t.new_job(ELM_ID)
-    out = _confirm_all(t, job["id"])
-    assert (out["confirmed"], out["revised_contract"], out["unapproved_change_orders"]) == (
-        20,
-        "465469.59",
-        "9660.09",
-    )
-    assert out["eac_in_basis"] == "293017.70"
 
 
 # --- the selector (pure) -------------------------------------------------------------------
