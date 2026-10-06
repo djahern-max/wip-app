@@ -843,7 +843,11 @@ figure.
 deposit items and the fuel surcharge items. In QuickBooks create one deposit item and one
 fuel surcharge item **per division income account** (Products and services → New →
 Service; income account the division's 4xxx); run a change poll or wait for one so the
-items are held; then tick them on Policy. Until both keys are decided the page says so
+items are held; then tick them on Policy. The pick-list (F08.2) shows the company's
+active items sorted by name; "Find an item" narrows the list as you type; "Show inactive
+items" adds the inactive and deleted ones, each marked in words. An item that is already
+ticked is always shown, so a decided value is never hidden. An inactive or deleted item
+may be ticked: an older invoice may sit on it, and matching is by item id. Until both keys are decided the page says so
 and shows collected to date, open A/R and unapplied payments only.
 
 **How a deposit is recognised (D-02, owner's answer 2).** An invoice numbered
@@ -873,9 +877,43 @@ is applied in QuickBooks. A sales receipt is billed once and collected once.
 **Tie-out.** For every calendar month, jobs + not on a job = the Connections month
 totals: billed (invoices − credit memos + sales receipts, tax and surcharge included)
 and collected (payments + sales receipts), to the cent. The status is on the page and
-the XLSX has a Tie-out tab with the months and the differences. "Does not tie" names the
-months; the usual cause is a payload the normalizer skipped (Connections, skipped
-payloads).
+the XLSX has a Tie-out tab with the months and the differences. The board's rows show
+first; the tie-out is its own request (`GET /api/jobs/tie-out`, summed by the database
+over every job whatever the filter) and the line reads "Tie-out: checking…" until it
+answers (F08.2). "Does not tie" names the months; one cause is a payload the normalizer
+skipped (Connections, skipped payloads); on the collected side, run the diagnostic below.
+
+**Checking the collected side (F08.2).** `scripts/collected_tieout.py` is read-only,
+prints no customer name, and reports every month whose collected side does not tie:
+the board's figure, QuickBooks' figure, the difference; each live payment of the month
+whose signed applications plus unapplied money differ from its total; each application
+on a payment of the month that does not point at an invoice (a CreditMemo, JournalEntry
+or Deposit line, with whether the copy holds that document); and whether the month's
+difference equals twice the sum of its non-CreditMemo credit lines (the sign of such a
+line decides whether a credit applied through a payment is counted as cash). On the
+server:
+
+```sh
+cd /opt/wip/backend && sudo -u wip ENV_FILE=/etc/wip/app.env .venv/bin/python \
+    scripts/collected_tieout.py --tenant rye-beach            # every month that does not tie
+cd /opt/wip/backend && sudo -u wip ENV_FILE=/etc/wip/app.env .venv/bin/python \
+    scripts/collected_tieout.py --tenant rye-beach --month 2018-12 --month 2022-10
+cd /opt/wip/backend && sudo -u wip ENV_FILE=/etc/wip/app.env .venv/bin/python \
+    scripts/collected_tieout.py --tenant rye-beach --counts   # row counts only
+```
+
+The output is ids, dates, kinds and amounts; paste it into the F08.2 brief. What a
+credit applied through a payment does to collected to date is the owner's treatment,
+decided before any figure changes.
+
+**Speed (F08.2).** The board reads the listed jobs' own QuickBooks rows; the
+not-on-a-job row, the tie-out and the Connections month totals are summed by the
+database; a job page reads that job's rows only. Nothing is stored. To time the pages
+against a tenant the size of a real one on a development database, seed one:
+`cd backend && .venv/bin/python scripts/seed_board_load.py --documents 10000` makes
+tenant `load-test` (refusing a protected slug and any database not named `wip` or
+`wip_test`) and adds that many invoices and payments on one untracked row across 308
+months; `--counts` above says how many rows the real tenant holds.
 
 **Exports.** "Export XLSX" and "Export PDF" take the filters as shown. The XLSX holds
 values written from Decimal (no float artifacts) with the cents format, a totals row,

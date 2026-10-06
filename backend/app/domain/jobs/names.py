@@ -73,3 +73,10 @@ def name_starts_with_estimate_id(display_name: str | None, digits: str) -> bool:
     """§13.2: a QuickBooks name that begins with the estimate id, with or without the
     EST prefix, followed by a non-digit or the end."""
     return bool(re.match(rf"^\s*(?:EST)?{re.escape(digits)}(?!\d)", display_name or "", re.I))
+
+
+def name_contains_estimate_number(display_name: str | None, digits: str) -> bool:
+    """F08.2 (item 5): the estimate number anywhere in a QuickBooks name, bounded by
+    non-digits ("Est. 6115758 - 67 Elm", "67 Elm Street (6115758)"); 16115758 and
+    61157580 are other numbers."""
+    return bool(re.search(rf"(?<!\d){re.escape(digits)}(?!\d)", display_name or ""))

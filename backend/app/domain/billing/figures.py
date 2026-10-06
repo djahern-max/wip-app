@@ -34,6 +34,11 @@ from datetime import date
 from decimal import Decimal
 
 ZERO = Decimal("0.00")
+# F08.2: the one place that says which ``LinkedTxn`` types on a payment line are credits
+# and count against the invoice lines (signed negative). ``amounts.py`` and the SQL
+# sums in ``board.py`` read it too, so a change here is the change everywhere. Today:
+# CreditMemo only (F05, S-01 extra 2); item 1 of F08.2 waits on the diagnostic.
+CREDIT_TXN_TYPES: frozenset[str] = frozenset({"CreditMemo"})
 SALES_ITEM = "SalesItemLineDetail"  # QuickBooks' DetailType of a priced line
 DEPOSIT_SUFFIX = "_DEP"  # D-26, D-02: <estimate number>_DEP
 KIND_LABELS = {"invoice": "Invoice", "credit_memo": "Credit memo", "sales_receipt": "Sales receipt"}
@@ -145,8 +150,8 @@ class DocFigures:
 
 def signed_application(app: AppIn) -> Decimal:
     """A line that applies a credit memo arrives positive and counts against the
-    invoice lines (F05, S-01 extra 2)."""
-    return -app.amount if app.linked_txn_type == "CreditMemo" else app.amount
+    invoice lines (F05, S-01 extra 2); ``CREDIT_TXN_TYPES`` names the types."""
+    return -app.amount if app.linked_txn_type in CREDIT_TXN_TYPES else app.amount
 
 
 def _deposit_parts(

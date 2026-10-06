@@ -431,11 +431,9 @@ def deactivate_burden_rate(request: Request, m: Manager, db: TenantSession, rate
 
 
 def _item_options(items: list[QboItem]) -> list[PolicyOptionOut]:
-    """F08: the picker for the two item keys; an inactive item is said so in words."""
-    return [
-        PolicyOptionOut(value=i.external_id, label=i.name if i.active else f"{i.name} (inactive)")
-        for i in items
-    ]
+    """F08: the picker for the two item keys; an inactive or deleted item is said so in
+    words, and (F08.2) carries its flag so the page can keep it behind the switch."""
+    return [PolicyOptionOut(value=i.external_id, label=i.label, active=i.active) for i in items]
 
 
 def _policy_out(

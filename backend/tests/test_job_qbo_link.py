@@ -42,14 +42,48 @@ def _qbo_aliases(t: Tenant) -> int:
         ).scalar_one()
 
 
+def _add_rows(t: Tenant, rows: list[tuple[str, str, str | None, bool]]) -> None:
+    """More QuickBooks rows: (external id, name, parent key or None, is a project)."""
+    from app.domain.billing.models import Customer
+    from tests.job_helpers import _raw
+
+    with tenant_session(t.engine, t.id) as s:
+        raw_id = _raw(s, t.id)
+        for ext, name, parent, project in rows:
+            p = t.customers[parent] if parent else None
+            s.add(
+                Customer(
+                    tenant_id=t.id,
+                    source="qbo",
+                    external_id=ext,
+                    display_name=name,
+                    parent_external_id=p["external_id"] if p else None,
+                    parent_customer_id=p["id"] if p else None,
+                    is_project=project,
+                    active=True,
+                    raw_record_id=raw_id,
+                )
+            )
+
+
 def test_candidates_per_rule_and_never_an_inactive_pool_or_linked_row(t: Tenant) -> None:
     elm = t.new_job(ELM_ID)
     turley = t.new_job(TURLEY_ID)
     hess = t.new_job(TURLEY_HESS_ID, "LS")
     ocean = t.new_job(DEVELLIS_ID, "LS")
+    # F08.2 (item 5): the number anywhere in the name; the F07 scope kept (owner,
+    # 2026-10-06): a top-level customer carrying the number is never suggested.
+    _add_rows(
+        t,
+        [
+            ("301", "Est. 6115758 - 67 Elm St Phase 2", "c05", True),
+            ("302", "Client 05 (6115758)", None, False),
+        ],
+    )
     seen = t.audit_rows()
     assert _suggested(t, elm["id"]) == [
-        ("6115758 Client 05 - 67 Elm St Parking Lot", "estimate id in name")
+        ("6115758 Client 05 - 67 Elm St Parking Lot", "estimate id in name"),
+        ("Est. 6115758 - 67 Elm St Phase 2", "name contains estimate number 6115758"),
     ]
     assert _suggested(t, turley["id"]) == [
         ("EST6120638 Client 26 - Landscape Projects 2026", "estimate id in name"),

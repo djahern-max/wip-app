@@ -142,6 +142,8 @@ def _routes() -> list[Route]:
         # F08: the two exports follow the jobs read (every role).
         Route("GET", "/api/jobs/export.xlsx", ALL),
         Route("GET", "/api/jobs/export.pdf", ALL),
+        # F08.2: the tie-out is its own request and follows the jobs read.
+        Route("GET", "/api/jobs/tie-out", ALL),
         Route("GET", "/api/jobs/review", ALL),
         Route("GET", f"/api/jobs/{_NO_JOB}", ALL, also_ok=frozenset({404})),
         Route("GET", f"/api/jobs/{_NO_JOB}/qbo-candidates", ALL, also_ok=frozenset({404})),

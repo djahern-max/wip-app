@@ -120,6 +120,7 @@ def _sheet_rows(ws) -> tuple[list[str], list[list]]:
 
 def test_xlsx_cells_equal_the_screen_to_the_cent_and_the_tie_out_tab_balances(t: Tenant) -> None:
     screen = t.get("/api/jobs")
+    screen["tie_out"] = t.get("/api/jobs/tie-out")  # F08.2: its own request; the tab stays
     r = t.client.get("/api/jobs/export.xlsx")
     assert r.status_code == 200, r.text
     assert r.headers["content-type"].startswith("application/vnd.openxmlformats")
@@ -203,6 +204,7 @@ def test_xlsx_cells_equal_the_screen_to_the_cent_and_the_tie_out_tab_balances(t:
 
 def test_the_exports_follow_the_filters_and_the_pdf_carries_the_same_rows(t: Tenant) -> None:
     screen = t.get("/api/jobs?status=sold")
+    screen["tie_out"] = t.get("/api/jobs/tie-out")
     (turley,) = [j["name"] for j in screen["jobs"]]
     r = t.client.get("/api/jobs/export.xlsx?status=sold")
     ws = load_workbook(io.BytesIO(r.content))["Sold Jobs Board"]

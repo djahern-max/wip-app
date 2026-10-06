@@ -13,7 +13,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Engine, select
 
 from app.core.db import tenant_session
-from app.domain.billing.board import load_board, tie_out
+from app.domain.billing.board import load_board, month_sums, not_on_a_job, on_a_job, tie_out
+from app.domain.billing.figures import months_billed, months_collected
 from app.domain.billing.models import Billing
 from app.domain.jobs import service as jobs
 from tests.billing_helpers import billing_policy
@@ -44,7 +45,16 @@ def _oracle() -> dict[str, tuple[Decimal, Decimal]]:
 def _check(engine: Engine, tenant_id: uuid.UUID) -> list:
     with tenant_session(engine, tenant_id) as s:
         board = load_board(s, tenant_id, jobs.list_jobs(s, tenant_id))
-        rows = tie_out(s, tenant_id, board)
+        rows = tie_out(s, tenant_id)
+        # F08.2: the tie-out's month sums come from the database; they must equal the
+        # per-job sums the pure figures keep, and the not-on-a-job row's own sums.
+        jobs_b, jobs_c = month_sums(s, on_a_job)
+        other_b, other_c = month_sums(s, not_on_a_job)
+    assert board.not_on_a_job is not None
+    assert jobs_b == months_billed(list(board.per_job.values()))
+    assert jobs_c == months_collected(list(board.per_job.values()))
+    assert other_b == board.not_on_a_job.billed_by_month
+    assert other_c == board.not_on_a_job.collected_by_month
     oracle = _oracle()
     assert [r.month for r in rows] == sorted(oracle)
     for r in rows:
@@ -76,7 +86,10 @@ def test_jobs_plus_not_on_a_job_equal_the_month_totals_for_every_month(
     rows = _check(rw_engine, fresh_tenant)
     assert all(r.jobs_billed == D("0.00") and r.jobs_collected == D("0.00") for r in rows)
     body = t.get("/api/jobs")
-    assert body["tie_out"]["balanced"] and body["tie_out"]["months"] == len(rows)
+    assert "tie_out" not in body  # F08.2: its own request
+    tie = t.get("/api/jobs/tie-out")
+    assert tie["balanced"] and tie["months"] == len(rows) and tie["months_off"] == []
+    assert tie["status"].startswith("Ties to the cent")
     assert body["jobs"] == []
 
     # Link the sandbox customer with the most invoices to a job: its money moves to the
@@ -106,7 +119,7 @@ def test_jobs_plus_not_on_a_job_equal_the_month_totals_for_every_month(
         ]
     open_ar = sum((bal if kind != "credit_memo" else -bal for kind, bal in held), D(0))
     assert D(row["billing"]["open_ar"]) == open_ar
-    assert t.get("/api/jobs")["tie_out"]["balanced"]
+    assert t.get("/api/jobs/tie-out")["balanced"]
 
     # Move one of its documents to an untracked customer: the amount moves to not on a
     # job and the tie still holds.

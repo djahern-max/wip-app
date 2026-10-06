@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { DEPOSIT_HINT, EditPolicy, NO_SURCHARGE, PolicyRow, RATE_LABEL, REFERENCE_LABEL, SURCHARGE_HINT, WIP_BASIS_HINT, hasValue, itemValue, percentOfFraction, showValue } from "./policyRow.js";
+import { DEPOSIT_HINT, EditPolicy, FIND_ITEM_LABEL, NO_SURCHARGE, PolicyRow, RATE_LABEL, REFERENCE_LABEL, SHOW_INACTIVE_LABEL, SURCHARGE_HINT, WIP_BASIS_HINT, hasValue, itemValue, percentOfFraction, showValue, visibleOptions } from "./policyRow.js";
 
 // F04.1: the Policy table asks only what a person can answer today, in words they know.
 
@@ -160,7 +160,10 @@ test("the item keys show the names of the ticked items, the rate as a percent, o
 test("the deposit edit is a pick-list of the company's items and needs one ticked", () => {
   const html = edit(depositKey());
   assert.ok(html.includes(DEPOSIT_HINT));
-  assert.equal((html.match(/type="checkbox"/g) || []).length, 3);
+  // Three items (none carries a flag, so all count as active) and the "Show inactive
+  // items" switch (F08.2); the search box is its own control.
+  assert.equal((html.match(/type="checkbox"/g) || []).length, 4);
+  assert.ok(html.includes(FIND_ITEM_LABEL) && html.includes(SHOW_INACTIVE_LABEL) && html.includes('type="search"'));
   assert.ok(html.includes("Old deposit item (inactive)"));
   assert.ok(!html.includes("checked"));
   assert.ok(recordButton(html).includes("disabled"));
@@ -177,7 +180,7 @@ test("the deposit edit is a pick-list of the company's items and needs one ticke
 test("the surcharge edit takes items and a rate, or records no surcharge", () => {
   const html = edit(surchargeKey());
   assert.ok(html.includes(SURCHARGE_HINT) && html.includes(RATE_LABEL) && html.includes(NO_SURCHARGE));
-  assert.equal((html.match(/type="checkbox"/g) || []).length, 4); // three items and the no-surcharge box
+  assert.equal((html.match(/type="checkbox"/g) || []).length, 5); // three items, the inactive switch, the no-surcharge box
   assert.ok(recordButton(html).includes("disabled"));
   assert.equal(hasValue("surcharge", "", [], [], false), false);
   assert.equal(hasValue("surcharge", "", [], ["902"], false), true);
@@ -191,3 +194,35 @@ test("the surcharge edit takes items and a rate, or records no surcharge", () =>
   assert.equal((none.match(/checked=""/g) || []).length, 1); // the no-surcharge box
   assert.ok(!recordButton(none).includes("disabled"));
 });
+
+// F08.2 (item 3): the pick-list filters only what the API gave it, builds no label.
+const FLAGGED = [
+  { value: "901", label: "Customer deposit", active: true },
+  { value: "902", label: "Fuel surcharge (EX)", active: true },
+  { value: "904", label: "Old deposit item (inactive)", active: false },
+  { value: "905", label: "Gone deposit item (deleted)", active: false },
+];
+
+test("the pick-list hides inactive and deleted items unless the switch is on or the item is ticked, and narrows as typed", () => {
+  const values = (o) => o.map((x) => x.value);
+  assert.deepEqual(values(visibleOptions(FLAGGED, "", false, [])), ["901", "902"]);
+  assert.deepEqual(values(visibleOptions(FLAGGED, "", true, [])), ["901", "902", "904", "905"]);
+  assert.deepEqual(values(visibleOptions(FLAGGED, "", false, ["905"])), ["901", "902", "905"]);
+  assert.deepEqual(values(visibleOptions(FLAGGED, "deposit", false, [])), ["901"]);
+  assert.deepEqual(values(visibleOptions(FLAGGED, "DEPOSIT", true, [])), ["901", "904", "905"]);
+  assert.deepEqual(values(visibleOptions(FLAGGED, "  fuel ", false, [])), ["902"]);
+  assert.deepEqual(values(visibleOptions(FLAGGED, "nothing", true, [])), []);
+  assert.deepEqual(values(visibleOptions(ITEMS, "", false, [])), ["901", "902", "904"]); // no flag: active
+  assert.deepEqual(values(visibleOptions(undefined, "", false, [])), []);
+});
+
+test("a ticked inactive item is always shown and marked; an unticked one waits behind the switch", () => {
+  const plain = edit(depositKey({ options: FLAGGED }));
+  assert.ok(plain.includes("Customer deposit") && !plain.includes("Old deposit item (inactive)") && !plain.includes("(deleted)"));
+  assert.equal((plain.match(/type="checkbox"/g) || []).length, 3); // two active items and the switch
+  const stored = edit(depositKey({ options: FLAGGED, decided: true, value: { item_ids: ["905"] } }));
+  assert.ok(stored.includes("Gone deposit item (deleted)") && !stored.includes("Old deposit item (inactive)"));
+  assert.equal((stored.match(/checked=""/g) || []).length, 1);
+  assert.equal(showValue(depositKey({ options: FLAGGED, decided: true, value: { item_ids: ["904"] } })), "Old deposit item (inactive)");
+});
+

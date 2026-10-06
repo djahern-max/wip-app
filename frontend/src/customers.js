@@ -38,3 +38,14 @@ export function trackedSentence(rows) {
   }
   return rows.length === 1 ? "1 tracked." : `${rows.length} tracked.`;
 }
+
+// F08.2 (item 4; D-22): the pressed Track or Untrack control reads what is happening
+// while its request is in flight; the others are only disabled. `pending` is
+// {id, action} or null, the id the row's customer_id.
+export const PENDING_WORDS = { track: "Tracking…", untrack: "Untracking…" };
+
+export function pendingLabel(action, pending, customerId) {
+  if (!pending || pending.action !== action || pending.id !== customerId) return null;
+  return PENDING_WORDS[action] || null;
+}
+

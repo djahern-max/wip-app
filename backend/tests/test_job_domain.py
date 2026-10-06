@@ -12,6 +12,7 @@ from app.domain.jobs.issues import JobState, LedgerRow, job_issues, ledger_issue
 from app.domain.jobs.names import (
     customer_name_key,
     estimate_id_digits,
+    name_contains_estimate_number,
     name_starts_with_estimate_id,
     street_tokens,
 )
@@ -27,6 +28,7 @@ from app.domain.jobs.suggest import (
     EstimateText,
     JobForMatch,
     attach_candidates,
+    number_in_name,
     qbo_candidates,
     suggest_division,
 )
@@ -49,6 +51,11 @@ def test_estimate_id_in_a_quickbooks_name_with_or_without_the_prefix() -> None:
         assert name_starts_with_estimate_id(name, "6611769"), name
     for name in ("66117690 Client", "Client 05 6611769", "X6611769"):
         assert not name_starts_with_estimate_id(name, "6611769"), name
+    # F08.2 (item 5): the number anywhere in the name, bounded by non-digits.
+    for name in ("Est. 6611769 - Site", "Client 05 6611769", "X6611769", "Site (6611769)"):
+        assert name_contains_estimate_number(name, "6611769"), name
+    for name in ("66117690 Client", "16611769", "Client 05", "", None):
+        assert not name_contains_estimate_number(name, "6611769"), name
 
 
 def test_street_tokens_need_a_street_number() -> None:
@@ -101,6 +108,11 @@ def _customers() -> dict[str, CustomerRow]:
         "pool": row("14", "Pool - Hydroseed", pool, "Pool - Hydroseed"),
         "old": row("15", "Old", c26, "Client 26", project=False),
         "inactive": row("16", "6115758 Client 05 - old copy", c05, "Client 05", active=False),
+        # F08.2 (item 5): the number not at the start; a top-level customer with the
+        # number (outside the F07 scope); another number that contains the digits.
+        "phase2": row("17", "Est. 6115758 - 67 Elm St Phase 2", c05, "Client 05"),
+        "topcustomer": row("18", "Client 05 (6115758)", project=False),
+        "other_number": row("19", "16115758 Client 05 - Lot", c05, "Client 05"),
     }
 
 
@@ -110,8 +122,15 @@ def test_elm_street_suggests_the_id_named_project_only() -> None:
         [EstimateText("EST6115758", None, None, "67 Elm Street")], list(cs.values()), set()
     )
     assert [(c.row.display_name, c.reason) for c in got] == [
-        ("6115758 Client 05 - 67 Elm St Parking Lot", ID_IN_NAME)
+        ("6115758 Client 05 - 67 Elm St Parking Lot", ID_IN_NAME),
+        ("Est. 6115758 - 67 Elm St Phase 2", number_in_name("6115758")),
     ]
+    assert got[1].reason == "name contains estimate number 6115758" and got[0].rank < got[1].rank
+    # Still the F07 scope (owner, 2026-10-06): a top-level customer is never suggested,
+    # whatever its name; 16115758 is another number.
+    assert not any(
+        c.row.display_name in ("Client 05 (6115758)", "16115758 Client 05 - Lot") for c in got
+    )
 
 
 def test_turley_suggests_the_id_project_then_the_customer_name_rows() -> None:

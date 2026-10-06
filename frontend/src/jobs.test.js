@@ -99,3 +99,19 @@ test("the board's words: estimate under the name, days since activity, applied-t
   assert.equal(appliedWords([]), "Nothing");
   assert.equal(appliedWords([{ document: "EST6115758_PMT2", amount: "149800.00" }, { document: "CM-1", amount: "-100.00" }]), "EST6115758_PMT2: 149,800.00; CM-1: (100.00)");
 });
+
+test("the tie-out line reads checking until its own request answers, then the API's words (F08.2)", async () => {
+  const { tieOutText, pendingLabel, PENDING_WORDS } = await import("./jobs.js");
+  assert.equal(tieOutText(null), "Tie-out: checking…");
+  assert.equal(tieOutText(undefined), "Tie-out: checking…");
+  assert.equal(tieOutText(false), "Tie-out: could not be checked. Refresh the page.");
+  assert.equal(tieOutText({ status: "Ties to the cent to the QuickBooks month totals (308 months)." }), "Tie-out: Ties to the cent to the QuickBooks month totals (308 months).");
+  // Link and Unlink: the pressed control says what is happening; the others keep their word.
+  assert.deepEqual(PENDING_WORDS, { link: "Linking…", unlink: "Unlinking…" });
+  assert.equal(pendingLabel("link", null, "201"), null);
+  assert.equal(pendingLabel("link", { id: "201", action: "link" }, "201"), "Linking…");
+  assert.equal(pendingLabel("link", { id: "201", action: "link" }, "202"), null);
+  assert.equal(pendingLabel("unlink", { id: "a1", action: "unlink" }, "a1"), "Unlinking…");
+  assert.equal(pendingLabel("unlink", { id: "a1", action: "link" }, "a1"), null);
+});
+

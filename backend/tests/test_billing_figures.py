@@ -459,3 +459,21 @@ def test_money_words() -> None:
     assert words(D("1234.5")) == "1,234.50"
     assert words(D("-16494.48")) == "(16,494.48)"
     assert words(ZERO) == "0.00" and words(D("-0.00")) == "0.00"
+
+
+def test_the_credit_types_are_one_constant_read_by_both_sign_functions() -> None:
+    """F08.2: which payment-line types count against the invoice lines is decided in
+    one place; today CreditMemo only (item 1 waits on the diagnostic). The ORM sign
+    (``amounts.py``) and the pure sign (``figures.py``) read the same set."""
+    import inspect
+
+    from app.domain.billing import amounts
+    from app.domain.billing.figures import CREDIT_TXN_TYPES, signed_application
+
+    assert CREDIT_TXN_TYPES == frozenset({"CreditMemo"})
+    assert "CREDIT_TXN_TYPES" in inspect.getsource(amounts.signed_application)
+    assert "CREDIT_TXN_TYPES" in inspect.getsource(signed_application)
+    assert '"CreditMemo"' not in inspect.getsource(amounts) + inspect.getsource(signed_application)
+    app = AppIn("p", "payment", "1", TODAY, D("0"), False, "JournalEntry", None, D("100.00"))
+    credit = AppIn("p", "payment", "1", TODAY, D("0"), False, "CreditMemo", None, D("100.00"))
+    assert signed_application(app) == D("100.00") and signed_application(credit) == D("-100.00")

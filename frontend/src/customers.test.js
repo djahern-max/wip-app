@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  PENDING_WORDS,
   jobCell,
   pageLabel,
+  pendingLabel,
   resultSentence,
   trackLabel,
   trackedSentence,
@@ -49,3 +51,15 @@ test("the actions say what happens, and a linked row says where to untrack", () 
   assert.equal(trackedSentence([needs]), "1 tracked.");
   assert.equal(trackedSentence([needs, linked]), "2 tracked.");
 });
+
+test("Track and Untrack say what is happening on the pressed row only (F08.2)", () => {
+  assert.deepEqual(PENDING_WORDS, { track: "Tracking…", untrack: "Untracking…" });
+  assert.equal(pendingLabel("track", null, "c1"), null);
+  assert.equal(pendingLabel("track", { id: "c1", action: "track" }, "c1"), "Tracking…");
+  assert.equal(pendingLabel("track", { id: "c1", action: "track" }, "c2"), null);
+  assert.equal(pendingLabel("untrack", { id: "c1", action: "untrack" }, "c1"), "Untracking…");
+  assert.equal(pendingLabel("untrack", { id: "c1", action: "track" }, "c1"), null);
+  // After the request the words return to the row's own.
+  assert.equal(pendingLabel("track", null, "c1") || trackLabel({ tracked: false }), "Track");
+});
+

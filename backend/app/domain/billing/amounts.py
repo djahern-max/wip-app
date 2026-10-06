@@ -3,6 +3,7 @@ one place a sign is decided."""
 
 from decimal import Decimal
 
+from app.domain.billing.figures import CREDIT_TXN_TYPES
 from app.domain.billing.models import Billing, PaymentApplication
 
 
@@ -16,5 +17,5 @@ def signed_amount(row: Billing) -> Decimal:
 def signed_application(row: PaymentApplication) -> Decimal:
     """A payment line that applies a credit memo arrives positive (S-01 extra 2) and
     counts against the invoice lines: applications + unapplied = total only with it
-    negative."""
-    return -row.amount if row.linked_txn_type == "CreditMemo" else row.amount
+    negative. The types are ``figures.CREDIT_TXN_TYPES`` (F08.2: one place)."""
+    return -row.amount if row.linked_txn_type in CREDIT_TXN_TYPES else row.amount

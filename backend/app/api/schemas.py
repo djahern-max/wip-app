@@ -253,6 +253,10 @@ class BurdenRateOut(_Out):
 class PolicyOptionOut(_Out):
     value: str
     label: str
+    # F08.2: an item's active flag from the raw ``Item`` version (inactive and deleted
+    # items are false); the time zone options carry none. The page filters on it and
+    # builds no label.
+    active: bool | None = None
 
 
 class PolicyOut(_Out):
@@ -662,7 +666,7 @@ class JobsOut(_Out):
     totals: BillingTotalsOut  # over the jobs listed (filters applied)
     not_on_a_job: BillingTotalsOut
     policy_note: str | None  # a key the figures need is not decided
-    tie_out: TieOutOut
+    # F08.2: the tie-out is its own request, GET /api/jobs/tie-out (TieOutOut).
 
 
 class JobDetailOut(JobRowOut):

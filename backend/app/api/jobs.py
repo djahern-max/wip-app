@@ -238,7 +238,8 @@ def _totals_out(t: Totals) -> BillingTotalsOut:
     )
 
 
-def _not_on_a_job_out(f: JobFigures) -> BillingTotalsOut:
+def _not_on_a_job_out(f: JobFigures | None) -> BillingTotalsOut:
+    assert f is not None  # the board page always asks for the not-on-a-job row
     return _totals_out(totals([f]))
 
 
@@ -351,7 +352,7 @@ def _confirm_message(confirmed: int, skipped: int) -> str:
 
 
 def _detail(db: Session, tenant_id: UUID, v: service.JobView) -> JobDetailOut:
-    board = load_board(db, tenant_id, [v])
+    board = load_board(db, tenant_id, [v], other=False)  # F08.2: this job's rows only
     f = board.per_job[v.job.id]
     documents, payments = _history(f)
     original = v.original
@@ -448,9 +449,9 @@ def _qbo_row(r: CustomerRow, reason: str | None) -> QboRowOut:
 
 
 class _BoardPage:
-    """The Sold Jobs Board (F08): every job's figures from one board over all jobs (the
-    tie-out needs every job), the listed jobs after the filters, the totals over the
-    listed jobs, and the not-on-a-job row."""
+    """The Sold Jobs Board (F08): every job's figures from the jobs' own rows, the
+    listed jobs after the filters, the totals over the listed jobs, and the
+    not-on-a-job row summed by the database. The tie-out is its own request (F08.2)."""
 
     def __init__(
         self,
@@ -472,7 +473,6 @@ class _BoardPage:
             and (not revenue_method or v.job.revenue_method == revenue_method)
             and (not no_link or not v.qbo_aliases)
         ]
-        self.tie_rows = tie_out(db, tenant_id, self.board)
         self.tenant_name = _tenant_name(db, tenant_id)
         self.filters = _filter_words(db, status, division_id, revenue_method, no_link)
 
@@ -538,8 +538,14 @@ def list_jobs(
         totals=_totals_out(page.totals),
         not_on_a_job=_not_on_a_job_out(page.board.not_on_a_job),
         policy_note=page.board.policy_note,
-        tie_out=_tie_out_out(page.tie_rows),
     )
+
+
+@router.get("/tie-out", response_model=TieOutOut)
+def tie_out_status_route(viewer: Viewer, db: TenantSession):
+    """F08.2: the month-by-month tie-out on its own request, summed by the database
+    over every job (no filter), so the board's rows show before it answers."""
+    return _tie_out_out(tie_out(db, viewer.active_tenant_id))
 
 
 def _board_row(v: service.JobView, f: JobFigures) -> export.BoardRow:
@@ -610,7 +616,7 @@ def _totals_row(label: str, t: Totals, *, revised: Decimal | None) -> export.Boa
     )
 
 
-def _report(page: _BoardPage) -> export.BoardReport:
+def _report(page: _BoardPage, tie_rows: list[TieRow]) -> export.BoardReport:
     rows = tuple(_board_row(v, page.figures(v)) for v in page.views)
     revised = [
         v.contract.revised_contract for v in page.views if v.contract.revised_contract is not None
@@ -623,9 +629,13 @@ def _report(page: _BoardPage) -> export.BoardReport:
         totals=_totals_row(
             "Total", page.totals, revised=sum(revised, Decimal("0.00")) if revised else None
         ),
-        not_on_a_job=_totals_row("Not on a job", totals([page.board.not_on_a_job]), revised=None),
-        tie_out=tuple(page.tie_rows),
-        tie_out_status=tie_out_status(page.tie_rows),
+        not_on_a_job=_totals_row(
+            "Not on a job",
+            totals([page.board.not_on_a_job]),
+            revised=None,  # type: ignore[list-item]
+        ),
+        tie_out=tuple(tie_rows),
+        tie_out_status=tie_out_status(tie_rows),
         policy_note=page.board.policy_note,
     )
 
@@ -648,7 +658,7 @@ def _export(
         revenue_method=revenue_method or None,
         no_link=no_link,
     )
-    report = _report(page)
+    report = _report(page, tie_out(db, viewer.active_tenant_id))  # the tab stays (F08.2)
     stem = f"sold-jobs-board-{page.board.today.isoformat()}"
     if kind == "xlsx":
         body = export.board_xlsx(report)

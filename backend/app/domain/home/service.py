@@ -111,7 +111,7 @@ def setup_facts(db: Session, tenant_id: UUID, role: Role | None) -> SetupFacts:
 
 def job_facts(db: Session, tenant_id: UUID) -> list[JobFacts]:
     views = jobs.list_jobs(db, tenant_id)
-    board = load_board(db, tenant_id, views)  # F08: the three billing needs
+    board = load_board(db, tenant_id, views, other=False)  # F08: the three billing needs
     out = []
     for v in views:
         f = board.per_job[v.job.id]

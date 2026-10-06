@@ -14,6 +14,22 @@ export const DEPOSIT_HINT = "Tick every QuickBooks item a deposit invoice is wri
 export const SURCHARGE_HINT = "Tick every QuickBooks item a fuel surcharge line is written on, and give the rate as a fraction (0.0500 is 5.00%). The rate may wait; it is needed for pay applications.";
 export const NO_SURCHARGE = "This company charges no fuel surcharge";
 export const RATE_LABEL = "Rate as a fraction (0.0500 is 5.00%)";
+// F08.2 (item 3): the pick-list shows active items, narrowed by what is typed; the
+// switch adds the inactive and deleted ones; a ticked item is always shown (its label,
+// from the API, says "(inactive)" or "(deleted)"). The page builds no label.
+export const FIND_ITEM_LABEL = "Find an item";
+export const SHOW_INACTIVE_LABEL = "Show inactive items";
+
+// An option is shown when it is active (no flag counts as active) or the switch is
+// on or it is ticked, and its label contains the typed text (case does not matter).
+export function visibleOptions(options, query, showInactive, ticked) {
+  const needle = (query || "").trim().toLowerCase();
+  return (options || []).filter((o) => {
+    const inactive = o.active === false;
+    if (inactive && !showInactive && !ticked.includes(o.value)) return false;
+    return needle === "" || String(o.label).toLowerCase().includes(needle);
+  });
+}
 
 // "0.0500" → "5.00%": digits only, no float. The API stores the rate quantized to four
 // places; any plain decimal string is handled by moving the point two places.
@@ -105,6 +121,8 @@ export function EditPolicy({ p, categories, busy, onCancel, onSave }) {
   const [items, setItems] = useState(stored ? stored.item_ids || [] : []);
   const [none, setNone] = useState(Boolean(stored && p.kind === "surcharge" && (stored.item_ids || []).length === 0 && !stored.rate));
   const [ref, setRef] = useState("");
+  const [query, setQuery] = useState(""); // F08.2: the pick-list's search box
+  const [showInactive, setShowInactive] = useState(false);
 
   function value() {
     if (p.kind === "month") return Number.isNaN(parseInt(text, 10)) ? text : parseInt(text, 10);
@@ -169,23 +187,41 @@ export function EditPolicy({ p, categories, busy, onCancel, onSave }) {
     );
   } else if (itemKind) {
     const options = p.options || [];
+    const shown = visibleOptions(options, query, showInactive, items);
     const picks = options.length === 0
       ? [h("div", { key: "none", className: "hint" }, "No QuickBooks items are held yet. Connect QuickBooks and run a backfill, then create the items (OPERATIONS, Jobs).")]
-      : options.map((o) =>
+      : [
           h(
             "label",
-            { key: o.value, className: "small" },
-            h("input", {
-              type: "checkbox",
-              checked: items.includes(o.value),
-              disabled: busy || none,
-              onChange: (e) => toggleItem(o.value, e.target.checked),
-            }),
+            { key: "find", className: "label" },
+            FIND_ITEM_LABEL,
+            h("input", { className: "input", type: "search", value: query, onChange: (e) => setQuery(e.target.value), disabled: busy || none }),
+          ),
+          h(
+            "label",
+            { key: "inactive", className: "small" },
+            h("input", { type: "checkbox", checked: showInactive, disabled: busy || none, onChange: (e) => setShowInactive(e.target.checked) }),
             " ",
-            o.label,
+            SHOW_INACTIVE_LABEL,
             h("br"),
           ),
-        );
+          ...(shown.length === 0 ? [h("div", { key: "nomatch", className: "hint" }, "No item is named like that.")] : []),
+          ...shown.map((o) =>
+            h(
+              "label",
+              { key: o.value, className: "small" },
+              h("input", {
+                type: "checkbox",
+                checked: items.includes(o.value),
+                disabled: busy || none,
+                onChange: (e) => toggleItem(o.value, e.target.checked),
+              }),
+              " ",
+              o.label,
+              h("br"),
+            ),
+          ),
+        ];
     const children = [
       h("legend", null, p.kind === "item_ids" ? "QuickBooks deposit items" : "QuickBooks fuel surcharge items"),
       h("div", { className: "hint" }, p.kind === "item_ids" ? DEPOSIT_HINT : SURCHARGE_HINT),

@@ -12,6 +12,7 @@ from app.domain.jobs.models import NO_ESTIMATE_METHODS
 from app.domain.jobs.names import (
     customer_name_key,
     estimate_id_digits,
+    name_contains_estimate_number,
     name_starts_with_estimate_id,
     normalized,
     street_tokens,
@@ -24,6 +25,7 @@ SAME_CUSTOMER = "same customer"
 BY_CLIENT_NAME = "by client name only"
 BY_NAME = "by name only"
 ID_IN_NAME = "estimate id in name"
+NUMBER_IN_NAME = "name contains estimate number {number}"  # F08.2 (item 5)
 CUSTOMER_NAME = "customer name"
 ADDRESS = "address"
 CUSTOMER_NAME_AND_ADDRESS = "customer name and address"
@@ -92,11 +94,17 @@ class EstimateText:
     name: str | None
 
 
+def number_in_name(digits: str) -> str:
+    return NUMBER_IN_NAME.format(number=digits)
+
+
 @dataclass(frozen=True)
 class QboCandidate:
     row: CustomerRow
     reason: str
-    rank: int  # 0 id in name, 1 customer name and address, 2 one of the two
+    # 0 the name begins with the estimate id; 1 the name contains the estimate number
+    # (F08.2); 2 customer name and address; 3 one of the two
+    rank: int
 
 
 def _suggestable(row: CustomerRow, aliased: set[str]) -> bool:
@@ -111,8 +119,11 @@ def _suggestable(row: CustomerRow, aliased: set[str]) -> bool:
 def qbo_candidates(
     estimates: Sequence[EstimateText], rows: Sequence[CustomerRow], aliased: set[str]
 ) -> list[QboCandidate]:
-    """The three exact rules (brief, QuickBooks link; owner's answer 11), each
-    labelled. A row matching no rule is not suggested; nothing is linked here."""
+    """The exact rules (brief, QuickBooks link; owner's answer 11; F08.2 item 5: the
+    estimate number anywhere in the name, not only at its start), each labelled, over
+    the F07 scope (``_suggestable``: an active project or sub-customer not yet linked,
+    tracked or not; never a top-level customer). A row matching no rule is not
+    suggested; nothing is linked here."""
     digits = [d for d in (estimate_id_digits(e.external_id) for e in estimates) if d]
     client_keys = {k for k in (customer_name_key(e.client_name) for e in estimates) if k}
     places: set[str] = set()
@@ -123,17 +134,22 @@ def qbo_candidates(
         if not _suggestable(row, aliased):
             continue
         by_id = any(name_starts_with_estimate_id(row.display_name, d) for d in digits)
+        contains = next(
+            (d for d in digits if name_contains_estimate_number(row.display_name, d)), None
+        )
         owner_key = customer_name_key(row.parent_name if row.parent_id else row.display_name)
         by_name = owner_key is not None and owner_key in client_keys
         by_address = bool(street_tokens(row.display_name) & places)
         if by_id:
             out.append(QboCandidate(row, ID_IN_NAME, 0))
+        elif contains is not None:
+            out.append(QboCandidate(row, number_in_name(contains), 1))
         elif by_name and by_address:
-            out.append(QboCandidate(row, CUSTOMER_NAME_AND_ADDRESS, 1))
+            out.append(QboCandidate(row, CUSTOMER_NAME_AND_ADDRESS, 2))
         elif by_name:
-            out.append(QboCandidate(row, CUSTOMER_NAME, 2))
+            out.append(QboCandidate(row, CUSTOMER_NAME, 3))
         elif by_address:
-            out.append(QboCandidate(row, ADDRESS, 2))
+            out.append(QboCandidate(row, ADDRESS, 3))
     return sorted(out, key=lambda c: (c.rank, c.row.display_name.casefold(), c.row.external_id))
 
 

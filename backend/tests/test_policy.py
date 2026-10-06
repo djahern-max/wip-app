@@ -310,16 +310,29 @@ def test_the_two_item_keys_take_the_tenants_items_and_refuse_what_it_does_not_ha
     apply_payloads(
         rw_engine, fresh_tenant, [("Item", item_payload("904", "Old deposit item", active=False))]
     )
+    # F08.2: a deleted item (a deletion stub as its latest raw version) is held too,
+    # marked, with its flag; the page keeps it behind "Show inactive items".
+    apply_payloads(rw_engine, fresh_tenant, [("Item", item_payload("905", "Gone deposit item"))])
+    apply_payloads(
+        rw_engine,
+        fresh_tenant,
+        [("Item", item_payload("905", "Gone deposit item"))],
+        deleted=True,
+    )
     rows = {p["key"]: p for p in admin.get("/api/config/policy").json()}
     options = rows["deposit_identification"]["options"]
-    assert [o["value"] for o in options] == [DEPOSIT_ITEM, FUEL_ITEM, "904", WORK_ITEM]  # by name
+    assert [o["value"] for o in options] == [DEPOSIT_ITEM, FUEL_ITEM, "905", "904", WORK_ITEM]
     assert [o["label"] for o in options] == [
         "Customer deposit",
         "Fuel surcharge (EX)",
+        "Gone deposit item (deleted)",
         "Old deposit item (inactive)",
         "Site work",
     ]
+    assert [o["active"] for o in options] == [True, True, False, False, True]
     assert rows["fuel_surcharge_treatment"]["options"] == options
+    status, body = _put(admin, "deposit_identification", {"item_ids": ["905"]})
+    assert status == 200 and body["value"] == {"item_ids": ["905"]}  # accepted like an inactive one
 
     with tenant_session(rw_engine, fresh_tenant) as s:
         before = len(_audit_rows(s, "deposit_identification"))
@@ -341,9 +354,9 @@ def test_the_two_item_keys_take_the_tenants_items_and_refuse_what_it_does_not_ha
     with tenant_session(rw_engine, fresh_tenant) as s:
         rows_ = _audit_rows(s, "deposit_identification")
         assert len(rows_) == before + 2
-        assert rows_[-2].get("before") is None and rows_[-2]["after"]["value"] == {
-            "item_ids": [DEPOSIT_ITEM, WORK_ITEM, "904"]
-        }
+        assert rows_[-2]["before"]["value"] == {"item_ids": ["905"]} and rows_[-2]["after"][
+            "value"
+        ] == {"item_ids": [DEPOSIT_ITEM, WORK_ITEM, "904"]}
         assert rows_[-1]["before"]["value"] == {"item_ids": [DEPOSIT_ITEM, WORK_ITEM, "904"]}
         assert rows_[-1]["after"] == {"value": {"item_ids": [DEPOSIT_ITEM]}, "decision_ref": ""}
         assert policy.deposit_items(s) == frozenset({DEPOSIT_ITEM})

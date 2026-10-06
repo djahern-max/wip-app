@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { formatMoney } from "../money.js";
-import { amountOr, daysWords, figureOr, filterQuery, qboCell } from "../jobs.js";
+import { amountOr, daysWords, figureOr, filterQuery, qboCell, tieOutText } from "../jobs.js";
 import Attention from "./JobAttention.jsx";
 import JobDetail from "./JobDetail.jsx";
 import JobReview from "./JobReview.jsx";
@@ -25,6 +25,7 @@ export default function Jobs({ me, canManage, target, onOpenEstimate }) {
   const [jobId, setJobId] = useState(null);
   const [reviewStart, setReviewStart] = useState(null); // F07.1: {estimateId, externalId}
   const [data, setData] = useState(null);
+  const [tie, setTie] = useState(null); // F08.2: the tie-out answers after the rows
   const [filters, setFilters] = useState({ status: "", division_id: "", revenue_method: "", no_link: false });
   const [pool, setPool] = useState({ kind: "pool", name: "", division_id: "" });
   const [busy, setBusy] = useState(false);
@@ -54,6 +55,16 @@ export default function Jobs({ me, canManage, target, onOpenEstimate }) {
       .then(setData)
       .catch(() => setError("The jobs could not be loaded. Refresh the page."));
   }, [me.active_tenant_id, view, filters, reload]);
+
+  // The tie-out is over every job whatever the filter, and is its own request, so
+  // the board's rows show first and the line reads "checking…" until it answers.
+  useEffect(() => {
+    if (view !== "list") return;
+    setTie(null);
+    api("GET", "/api/jobs/tie-out")
+      .then(setTie)
+      .catch(() => setTie(false));
+  }, [me.active_tenant_id, view, reload]);
 
   function openJob(id) {
     setJobId(id);
@@ -176,7 +187,7 @@ export default function Jobs({ me, canManage, target, onOpenEstimate }) {
           <p className="hint">
             {data.tenant_name}. Figures to date as of {data.as_of}, from QuickBooks: a deposit is the invoice
             numbered estimate_DEP on a deposit item (D-02); fuel surcharge lines are outside billed to date (D-39).
-            Tie-out: {data.tie_out.status}
+            {tieOutText(tie)}
           </p>
           {data.policy_note && <p className="hint">{data.policy_note}</p>}
           <div className="toolbar">

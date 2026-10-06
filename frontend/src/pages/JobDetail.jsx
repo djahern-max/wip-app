@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { formatMoney } from "../money.js";
-import { amountOr, appliedWords, daysWords, figureOr, offersInProgress, reasonText } from "../jobs.js";
+import { amountOr, appliedWords, daysWords, figureOr, offersInProgress, pendingLabel, reasonText } from "../jobs.js";
 import { KindActions } from "../kindActions.js";
 import Attention from "./JobAttention.jsx";
 
@@ -22,6 +22,7 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
   const [query, setQuery] = useState("");
   const [results, setResults] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState(null); // F08.2: {id, action} of the pressed Link or Unlink
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null); // F07.1: what "Confirm all as suggested" did
   const [setInProgress, setSetInProgress] = useState(true); // D-35: offered for a sold job
@@ -100,14 +101,28 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
   }
 
   async function link(externalId) {
-    const ok = await run(() =>
-      api("POST", `/api/jobs/${jobId}/aliases`, {
-        system: "qbo_customer",
-        external_id: externalId,
-        set_in_progress: offersInProgress(job) && setInProgress,
-      }),
-    );
-    if (ok) setResults(null);
+    setPending({ id: externalId, action: "link" });
+    try {
+      const ok = await run(() =>
+        api("POST", `/api/jobs/${jobId}/aliases`, {
+          system: "qbo_customer",
+          external_id: externalId,
+          set_in_progress: offersInProgress(job) && setInProgress,
+        }),
+      );
+      if (ok) setResults(null);
+    } finally {
+      setPending(null);
+    }
+  }
+
+  async function unlink(aliasId) {
+    setPending({ id: aliasId, action: "unlink" });
+    try {
+      await run(() => api("DELETE", `/api/jobs/${jobId}/aliases/${aliasId}`));
+    } finally {
+      setPending(null);
+    }
   }
 
   if (!job) {
@@ -481,13 +496,8 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
               {a.display_name || a.external_id} ({a.kind_label || "QuickBooks"}, id {a.external_id})
               {a.linked_by ? `, linked by ${a.linked_by}` : ""}{" "}
               {canManage && (
-                <button
-                  type="button"
-                  className="link-button"
-                  disabled={busy}
-                  onClick={() => run(() => api("DELETE", `/api/jobs/${jobId}/aliases/${a.id}`))}
-                >
-                  Unlink
+                <button type="button" className="link-button" disabled={busy} onClick={() => unlink(a.id)}>
+                  {pendingLabel("unlink", pending, a.id) || "Unlink"}
                 </button>
               )}
             </li>
@@ -513,7 +523,7 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
       ) : suggestions.length === 0 ? (
         <p className="hint">Nothing is suggested. Search for the project below.</p>
       ) : (
-        <QboRows rows={suggestions} canManage={canManage} busy={busy} onLink={link} />
+        <QboRows rows={suggestions} canManage={canManage} busy={busy} pending={pending} onLink={link} />
       )}
       {canManage && (
         <>
@@ -529,7 +539,7 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
           {results && (results.length === 0 ? (
             <p className="hint">No active, unlinked QuickBooks row has that in its name.</p>
           ) : (
-            <QboRows rows={results} canManage={canManage} busy={busy} onLink={link} />
+            <QboRows rows={results} canManage={canManage} busy={busy} pending={pending} onLink={link} />
           ))}
         </>
       )}
@@ -544,7 +554,7 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
   );
 }
 
-function QboRows({ rows, canManage, busy, onLink }) {
+function QboRows({ rows, canManage, busy, pending, onLink }) {
   return (
     <div className="table-wrap">
       <table className="table">
@@ -567,7 +577,7 @@ function QboRows({ rows, canManage, busy, onLink }) {
               {canManage && (
                 <td>
                   <button type="button" className="link-button" disabled={busy} onClick={() => onLink(r.external_id)}>
-                    Link
+                    {pendingLabel("link", pending, r.external_id) || "Link"}
                   </button>
                 </td>
               )}

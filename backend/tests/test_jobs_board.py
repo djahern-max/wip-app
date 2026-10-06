@@ -534,12 +534,9 @@ def test_money_not_on_a_job_is_one_row_and_a_second_tenant_sees_nothing(
         body["totals"]["billed_to_date"] == "1000.00"
         and body["totals"]["collected_to_date"] == "600.00"
     )
-    assert (
-        body["tie_out"]["balanced"] is True and body["tie_out"]["months"] == 2
-    )  # 2026-08, 2026-09
-    assert (
-        body["tie_out"]["status"] == "Ties to the cent to the QuickBooks month totals (2 months)."
-    )
+    tie = t.get("/api/jobs/tie-out")  # F08.2: its own request; 2026-08, 2026-09
+    assert "tie_out" not in body and tie["balanced"] is True and tie["months"] == 2
+    assert tie["status"] == "Ties to the cent to the QuickBooks month totals (2 months)."
     assert body["tenant_name"] and body["as_of"] and body["policy_note"] is None
     # Moving the document to an untracked row moves its amount, and the tie still holds.
     moved = dict(on_job, CustomerRef={"value": UNTRACKED})
@@ -550,7 +547,7 @@ def test_money_not_on_a_job_is_one_row_and_a_second_tenant_sees_nothing(
         body["not_on_a_job"]["billed_to_date"] == str(D("1200.00") + OCEAN_SEED)
         and body["not_on_a_job"]["collected_to_date"] == "600.00"
     )
-    assert body["tie_out"]["balanced"] is True
+    assert t.get("/api/jobs/tie-out")["balanced"] is True
     # The totals row follows the filters.
     assert t.get("/api/jobs?status=sold")["totals"]["collected_to_date"] == "0.00"
 
@@ -560,7 +557,7 @@ def test_money_not_on_a_job_is_one_row_and_a_second_tenant_sees_nothing(
     o = make_tenant(seed, rw_engine, login_as, new_fresh_tenant(seed, owner_engine), load=False)
     body = o.get("/api/jobs")
     assert body["jobs"] == [] and body["not_on_a_job"]["billed_to_date"] is None
-    assert body["tie_out"]["months"] == 1 and body["policy_note"]  # the seed row only
+    assert o.get("/api/jobs/tie-out")["months"] == 1 and body["policy_note"]  # the seed row only
 
 
 def test_undecided_keys_leave_their_figures_unset_and_say_so(
@@ -596,7 +593,8 @@ def test_undecided_keys_leave_their_figures_unset_and_say_so(
         None,
     )
     assert (b["collected_to_date"], b["open_ar"]) == ("0.00", "100.00")
-    assert body["totals"]["billed_to_date"] is None and body["tie_out"]["balanced"] is True
+    assert body["totals"]["billed_to_date"] is None
+    assert t.get("/api/jobs/tie-out")["balanced"] is True
     detail = t.job(job["id"])
     assert (
         detail["policy_note"] == body["policy_note"]
@@ -628,6 +626,7 @@ def test_nothing_is_stored_and_a_read_writes_nothing(t: Tenant) -> None:
     )
     seen = t.audit_rows()
     t.get("/api/jobs")
+    t.get("/api/jobs/tie-out")
     t.job(job["id"])
     t.get("/api/home")
     assert t.audit_rows() == seen

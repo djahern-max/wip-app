@@ -120,3 +120,25 @@ export function appliedWords(applied) {
   if (!applied || applied.length === 0) return "Nothing";
   return applied.map((a) => `${a.document}: ${formatMoney(a.amount)}`).join("; ");
 }
+
+// --- F08.2 ---------------------------------------------------------------------------
+
+// The tie-out line (item 2): the board's rows show first; the status is its own
+// request. null: not answered yet; false: the request failed; else the API's words.
+export function tieOutText(tie) {
+  if (tie === null || tie === undefined) return "Tie-out: checking…";
+  if (tie === false) return "Tie-out: could not be checked. Refresh the page.";
+  return `Tie-out: ${tie.status}`;
+}
+
+// The busy state of Link and Unlink (item 4; D-22): the pressed control reads what is
+// happening while its request is in flight; the others are only disabled.
+// `pending` is {id, action} or null; the id is the QuickBooks row's external id for
+// a link and the alias id for an unlink.
+export const PENDING_WORDS = { link: "Linking…", unlink: "Unlinking…" };
+
+export function pendingLabel(action, pending, id) {
+  if (!pending || pending.action !== action || pending.id !== id) return null;
+  return PENDING_WORDS[action] || null;
+}
+

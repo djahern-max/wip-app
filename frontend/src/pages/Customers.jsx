@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
-import { jobCell, pageLabel, resultSentence, trackLabel, trackedSentence, untrackLabel } from "../customers.js";
+import { jobCell, pageLabel, pendingLabel, resultSentence, trackLabel, trackedSentence, untrackLabel } from "../customers.js";
 import CustomerDuplicates from "./CustomerDuplicates.jsx";
 
 // Customers (F07.2, D-37): the owner picks the QuickBooks customers and projects to work
@@ -17,6 +17,7 @@ export default function Customers({ me, onOpenJob }) {
   const [asked, setAsked] = useState(""); // the text the shown results are for
   const [result, setResult] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState(null); // F08.2: {id, action} of the pressed control
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -52,6 +53,7 @@ export default function Customers({ me, onOpenJob }) {
 
   async function act(row, action) {
     setBusy(true);
+    setPending({ id: row.customer_id, action });
     setError(null);
     try {
       setTracked(await api("POST", `/api/customers/${row.customer_id}/${action}`));
@@ -60,6 +62,7 @@ export default function Customers({ me, onOpenJob }) {
       setError(err.detail || `The row could not be ${action === "track" ? "tracked" : "untracked"}. Try again.`);
     } finally {
       setBusy(false);
+      setPending(null);
     }
   }
 
@@ -138,7 +141,7 @@ export default function Customers({ me, onOpenJob }) {
                               <span className="muted">{untrackLabel(r)}</span>
                             ) : (
                               <button type="button" className="button" disabled={busy} onClick={() => act(r, "untrack")}>
-                                {untrackLabel(r)}
+                                {pendingLabel("untrack", pending, r.customer_id) || untrackLabel(r)}
                               </button>
                             )}
                           </td>
@@ -200,7 +203,7 @@ export default function Customers({ me, onOpenJob }) {
                             <span className="muted">{trackLabel(r)}</span>
                           ) : (
                             <button type="button" className="button" disabled={busy} onClick={() => act(r, "track")}>
-                              {trackLabel(r)}
+                              {pendingLabel("track", pending, r.customer_id) || trackLabel(r)}
                             </button>
                           )}
                         </td>
