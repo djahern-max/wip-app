@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.authz import CAPABILITIES
+from app.domain.billing.board import load_board, money_str
 from app.domain.config.burden import active_burden_rates, pick_rate
 from app.domain.config.models import (
     AccountMap,
@@ -109,19 +110,27 @@ def setup_facts(db: Session, tenant_id: UUID, role: Role | None) -> SetupFacts:
 
 
 def job_facts(db: Session, tenant_id: UUID) -> list[JobFacts]:
-    return [
-        JobFacts(
-            id=str(v.job.id),
-            name=v.job.name,
-            status=v.job.status,
-            status_label=JOB_STATUS_LABELS[v.job.status],
-            revenue_method=v.job.revenue_method,
-            to_confirm=v.contract.to_confirm,
-            qbo_linked=bool(v.qbo_aliases),
-            needs_link=any(i.code == "JOB_NO_LEDGER_LINK" for i in v.issues),
+    views = jobs.list_jobs(db, tenant_id)
+    board = load_board(db, tenant_id, views)  # F08: the three billing needs
+    out = []
+    for v in views:
+        f = board.per_job[v.job.id]
+        out.append(
+            JobFacts(
+                id=str(v.job.id),
+                name=v.job.name,
+                status=v.job.status,
+                status_label=JOB_STATUS_LABELS[v.job.status],
+                revenue_method=v.job.revenue_method,
+                to_confirm=v.contract.to_confirm,
+                qbo_linked=bool(v.qbo_aliases),
+                needs_link=any(i.code == "JOB_NO_LEDGER_LINK" for i in v.issues),
+                unapplied_payments=(money_str(f.unapplied_payments) if f.unapplied_count else None),
+                deposit_not_identified=len(f.deposit_mismatches),
+                billed_over_contract=money_str(f.over_contract),
+            )
         )
-        for v in jobs.list_jobs(db, tenant_id)
-    ]
+    return out
 
 
 def home(db: Session, tenant_id: UUID, role: Role | None) -> HomeView:

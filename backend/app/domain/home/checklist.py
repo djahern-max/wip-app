@@ -9,15 +9,27 @@ never codes; links only to pages the person's role can open (the facts say which
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-from app.domain.config.policy import TIMEZONE, WIP_BASIS
+from app.domain.config.policy import (
+    DEPOSIT_IDENTIFICATION,
+    FUEL_SURCHARGE_TREATMENT,
+    TIMEZONE,
+    WIP_BASIS,
+)
 from app.domain.estimates.totals import BURDEN_SLOT
 
 # The policy keys a feature already reads. Each feature that starts reading a key adds
 # it here (owner, 2026-10-04): F07 reads the time zone (Sold on, the estimate dates); F06
-# reads the WIP basis (EAC in the basis). The other keys are decided when their features
-# arrive and never block a first job. The names come from the registry's constants: a key
-# is a string literal only in ``app/domain/config/policy.py`` (tests/test_policy.py).
-REQUIRED_POLICY_KEYS: tuple[str, ...] = (TIMEZONE, WIP_BASIS)
+# reads the WIP basis (EAC in the basis); F08 reads the deposit items (D-02) and the fuel
+# surcharge items (D-39) for billed to date. The other keys are decided when their
+# features arrive and never block a first job. The names come from the registry's
+# constants: a key is a string literal only in ``app/domain/config/policy.py``
+# (tests/test_policy.py).
+REQUIRED_POLICY_KEYS: tuple[str, ...] = (
+    TIMEZONE,
+    WIP_BASIS,
+    DEPOSIT_IDENTIFICATION,
+    FUEL_SURCHARGE_TREATMENT,
+)
 
 LISTED_JOB_STATUSES = frozenset({"sold", "in_progress", "substantially_complete"})
 
@@ -317,6 +329,10 @@ class JobFacts:
     to_confirm: int
     qbo_linked: bool
     needs_link: bool  # JOB_NO_LEDGER_LINK is on the job (F07, D-35)
+    # F08 (billing side); defaults so the F07.3 facts and tests stand as they are.
+    unapplied_payments: str | None = None  # PAYMENT_UNAPPLIED: the amount, cents, as the API
+    deposit_not_identified: int = 0  # DEPOSIT_NOT_IDENTIFIED: documents on the job
+    billed_over_contract: str | None = None  # BILLED_OVER_CONTRACT: the amount over
 
 
 @dataclass(frozen=True)
@@ -360,9 +376,69 @@ def _backlog(j: JobFacts) -> Need | None:
     return None
 
 
-# First rule that applies wins. F08 onward add theirs (a billing request due, a cost
-# without a job…) with a sentence and a test.
-JOB_NEEDS: tuple[Callable[[JobFacts], Need | None], ...] = (_confirm, _link, _backlog)
+# --- F08: the billing side, appended in the brief's order ----------------------------------
+
+
+def _money_words(amount: str) -> str:
+    """A cents string from the API as the sentence prints it: thousands separated,
+    negatives in parentheses (D-22). Digits only; no float."""
+    negative = amount.startswith("-")
+    whole, _, cents = amount.lstrip("-").partition(".")
+    groups = []
+    while len(whole) > 3:
+        groups.insert(0, whole[-3:])
+        whole = whole[:-3]
+    groups.insert(0, whole)
+    text = f"{','.join(groups)}.{(cents + '00')[:2]}"
+    return f"({text})" if negative else text
+
+
+def _unapplied(j: JobFacts) -> Need | None:
+    if j.unapplied_payments is not None:
+        return Need(
+            "payment_unapplied",
+            f"{_money_words(j.unapplied_payments)} received is not applied to any invoice "
+            "(D-02). Apply it in QuickBooks once the invoice exists.",
+            Link("jobs", job_id=j.id),
+        )
+    return None
+
+
+def _deposit(j: JobFacts) -> Need | None:
+    if j.deposit_not_identified:
+        n = j.deposit_not_identified
+        return Need(
+            "deposit_not_identified",
+            f"{n} {_plural(n, 'document is', 'documents are')} not identified as the deposit "
+            "(D-02): fix the item or the number in QuickBooks.",
+            Link("jobs", job_id=j.id),
+            n,
+        )
+    return None
+
+
+def _over_contract(j: JobFacts) -> Need | None:
+    if j.billed_over_contract is not None:
+        return Need(
+            "billed_over_contract",
+            f"Billed {_money_words(j.billed_over_contract)} over the revised contract: likely "
+            "a change order not yet approved.",
+            Link("jobs", job_id=j.id),
+        )
+    return None
+
+
+# First rule that applies wins. F08 appended its three after the F07 ones, in the brief's
+# order (PAYMENT_UNAPPLIED, DEPOSIT_NOT_IDENTIFIED, BILLED_OVER_CONTRACT); later features
+# add theirs (a billing request due, a cost without a job…) with a sentence and a test.
+JOB_NEEDS: tuple[Callable[[JobFacts], Need | None], ...] = (
+    _confirm,
+    _link,
+    _backlog,
+    _unapplied,
+    _deposit,
+    _over_contract,
+)
 
 
 def next_need(j: JobFacts) -> Need:

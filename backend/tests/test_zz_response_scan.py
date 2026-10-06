@@ -4,6 +4,7 @@ values of those columns, and the audit tables for activation tokens (F02.1)."""
 
 import base64
 import json
+import re
 
 from sqlalchemy import Engine, text
 
@@ -141,3 +142,39 @@ def test_oauth_states_appear_only_in_the_authorization_url_and_never_in_audit(
         assert secret not in blob
     for state in states:
         assert sha256_hex(state) not in blob
+
+
+# --- F08: money in the job responses ---------------------------------------------------------
+
+_DECIMAL_STRING = re.compile(r"^-?\d+\.\d+$")
+
+
+def _walk(value, path: str, out: list[str]) -> None:
+    if isinstance(value, bool):
+        return
+    if isinstance(value, float):
+        out.append(f"float at {path}")
+    elif isinstance(value, str):
+        m = _DECIMAL_STRING.match(value)
+        if m and len(value.rsplit(".", 1)[1]) != 2:
+            out.append(f"decimal string with other than two places at {path}: {value}")
+    elif isinstance(value, dict):
+        for k, v in value.items():
+            _walk(v, f"{path}.{k}", out)
+    elif isinstance(value, list):
+        for i, v in enumerate(value):
+            _walk(v, f"{path}[{i}]", out)
+
+
+def test_every_money_value_in_the_job_responses_is_a_string_with_two_decimals() -> None:
+    """F08 (D-22; the F04 carried item): response-wide, not per field. Every JSON body
+    the suite received from a ``/api/jobs`` path holds no float and no decimal-looking
+    string with other than two places; counts are integers and dates carry no dot."""
+    bodies = [(w, b) for w, b in _json_bodies() if w.split(" ", 2)[1].startswith("/api/jobs")]
+    assert len(bodies) > 50
+    problems: list[str] = []
+    for where, body in bodies:
+        _walk(
+            json.loads(body), where, problems
+        )  # the standard loader: a number with a dot is a float
+    assert problems == []

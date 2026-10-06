@@ -35,6 +35,7 @@ from app.domain.config import burden, policy, service
 from app.domain.config.audit import Actor
 from app.domain.config.categories import cost_code, ensure_cost_categories
 from app.domain.config.chart import suggest
+from app.domain.config.items import QboItem, qbo_items
 from app.domain.config.models import (
     AccountMap,
     AccountSuggestRule,
@@ -429,9 +430,31 @@ def deactivate_burden_rate(request: Request, m: Manager, db: TenantSession, rate
 # --- policy -----------------------------------------------------------------------------------
 
 
-def _policy_out(spec: policy.PolicyKey, row: TenantPolicy | None, email: str | None) -> PolicyOut:
+def _item_options(items: list[QboItem]) -> list[PolicyOptionOut]:
+    """F08: the picker for the two item keys; an inactive item is said so in words."""
+    return [
+        PolicyOptionOut(value=i.external_id, label=i.name if i.active else f"{i.name} (inactive)")
+        for i in items
+    ]
+
+
+def _policy_out(
+    spec: policy.PolicyKey,
+    row: TenantPolicy | None,
+    email: str | None,
+    items: list[QboItem] | None = None,
+) -> PolicyOut:
     value = policy._plain(row.value) if row is not None else None
     zone = spec.key == policy.TIMEZONE  # the key name is a literal only in the registry
+    if spec.kind in policy.ITEM_KINDS:
+        options = _item_options(items or [])
+    elif zone:
+        options = [
+            PolicyOptionOut(value=v, label=label)
+            for v, label in policy.time_zone_options(value if row is not None else None)
+        ]
+    else:
+        options = None
     return PolicyOut(
         key=spec.key,
         label=spec.label,
@@ -445,21 +468,22 @@ def _policy_out(spec: policy.PolicyKey, row: TenantPolicy | None, email: str | N
         # F04.1: a blank reference is stored as "" and read as none.
         decision_ref=(row.decision_ref or None) if row is not None else None,
         waiting=spec.waiting,
-        options=[
-            PolicyOptionOut(value=v, label=label)
-            for v, label in policy.time_zone_options(value if row is not None else None)
-        ]
-        if zone
-        else None,
+        options=options,
     )
 
 
 @router.get("/policy", response_model=list[PolicyOut])
-def policies(_v: Viewer, db: TenantSession):
+def policies(v: Viewer, db: TenantSession):
     rows = {r.key: r for r in db.execute(select(TenantPolicy)).scalars()}
     emails = _emails(db, {r.decided_by for r in rows.values() if r.decided_by})
+    items = qbo_items(db, v.active_tenant_id)
     return [
-        _policy_out(spec, rows.get(key), emails.get(rows[key].decided_by) if key in rows else None)
+        _policy_out(
+            spec,
+            rows.get(key),
+            emails.get(rows[key].decided_by) if key in rows else None,
+            items,
+        )
         for key, spec in policy.POLICY_KEYS.items()
     ]
 
@@ -491,7 +515,9 @@ def set_policy(request: Request, p: PolicySetter, db: TenantSession, key: str, b
         raise HTTPException(
             status_code=422, detail=f"{policy.POLICY_KEYS[key].label} needs {exc}."
         ) from None
-    return _policy_out(policy.POLICY_KEYS[key], row, p.user.email)
+    return _policy_out(
+        policy.POLICY_KEYS[key], row, p.user.email, qbo_items(db, p.active_tenant_id)
+    )
 
 
 # --- suggest rules ------------------------------------------------------------------------------

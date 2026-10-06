@@ -8,16 +8,20 @@ attached or linked except by a person's request naming an id.
 """
 
 from datetime import date
+from decimal import Decimal
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.schemas import (
     AttachCandidateOut,
+    BillingHistoryOut,
+    BillingTotalsOut,
     ChoiceOut,
     ConfirmSuggestedOut,
     CustomerPickOut,
@@ -28,16 +32,20 @@ from app.api.schemas import (
     DuplicatesOut,
     EstimateIssueOut,
     JobAliasOut,
+    JobBillingOut,
     JobDetailOut,
     JobEstimateOut,
     JobRefOut,
     JobRowOut,
     JobsOut,
     JobWorkAreaOut,
+    PaymentAppliedOut,
+    PaymentHistoryOut,
     QboRowOut,
     QboRowsOut,
     ReviewEntryOut,
     ReviewOut,
+    TieOutOut,
     TrackedOut,
 )
 from app.core.audit import request_meta
@@ -48,13 +56,16 @@ from app.core.authz import (
     can_view_customer_duplicates,
     can_view_jobs,
 )
+from app.domain.billing import export
+from app.domain.billing.board import Board, TieRow, load_board, money_str, tie_out, tie_out_status
+from app.domain.billing.figures import JobFigures, Totals, totals
 from app.domain.config.audit import Actor
 from app.domain.config.models import Division
 from app.domain.estimates.exceptions import Issue
 from app.domain.estimates.models import STATUS_LABELS
 from app.domain.estimates.service import money
 from app.domain.jobs import service
-from app.domain.jobs.issues import sentence
+from app.domain.jobs.issues import billing_issues, sentence
 from app.domain.jobs.models import (
     ALIAS_SYSTEM_LABELS,
     JOB_STATUS_LABELS,
@@ -65,6 +76,7 @@ from app.domain.jobs.models import (
     ROLES,
 )
 from app.domain.jobs.suggest import CustomerRow, suggested_kind
+from app.tenancy.models import Tenant
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 customers_router = APIRouter(prefix="/customers", tags=["customers"])
@@ -174,11 +186,122 @@ def _eac_note(v: service.JobView) -> str | None:
     return None
 
 
-def _row(v: service.JobView) -> dict:
+def _remaining_note(v: service.JobView, f: JobFigures) -> str | None:
+    """Why remaining to bill is not shown (D-24, D-30, D-35), in words."""
+    if f.remaining_to_bill is not None:
+        return None
+    if v.job.revenue_method != "fixed_price":
+        return f"Not shown: {REVENUE_METHOD_LABELS[v.job.revenue_method]} has no contract."
+    if v.contract.revised_contract is None:
+        return "Not shown: no original estimate."
+    return None  # a policy key is undecided; the page's note says so
+
+
+def _deposit_note(f: JobFigures) -> str | None:
+    n = len(f.deposit_mismatches)
+    if n == 0:
+        return None
+    return (
+        f"{n} document{'' if n == 1 else 's'} look{'s' if n == 1 else ''} like the deposit "
+        "but is not identified as one; see Attention."
+    )
+
+
+def _billing(v: service.JobView, f: JobFigures) -> JobBillingOut:
+    return JobBillingOut(
+        deposit_invoiced=money_str(f.deposit_invoiced),
+        deposit_received=money_str(f.deposit_received),
+        billed_to_date=money_str(f.billed_to_date),
+        fuel_surcharge_billed=money_str(f.fuel_surcharge_billed),
+        collected_to_date=money_str(f.collected_to_date),
+        open_ar=money_str(f.open_ar),
+        unapplied_payments=money_str(f.unapplied_payments),
+        remaining_to_bill=money_str(f.remaining_to_bill),
+        remaining_to_bill_note=_remaining_note(v, f),
+        last_billing_date=f.last_billing_date.isoformat() if f.last_billing_date else None,
+        last_payment_date=f.last_payment_date.isoformat() if f.last_payment_date else None,
+        days_since_activity=f.days_since_activity,
+        deposit_note=_deposit_note(f),
+    )
+
+
+def _totals_out(t: Totals) -> BillingTotalsOut:
+    return BillingTotalsOut(
+        deposit_invoiced=money_str(t.deposit_invoiced),
+        deposit_received=money_str(t.deposit_received),
+        billed_to_date=money_str(t.billed_to_date),
+        fuel_surcharge_billed=money_str(t.fuel_surcharge_billed),
+        collected_to_date=money_str(t.collected_to_date),
+        open_ar=money_str(t.open_ar),
+        unapplied_payments=money_str(t.unapplied_payments),
+        remaining_to_bill=money_str(t.remaining_to_bill),
+    )
+
+
+def _not_on_a_job_out(f: JobFigures) -> BillingTotalsOut:
+    return _totals_out(totals([f]))
+
+
+def _tie_out_out(rows: list[TieRow]) -> TieOutOut:
+    off = [r.month for r in rows if not r.balanced]
+    return TieOutOut(
+        status=tie_out_status(rows), balanced=not off, months=len(rows), months_off=off
+    )
+
+
+def _history(f: JobFigures) -> tuple[list[BillingHistoryOut], list[PaymentHistoryOut]]:
+    documents = [
+        BillingHistoryOut(
+            billing_id=d.doc.id,
+            kind=d.doc.kind,
+            kind_label=d.kind_label,
+            external_id=d.doc.external_id,
+            doc_number=d.doc.doc_number,
+            txn_date=d.doc.txn_date.isoformat(),
+            total=money_str(d.sign * d.doc.total),
+            sales_tax=money_str(d.sign * d.doc.tax_total),
+            fuel_surcharge=money_str(d.surcharge),
+            billed=money_str(d.billed),
+            counted=d.counted,
+            balance=money_str(d.sign * d.doc.balance),
+            is_deposit=d.is_deposit,
+            state_label=d.state_label,
+        )
+        for d in f.documents
+    ]
+    payments = [
+        PaymentHistoryOut(
+            payment_id=p.payment_id,
+            kind=p.kind,
+            kind_label=p.kind_label,
+            external_id=p.external_id,
+            txn_date=p.txn_date.isoformat(),
+            total=money_str(p.total),
+            applied=[
+                PaymentAppliedOut(document=doc, amount=money_str(amt)) for doc, amt in p.applied
+            ],
+            unapplied=money_str(p.unapplied),
+            on_this_job=p.on_this_job,
+            state_label="Deleted" if p.deleted else "",
+        )
+        for p in f.payments
+    ]
+    return documents, payments
+
+
+def _tenant_name(db: Session, tenant_id: UUID) -> str:
+    row = db.get(Tenant, tenant_id)
+    return row.name if row is not None else ""
+
+
+def _row(v: service.JobView, f: JobFigures) -> dict:
     job = v.job
+    original = v.original
     return {
         "id": str(job.id),
         "name": job.name,
+        "estimate_number": original.estimate.external_id if original else None,
+        "estimator": original.estimate.estimator if original else None,
         "customer_name": v.customer.display_name if v.customer else None,
         "division_id": str(job.division_id) if job.division_id else None,
         "division_code": v.division.code if v.division else None,
@@ -201,7 +324,8 @@ def _row(v: service.JobView) -> dict:
             else a.external_id
             for a in v.qbo_aliases
         ],
-        "attention": _issues(v.issues),
+        "attention": _issues([*v.issues, *billing_issues(job.name, f)]),
+        "billing": _billing(v, f),
     }
 
 
@@ -226,7 +350,10 @@ def _confirm_message(confirmed: int, skipped: int) -> str:
     return text + "."
 
 
-def _detail(db: Session, v: service.JobView) -> JobDetailOut:
+def _detail(db: Session, tenant_id: UUID, v: service.JobView) -> JobDetailOut:
+    board = load_board(db, tenant_id, [v])
+    f = board.per_job[v.job.id]
+    documents, payments = _history(f)
     original = v.original
     work_areas: list[JobWorkAreaOut] = []
     if original is not None:
@@ -248,7 +375,12 @@ def _detail(db: Session, v: service.JobView) -> JobDetailOut:
                 )
             )
     return JobDetailOut(
-        **_row(v),
+        **_row(v, f),
+        billing_history=documents,
+        payment_history=payments,
+        tenant_name=_tenant_name(db, tenant_id),
+        as_of=board.today.isoformat(),
+        policy_note=board.policy_note,
         notes=v.job.notes,
         created_at=v.job.created_at.isoformat(),
         created_by=v.users.get(v.job.created_by) if v.job.created_by else None,
@@ -298,7 +430,7 @@ def _detail(db: Session, v: service.JobView) -> JobDetailOut:
 def _fresh_detail(db: Session, p: Principal, job_id: UUID) -> JobDetailOut:
     db.flush()
     db.expire_all()
-    return _detail(db, service.job_detail(db, p.active_tenant_id, job_id))
+    return _detail(db, p.active_tenant_id, service.job_detail(db, p.active_tenant_id, job_id))
 
 
 def _qbo_row(r: CustomerRow, reason: str | None) -> QboRowOut:
@@ -315,16 +447,77 @@ def _qbo_row(r: CustomerRow, reason: str | None) -> QboRowOut:
 # --- reads ---------------------------------------------------------------------------
 
 
+class _BoardPage:
+    """The Sold Jobs Board (F08): every job's figures from one board over all jobs (the
+    tie-out needs every job), the listed jobs after the filters, the totals over the
+    listed jobs, and the not-on-a-job row."""
+
+    def __init__(
+        self,
+        db: Session,
+        tenant_id: UUID,
+        *,
+        status: str | None,
+        division_id: UUID | None,
+        revenue_method: str | None,
+        no_link: bool,
+    ) -> None:
+        self.all_views = service.list_jobs(db, tenant_id)
+        self.board: Board = load_board(db, tenant_id, self.all_views)
+        self.views = [
+            v
+            for v in self.all_views
+            if (not status or v.job.status == status)
+            and (division_id is None or v.job.division_id == division_id)
+            and (not revenue_method or v.job.revenue_method == revenue_method)
+            and (not no_link or not v.qbo_aliases)
+        ]
+        self.tie_rows = tie_out(db, tenant_id, self.board)
+        self.tenant_name = _tenant_name(db, tenant_id)
+        self.filters = _filter_words(db, status, division_id, revenue_method, no_link)
+
+    def figures(self, v: service.JobView) -> JobFigures:
+        return self.board.per_job[v.job.id]
+
+    @property
+    def totals(self) -> Totals:
+        return totals([self.figures(v) for v in self.views])
+
+
+def _filter_words(
+    db: Session,
+    status: str | None,
+    division_id: UUID | None,
+    revenue_method: str | None,
+    no_link: bool,
+) -> str:
+    parts = []
+    if status:
+        parts.append(f"status {JOB_STATUS_LABELS.get(status, status)}")
+    if division_id is not None:
+        d = db.get(Division, division_id)
+        parts.append(f"division {d.code if d else division_id}")
+    if revenue_method:
+        parts.append(f"revenue method {REVENUE_METHOD_LABELS.get(revenue_method, revenue_method)}")
+    if no_link:
+        parts.append("no QuickBooks link")
+    return "All jobs" if not parts else "Jobs with " + ", ".join(parts)
+
+
+FilterStatus = Annotated[str | None, Query(max_length=30)]
+FilterMethod = Annotated[str | None, Query(max_length=30)]
+
+
 @router.get("", response_model=JobsOut)
 def list_jobs(
     viewer: Viewer,
     db: TenantSession,
-    status: Annotated[str | None, Query(max_length=30)] = None,
+    status: FilterStatus = None,
     division_id: UUID | None = None,
-    revenue_method: Annotated[str | None, Query(max_length=30)] = None,
+    revenue_method: FilterMethod = None,
     no_link: bool = False,
 ):
-    views = service.list_jobs(
+    page = _BoardPage(
         db,
         viewer.active_tenant_id,
         status=status or None,
@@ -333,14 +526,168 @@ def list_jobs(
         no_link=no_link,
     )
     return JobsOut(
-        jobs=[JobRowOut(**_row(v)) for v in views],
-        total=len(views),
+        jobs=[JobRowOut(**_row(v, page.figures(v))) for v in page.views],
+        total=len(page.views),
         to_review=len(service.review_queue(db, viewer.active_tenant_id)),
         divisions=_divisions(db),
         revenue_methods=_choices(REVENUE_METHODS, REVENUE_METHOD_LABELS),
         statuses=_choices(JOB_STATUSES, JOB_STATUS_LABELS),
         ledger_items=_issues(service.ledger_items(db)),
+        tenant_name=page.tenant_name,
+        as_of=page.board.today.isoformat(),
+        totals=_totals_out(page.totals),
+        not_on_a_job=_not_on_a_job_out(page.board.not_on_a_job),
+        policy_note=page.board.policy_note,
+        tie_out=_tie_out_out(page.tie_rows),
     )
+
+
+def _board_row(v: service.JobView, f: JobFigures) -> export.BoardRow:
+    b = _billing(v, f)
+    notes: dict[str, str] = {}
+    if v.contract.revised_contract is None:
+        notes["revised_contract"] = "None"
+    if f.remaining_to_bill is None:
+        notes["remaining_to_bill"] = b.remaining_to_bill_note or "Not decided"
+    if f.billed_to_date is None:
+        for key in (
+            "billed_to_date",
+            "fuel_surcharge_billed",
+            "deposit_invoiced",
+            "deposit_received",
+        ):
+            notes[key] = "Not decided"
+    if f.days_since_activity is None:
+        notes["days_since_activity"] = "No activity"
+    return export.BoardRow(
+        values={
+            "job": v.job.name,
+            "estimate_number": v.original.estimate.external_id if v.original else "",
+            "customer_name": v.customer.display_name if v.customer else "Not linked",
+            "division_code": v.division.code if v.division else "Not set",
+            "revenue_method_label": REVENUE_METHOD_LABELS[v.job.revenue_method],
+            "status_label": JOB_STATUS_LABELS[v.job.status],
+            "estimator": (v.original.estimate.estimator or "") if v.original else "",
+            "revised_contract": v.contract.revised_contract,
+            "deposit_invoiced": f.deposit_invoiced,
+            "deposit_received": f.deposit_received,
+            "billed_to_date": f.billed_to_date,
+            "fuel_surcharge_billed": f.fuel_surcharge_billed,
+            "collected_to_date": f.collected_to_date,
+            "open_ar": f.open_ar,
+            "remaining_to_bill": f.remaining_to_bill,
+            "days_since_activity": f.days_since_activity,
+        },
+        notes=notes,
+    )
+
+
+def _totals_row(label: str, t: Totals, *, revised: Decimal | None) -> export.BoardRow:
+    notes: dict[str, str] = {}
+    if t.billed_to_date is None:
+        for key in (
+            "billed_to_date",
+            "fuel_surcharge_billed",
+            "deposit_invoiced",
+            "deposit_received",
+        ):
+            notes[key] = "Not decided"
+    if t.remaining_to_bill is None:
+        notes["remaining_to_bill"] = ""
+    return export.BoardRow(
+        values={
+            "job": label,
+            "revised_contract": revised,
+            "deposit_invoiced": t.deposit_invoiced,
+            "deposit_received": t.deposit_received,
+            "billed_to_date": t.billed_to_date,
+            "fuel_surcharge_billed": t.fuel_surcharge_billed,
+            "collected_to_date": t.collected_to_date,
+            "open_ar": t.open_ar,
+            "remaining_to_bill": t.remaining_to_bill,
+        },
+        notes=notes,
+    )
+
+
+def _report(page: _BoardPage) -> export.BoardReport:
+    rows = tuple(_board_row(v, page.figures(v)) for v in page.views)
+    revised = [
+        v.contract.revised_contract for v in page.views if v.contract.revised_contract is not None
+    ]
+    return export.BoardReport(
+        tenant_name=page.tenant_name,
+        as_of=page.board.today,
+        filters=page.filters,
+        rows=rows,
+        totals=_totals_row(
+            "Total", page.totals, revised=sum(revised, Decimal("0.00")) if revised else None
+        ),
+        not_on_a_job=_totals_row("Not on a job", totals([page.board.not_on_a_job]), revised=None),
+        tie_out=tuple(page.tie_rows),
+        tie_out_status=tie_out_status(page.tie_rows),
+        policy_note=page.board.policy_note,
+    )
+
+
+def _export(
+    viewer: Principal,
+    db: Session,
+    status: str | None,
+    division_id: UUID | None,
+    revenue_method: str | None,
+    no_link: bool,
+    *,
+    kind: str,
+) -> Response:
+    page = _BoardPage(
+        db,
+        viewer.active_tenant_id,
+        status=status or None,
+        division_id=division_id,
+        revenue_method=revenue_method or None,
+        no_link=no_link,
+    )
+    report = _report(page)
+    stem = f"sold-jobs-board-{page.board.today.isoformat()}"
+    if kind == "xlsx":
+        body = export.board_xlsx(report)
+        media = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    else:
+        body = export.board_pdf(report)
+        media = "application/pdf"
+    return Response(
+        content=body,
+        media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="{stem}.{kind}"'},
+    )
+
+
+@router.get("/export.xlsx", include_in_schema=True)
+def export_xlsx(
+    viewer: Viewer,
+    db: TenantSession,
+    status: FilterStatus = None,
+    division_id: UUID | None = None,
+    revenue_method: FilterMethod = None,
+    no_link: bool = False,
+):
+    """F08: the board as shown, with the filters applied, values from Decimal, and a
+    tie-out tab."""
+    return _export(viewer, db, status, division_id, revenue_method, no_link, kind="xlsx")
+
+
+@router.get("/export.pdf", include_in_schema=True)
+def export_pdf(
+    viewer: Viewer,
+    db: TenantSession,
+    status: FilterStatus = None,
+    division_id: UUID | None = None,
+    revenue_method: FilterMethod = None,
+    no_link: bool = False,
+):
+    """F08 (D-40): the same rows and totals as the XLSX."""
+    return _export(viewer, db, status, division_id, revenue_method, no_link, kind="pdf")
 
 
 @router.get("/review", response_model=ReviewOut)
@@ -387,7 +734,9 @@ def review(viewer: Viewer, db: TenantSession):
 @router.get("/{job_id}", response_model=JobDetailOut)
 def get_job(viewer: Viewer, db: TenantSession, job_id: UUID):
     try:
-        return _detail(db, service.job_detail(db, viewer.active_tenant_id, job_id))
+        return _detail(
+            db, viewer.active_tenant_id, service.job_detail(db, viewer.active_tenant_id, job_id)
+        )
     except service.JobError as exc:
         _raise(exc)
 

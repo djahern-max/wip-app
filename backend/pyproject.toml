@@ -21,6 +21,8 @@ dependencies = [
     "openpyxl>=3.1",
     # F05: the QuickBooks Online HTTP client (runtime from F05; a dev dependency since D-14)
     "httpx>=0.27",
+    # F08 (D-40): PDF exports; pinned, one library for every PDF document
+    "reportlab==5.0.1",
 ]
 
 [project.optional-dependencies]

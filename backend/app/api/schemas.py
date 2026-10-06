@@ -546,9 +546,87 @@ class JobWorkAreaOut(_Out):
     confirmed: bool
 
 
+class JobBillingOut(_Out):
+    """F08: one job's billing figures, computed on read (money as strings with cents;
+    None where a figure is not shown, the note says why)."""
+
+    deposit_invoiced: str | None
+    deposit_received: str | None
+    billed_to_date: str | None
+    fuel_surcharge_billed: str | None
+    collected_to_date: str
+    open_ar: str
+    unapplied_payments: str
+    remaining_to_bill: str | None
+    remaining_to_bill_note: str | None
+    last_billing_date: str | None
+    last_payment_date: str | None
+    days_since_activity: int | None
+    deposit_note: str | None  # one sentence when a document looks like the deposit and is not
+
+
+class BillingTotalsOut(_Out):
+    """F08: the totals row and the not-on-a-job row."""
+
+    deposit_invoiced: str | None
+    deposit_received: str | None
+    billed_to_date: str | None
+    fuel_surcharge_billed: str | None
+    collected_to_date: str
+    open_ar: str
+    unapplied_payments: str
+    remaining_to_bill: str | None
+
+
+class TieOutOut(_Out):
+    """F08: jobs + not on a job against the Connections month totals, to the cent."""
+
+    status: str  # words first
+    balanced: bool
+    months: int
+    months_off: list[str]
+
+
+class BillingHistoryOut(_Out):
+    billing_id: str
+    kind: str
+    kind_label: str
+    external_id: str
+    doc_number: str | None
+    txn_date: str
+    total: str  # signed: a credit memo is negative
+    sales_tax: str
+    fuel_surcharge: str | None
+    billed: str | None  # what counts in billed to date; None while a key is undecided
+    counted: bool  # voided and deleted documents are not
+    balance: str
+    is_deposit: bool
+    state_label: str  # "", "Voided", "Deleted"
+
+
+class PaymentAppliedOut(_Out):
+    document: str  # the document number, or its QuickBooks type and id
+    amount: str
+
+
+class PaymentHistoryOut(_Out):
+    payment_id: str
+    kind: str
+    kind_label: str
+    external_id: str
+    txn_date: str
+    total: str
+    applied: list[PaymentAppliedOut]
+    unapplied: str | None  # None: a payment on another customer row, applied here only
+    on_this_job: bool
+    state_label: str  # "", "Deleted"
+
+
 class JobRowOut(_Out):
     id: str
     name: str
+    estimate_number: str | None  # F08: the original estimate's number, under the name
+    estimator: str | None
     customer_name: str | None
     division_id: str | None
     division_code: str | None
@@ -567,6 +645,7 @@ class JobRowOut(_Out):
     qbo_linked: bool
     qbo_names: list[str]
     attention: list[EstimateIssueOut]
+    billing: JobBillingOut  # F08
 
 
 class JobsOut(_Out):
@@ -577,6 +656,13 @@ class JobsOut(_Out):
     revenue_methods: list[ChoiceOut]
     statuses: list[ChoiceOut]
     ledger_items: list[EstimateIssueOut]
+    # F08: the Sold Jobs Board
+    tenant_name: str
+    as_of: str  # the tenant's today; every figure is to date
+    totals: BillingTotalsOut  # over the jobs listed (filters applied)
+    not_on_a_job: BillingTotalsOut
+    policy_note: str | None  # a key the figures need is not decided
+    tie_out: TieOutOut
 
 
 class JobDetailOut(JobRowOut):
@@ -591,6 +677,12 @@ class JobDetailOut(JobRowOut):
     divisions: list[DivisionChoiceOut]
     revenue_methods: list[ChoiceOut]
     statuses: list[ChoiceOut]
+    # F08: the Billing section
+    billing_history: list[BillingHistoryOut]  # newest first
+    payment_history: list[PaymentHistoryOut]  # newest first
+    tenant_name: str
+    as_of: str
+    policy_note: str | None
 
 
 class ConfirmSuggestedOut(JobDetailOut):

@@ -50,7 +50,22 @@ KEYS = (
     "deposit_identification",
     "fuel_surcharge_treatment",
 )
-LABELS = {"timezone": "Time zone", "wip_basis": "WIP basis"}
+LABELS = {
+    "timezone": "Time zone",
+    "wip_basis": "WIP basis",
+    "deposit_identification": "Deposit identification",
+    "fuel_surcharge_treatment": "Fuel surcharge treatment",
+}
+# F08: the four keys read today (owner's go-ahead, 2026-10-06: these seven assertions
+# moved from two keys to four; nothing else in this file changed).
+FOUR = (
+    "4 of 4 policy keys needed now are not decided: Time zone, WIP basis, "
+    "Deposit identification, Fuel surcharge treatment."
+)
+THREE = (
+    "3 of 4 policy keys needed now are not decided: WIP basis, Deposit identification, "
+    "Fuel surcharge treatment."
+)
 
 
 def _facts(**over) -> SetupFacts:
@@ -99,9 +114,7 @@ def test_a_fresh_company_has_six_not_done_lines_in_order_and_one_primary_action(
     assert lines[1].link is None and "no screen" in lines[1].message
     assert lines[2].message == "Upload the chart of accounts." and lines[2].link == Link("imports")
     assert lines[3].message == "Account mapping waits for the chart of accounts."
-    assert (
-        lines[4].message == "2 of 2 policy keys needed now are not decided: Time zone, WIP basis."
-    )
+    assert lines[4].message == FOUR
     assert lines[5].message == "Burden rates are set after the WIP basis is decided."
     assert lines[5].link == Link("config", "policy")
     assert setup_lines(_facts(can_view_config=False)) is None
@@ -129,19 +142,19 @@ def test_the_quickbooks_line_follows_the_connection_and_its_attention() -> None:
 
 
 def test_policy_needs_the_two_keys_read_today_and_then_notes_the_rest() -> None:
-    assert REQUIRED_POLICY_KEYS == ("timezone", "wip_basis")
-    one = setup_lines(_facts(decided_keys=frozenset({"timezone"})))[4]
-    assert (one.done, one.message, one.count, one.total) == (
-        False,
-        "1 of 2 policy key needed now is not decided: WIP basis.",
-        1,
-        2,
+    assert REQUIRED_POLICY_KEYS == (
+        "timezone",
+        "wip_basis",
+        "deposit_identification",
+        "fuel_surcharge_treatment",
     )
+    one = setup_lines(_facts(decided_keys=frozenset({"timezone"})))[4]
+    assert (one.done, one.message, one.count, one.total) == (False, THREE, 3, 4)
     both = setup_lines(
         _facts(decided_keys=frozenset(REQUIRED_POLICY_KEYS), wip_basis=frozenset(D05_BASIS))
     )[4]
     assert both.done and both.message == "The policy keys needed now are decided."
-    assert both.note == "4 more keys are decided when their features arrive."
+    assert both.note == "2 more keys are decided when their features arrive."
     every = setup_lines(_facts(decided_keys=frozenset(KEYS), wip_basis=frozenset(D05_BASIS)))[4]
     assert every.done and every.note is None
 
@@ -369,24 +382,21 @@ def test_policy_and_burden_lines_follow_the_owners_answers(
         rw_engine, seed, fresh_tenant, basis=False
     )  # the grid: divisions with digits, no rates
     home = _home(admin)
-    assert (
-        _line(home, "policy")["message"]
-        == "2 of 2 policy keys needed now are not decided: Time zone, WIP basis."
-    )
+    assert _line(home, "policy")["message"] == FOUR
     assert (
         _line(home, "burden_rates")["message"]
         == "Burden rates are set after the WIP basis is decided."
     )
     policy(rw_engine, seed, fresh_tenant, "timezone", "America/New_York")
-    assert (
-        _line(_home(admin), "policy")["message"]
-        == "1 of 2 policy key needed now is not decided: WIP basis."
-    )
+    assert _line(_home(admin), "policy")["message"] == THREE
     policy(rw_engine, seed, fresh_tenant, "wip_basis", D04_BASIS)  # no Labor Burden
+    from tests.billing_helpers import billing_policy
+
+    billing_policy(rw_engine, seed, fresh_tenant)  # F08: the two keys the board reads
     home = _home(admin)
     pol, bur = _line(home, "policy"), _line(home, "burden_rates")
-    assert pol["done"] and pol["note"] == "4 more keys are decided when their features arrive."
-    assert sum(p["decided"] for p in _get(admin, "/api/config/policy")) == 2
+    assert pol["done"] and pol["note"] == "2 more keys are decided when their features arrive."
+    assert sum(p["decided"] for p in _get(admin, "/api/config/policy")) == 4
     assert bur["done"] and bur["note"] == "Labor Burden is not in the WIP basis."
     policy(rw_engine, seed, fresh_tenant, "wip_basis", D05_BASIS)
     bur = _line(_home(admin), "burden_rates")

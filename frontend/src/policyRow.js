@@ -9,6 +9,29 @@ import { formatMoney } from "./money.js";
 export const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 export const REFERENCE_LABEL = "Reference (optional): where this is written down, e.g. D-04 or the engagement letter";
 export const WIP_BASIS_HINT = "Tick the same cost categories that are counted in cost to date and in EAC (BLUEPRINT §8.3).";
+// F08 (D-02, D-39): the two item keys.
+export const DEPOSIT_HINT = "Tick every QuickBooks item a deposit invoice is written on (one per division income account).";
+export const SURCHARGE_HINT = "Tick every QuickBooks item a fuel surcharge line is written on, and give the rate as a fraction (0.0500 is 5.00%). The rate may wait; it is needed for pay applications.";
+export const NO_SURCHARGE = "This company charges no fuel surcharge";
+export const RATE_LABEL = "Rate as a fraction (0.0500 is 5.00%)";
+
+// "0.0500" → "5.00%": digits only, no float. The API stores the rate quantized to four
+// places; any plain decimal string is handled by moving the point two places.
+export function percentOfFraction(rate) {
+  if (rate === null || rate === undefined || rate === "") return "";
+  const m = /^(\d+)(?:\.(\d*))?$/.exec(String(rate).trim());
+  if (!m) return String(rate);
+  const whole = m[1];
+  const frac = (m[2] || "").padEnd(4, "0");
+  const shifted = (whole + frac.slice(0, 2)).replace(/^0+(?=\d)/, "");
+  const rest = frac.slice(2);
+  return `${shifted}.${rest.length >= 2 ? rest : rest.padEnd(2, "0")}%`;
+}
+
+function itemNames(p, ids) {
+  const byId = new Map((p.options || []).map((o) => [o.value, o.label]));
+  return ids.map((id) => byId.get(id) || `item ${id}`).join(", ");
+}
 
 export function showValue(p, categories) {
   if (p.kind === "money") return formatMoney(p.value);
@@ -18,6 +41,13 @@ export function showValue(p, categories) {
     return names.length ? names.join(", ") : p.value.join(", ");
   }
   if (p.kind === "timezone") return p.value_label || String(p.value);
+  if (p.kind === "item_ids") return itemNames(p, p.value.item_ids || []);
+  if (p.kind === "surcharge") {
+    const ids = p.value.item_ids || [];
+    if (ids.length === 0 && (p.value.rate === null || p.value.rate === undefined)) return NO_SURCHARGE;
+    const rate = p.value.rate ? ` at ${percentOfFraction(p.value.rate)}` : ", rate not decided";
+    return `${itemNames(p, ids)}${rate}`;
+  }
   return String(p.value);
 }
 
@@ -49,21 +79,42 @@ export function PolicyRow({ p, categories, canSetPolicy, busy, onEdit }) {
   return h("tr", null, ...cells);
 }
 
-export function hasValue(kind, text, slots) {
+export function hasValue(kind, text, slots, items = [], none = false) {
   if (kind === "category_slots") return slots.length > 0;
   if (kind === "month") return text !== "";
+  if (kind === "item_ids") return items.length > 0;
+  if (kind === "surcharge") return none || items.length > 0;
   return text.trim() !== "";
 }
 
+// What a PUT on an item key sends (F08): the ids, and for the surcharge the rate or the
+// "no surcharge" decision (no items, no rate).
+export function itemValue(kind, text, items, none) {
+  if (kind === "item_ids") return { item_ids: items };
+  if (none) return { item_ids: [], rate: null };
+  return { item_ids: items, rate: text.trim() === "" ? null : text.trim() };
+}
+
 export function EditPolicy({ p, categories, busy, onCancel, onSave }) {
-  const [text, setText] = useState(p.decided && p.kind !== "category_slots" ? String(p.value) : "");
+  const itemKind = p.kind === "item_ids" || p.kind === "surcharge";
+  const stored = p.decided && itemKind ? p.value : null;
+  const [text, setText] = useState(
+    p.decided && p.kind !== "category_slots" && !itemKind ? String(p.value) : stored && stored.rate ? String(stored.rate) : "",
+  );
   const [slots, setSlots] = useState(p.decided && p.kind === "category_slots" ? p.value : []);
+  const [items, setItems] = useState(stored ? stored.item_ids || [] : []);
+  const [none, setNone] = useState(Boolean(stored && p.kind === "surcharge" && (stored.item_ids || []).length === 0 && !stored.rate));
   const [ref, setRef] = useState("");
 
   function value() {
     if (p.kind === "month") return Number.isNaN(parseInt(text, 10)) ? text : parseInt(text, 10);
     if (p.kind === "category_slots") return slots;
+    if (itemKind) return itemValue(p.kind, text, items, none);
     return text; // money stays a string; the server parses it as Decimal
+  }
+
+  function toggleItem(id, on) {
+    setItems(on ? [...items, id] : items.filter((i) => i !== id));
   }
 
   let control = null;
@@ -116,6 +167,65 @@ export function EditPolicy({ p, categories, busy, onCancel, onSave }) {
           ),
         ),
     );
+  } else if (itemKind) {
+    const options = p.options || [];
+    const picks = options.length === 0
+      ? [h("div", { key: "none", className: "hint" }, "No QuickBooks items are held yet. Connect QuickBooks and run a backfill, then create the items (OPERATIONS, Jobs).")]
+      : options.map((o) =>
+          h(
+            "label",
+            { key: o.value, className: "small" },
+            h("input", {
+              type: "checkbox",
+              checked: items.includes(o.value),
+              disabled: busy || none,
+              onChange: (e) => toggleItem(o.value, e.target.checked),
+            }),
+            " ",
+            o.label,
+            h("br"),
+          ),
+        );
+    const children = [
+      h("legend", null, p.kind === "item_ids" ? "QuickBooks deposit items" : "QuickBooks fuel surcharge items"),
+      h("div", { className: "hint" }, p.kind === "item_ids" ? DEPOSIT_HINT : SURCHARGE_HINT),
+      ...picks,
+    ];
+    if (p.kind === "surcharge") {
+      children.push(
+        h(
+          "label",
+          { className: "label" },
+          RATE_LABEL,
+          h("input", {
+            className: "input",
+            inputMode: "decimal",
+            value: text,
+            onChange: (e) => setText(e.target.value),
+            disabled: busy || none,
+          }),
+        ),
+        h(
+          "label",
+          { className: "small" },
+          h("input", {
+            type: "checkbox",
+            checked: none,
+            disabled: busy,
+            onChange: (e) => {
+              setNone(e.target.checked);
+              if (e.target.checked) {
+                setItems([]);
+                setText("");
+              }
+            },
+          }),
+          " ",
+          NO_SURCHARGE,
+        ),
+      );
+    }
+    control = h("fieldset", { className: "label" }, ...children);
   } else {
     control = h(
       "label",
@@ -154,7 +264,7 @@ export function EditPolicy({ p, categories, busy, onCancel, onSave }) {
         {
           type: "button",
           className: "button-primary",
-          disabled: busy || !hasValue(p.kind, text, slots),
+          disabled: busy || !hasValue(p.kind, text, slots, items, none),
           onClick: () => onSave(p.key, value(), ref),
         },
         "Record decision",

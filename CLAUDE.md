@@ -94,6 +94,9 @@ The owner is a CPA and the domain expert. When accounting treatment is unclear, 
 - **Pay application**: the customer's statement of earned to date by work area and the amount due; the invoice refers to it (D-36).
 - **Schedule of values**: the kept, approved work areas and their prices (D-36).
 - **Tracked**: a QuickBooks customer, sub-customer or project a person has picked to work on, or one linked to a job; the screens show tracked rows only (D-37).
+- **Fuel surcharge**: a line on an invoice on one of the tenant's fuel surcharge items (D-39); outside the contract, outside billed to date, shown as "Fuel surcharge billed"; recognised by item id, never by description or amount.
+- **Deposit**: one advance invoice numbered `<estimate number>_DEP` whose lines, other than fuel surcharge lines, are on the tenant's deposit items (D-02); both marks are needed. It counts in billed to date from its date. **Unapplied payment**: money received on a job's customer rows and applied to no invoice; not billed or collected to date (D-02).
+- **Billed to date**: Σ over a job's invoices, credit memos and sales receipts of total − sales tax − fuel surcharge lines (§8.2 column 10). **Collected to date**: Σ payment applications against the job's documents, dated by the payment, plus a job's own applications naming no held document; a sales receipt collects itself once. **Remaining to bill**: revised contract − billed to date, fixed-price jobs only. All computed on read; nothing stored (F08).
 
 ## When to stop and ask
 - Any change to BLUEPRINT §8 behavior or to golden files.

@@ -1,61 +1,62 @@
 # current-feature.md
 
-_No feature in flight (2026-10-05)._ **F04.1 · Policy screen a person can answer is closed**
-(built 2026-10-05, ba0eda0; no migration; no table, key or default; the owner's pass on
-jobcost.dev, tenant `rye-beach`, passed the same day: Eastern with no reference, the WIP basis
-slots 10, 20, 30, 35, 40, 50, 60, 70, 90 with "D-04, D-05", the three waiting sentences, "Not
-decided" on the left, Home's Policy line done). Its brief, with the Plan, the owner's answers
-and the build notes, is `docs/briefs/F04.1.md`. ROADMAP F04.1 is ☑. On `rye-beach` the
-`timezone` and `wip_basis` keys are now decided. **F07.3 · Home says what to do next** (built
-2026-10-04, `docs/briefs/F07.3.md`) waits for its pass on `rye-beach`: Home names the next
-step at each point while the owner takes 67 Elm Street from estimate upload to linked
-project; ROADMAP F07.3 is ◐. **F07.2 · Pick what to work on** (`docs/briefs/F07.2.md`) waits
-for its own pass on `rye-beach` (Jobs quiet on arrival; find 6115758 by its number, track,
-link, see only it under Tracked); deploying it runs migration 0012, whose data step tracks
-every row already linked as of the link. **F07.1** stays ◐ on its pass (`docs/briefs/F07.1.md`)
-and **F07** on the pass job by job (67 Elm Street passed 2026-10-01; P0-1 gates only the
-links). The dev `wip` database is at 0012.
+_No feature in flight (2026-10-06)._ **F08 · Sold Jobs Board & Job Detail (billing side) is built**
+(2026-10-06; no migration; dependency reportlab 5.0.1, D-40) and waits for the owner's pass on
+jobcost.dev, tenant `rye-beach` (set the deposit items and the fuel surcharge items and rate on
+Policy; 67 Elm Street's billed to date, collected to date, open A/R and unapplied payments
+against QuickBooks; the Jobs row shows 6115758; the XLSX opens and its tie-out tab balances)
+and for the §13.6 spreadsheet criterion (not built: the spreadsheet is not in the repo; the
+check figures for the tracked jobs come from a QuickBooks export). Its brief, with the Plan, the
+owner's answers, the build notes and the Discovered list, is `docs/briefs/F08.md`. ROADMAP F08 is
+◐. **D-39** (a fuel surcharge is outside the contract, recognised as billed, printed on the pay
+application) and **D-40** (PDF documents with reportlab) were decided 2026-10-06 and are in
+`docs/DECISIONS.md` and BLUEPRINT §14. On `rye-beach` the keys `deposit_identification` and
+`fuel_surcharge_treatment` are now settable and required by Home's Policy line ("n of 4").
 
-**D-37** (a person picks the QuickBooks rows the platform works on) and **D-38** (an
-inactive tracked row raises no review item) were decided 2026-10-04 and are in
-`docs/DECISIONS.md` and BLUEPRINT §14. **F05.2**, **F06.1**, **F06** are closed. D-08 is still
-open; a fuel surcharge decision is drafted and arrives with the F08 brief.
+Open passes carried: **F07.3 · Home says what to do next** (built 2026-10-04,
+`docs/briefs/F07.3.md`; ROADMAP ◐), **F07.2 · Pick what to work on** (`docs/briefs/F07.2.md`;
+deploying it runs migration 0012), **F07.1** (`docs/briefs/F07.1.md`) and **F07** (the pass job
+by job; 67 Elm Street passed 2026-10-01). The dev `wip` database is at 0012; F08 adds no
+migration. D-08 is still open.
 
-Next per ROADMAP: **F08 · Sold Jobs Board & Job Detail (billing side)**: reports 1 and 2
-of §9, billing half only; the deposit identified by the `_DEP` document number and the
-tenant's deposit item (D-02), counted in billed to date; the unapplied-payment review
-item; XLSX/PDF export. It reads billed and collected by job through the `qbo_customer`
-aliases F07 writes, shows money on untracked rows as one not-on-a-job figure (D-37), and
-adds its own lines to Home's `JOB_NEEDS` (`app/domain/home/checklist.py`) rather than
-rewriting the page. It is the feature that first reads `deposit_identification` and
-`fuel_surcharge_treatment`: it removes their `waiting` sentence in `POLICY_KEYS`, gives
-each key its control (a picker of QuickBooks items, once it confirms that synced invoice
-lines carry the item id) and adds them to `REQUIRED_POLICY_KEYS` in the same change
-(F04.1). Not started; the owner supplies the brief. Copy it here, expand it, and restate
-the acceptance criteria before coding. After it, **F08.1 · Pay applications** as D-36
-restates it.
+Next per ROADMAP: **F08.1 · Pay applications (billing requests)**, as D-36 restates it and
+D-39 extends it: capture the operations billing request per job (cumulative percent complete
+per work area, D-26), produce the pay application with its schedule of values on screen and
+as PDF (reportlab, D-40), the summary (earned to date, less retainage, less billed to date
+before this application: the deposit, D-02, and earlier applications; amount due), the fuel
+surcharge choice on each application with the printed line "Fuel surcharge (5.00%)" and the
+two-part tie of the invoice to its application (D-39), issue, void and re-issue audited,
+`job.retainage_pct` (a migration: wait for a yes), tables `pay_application` and
+`pay_application_line` (tenant-scoped, RLS forced). Not started; the owner supplies the brief.
+Copy it here, expand it, and restate the acceptance criteria before coding. It reads the rate
+from `fuel_surcharge_treatment` (`policy.surcharge_treatment`) and requires it.
 
-Standing state from F07 to F07.3: the job is the reporting unit; matching is by alias
-(`job_alias`), never by name; names reach only the pure suggestion functions
-(`app/domain/jobs/suggest.py`, rules in `names.py`) and the picker's search (a read). The
-revised contract, unapproved change orders and a job's EAC are computed on read
-(`app/domain/jobs/contract.py`), never stored. A work-area kind is the platform's
-suggestion until a person confirms it. Linking a QuickBooks row tracks it (D-37); untrack
-waits for unlink. Every job, track and untrack action writes one audit row naming the
-rows it touched. Review items are pure generators (`app/domain/jobs/issues.py`);
-`LEDGER_PROJECT_NO_JOB` is raised for tracked, active rows with no job only (D-37, D-38);
-F09 persists them. Home (`GET /api/home`) composes the functions the linked pages call;
-its lines and the job-need order are pure (`app/domain/home/checklist.py`); the policy
-keys needed now are `REQUIRED_POLICY_KEYS` there, extended by each feature that starts
-reading a key. Policy (F04.1): no key has a default; the reference is optional and who
-and when are always recorded; a key whose feature has not arrived carries `waiting` in
-`POLICY_KEYS`, shown in place of "Decide" and returned by the route as a 409; `set_policy`
-accepts any key. The owner's reviewed 67 Elm Street workbook
-(`estimate_upload_EST6115758_reviewed_10.06.xlsx`, 29 work areas; it replaced the F06 and
-v2 files on 2026-10-06, with the reviewed Turley workbook) is the job the owner is working;
-later features are accepted against it.
+Standing state from F07 to F08: the job is the reporting unit; matching is by alias
+(`job_alias`), never by name. The revised contract, unapproved change orders, EAC and every
+billing figure are computed on read (`app/domain/jobs/contract.py`,
+`app/domain/billing/figures.py` and `board.py`), never stored; nothing in `app/wip/` has
+been touched. Billed to date is total − sales tax − fuel surcharge lines, the deposit invoice
+(`<estimate number>_DEP` on a deposit item, both marks) counted from its date; collected to
+date follows the job of the document an application pays, dated by the payment; unapplied
+money follows the payment's customer row; money on a row with no job is the one
+"Not on a job" row (D-35, D-37) and the month-by-month tie-out to the Connections totals
+holds with it. Review items are pure generators (`app/domain/jobs/issues.py`: the F07 ones,
+`PAYMENT_UNAPPLIED`, `DEPOSIT_NOT_IDENTIFIED`, `BILLED_OVER_CONTRACT`); F09 persists them.
+Home composes the pages' functions; `JOB_NEEDS` has the three F08 rules after the F07 ones;
+`REQUIRED_POLICY_KEYS` holds the four keys read today. Policy: no key has a default; the two
+item keys take the company's QuickBooks items from the raw `Item` versions
+(`app/domain/config/items.py`); `small_job_threshold` still waits (D-08). XLSX money cells
+are written as numeric strings holding the Decimal's digits (`export.py`, `_write_money`);
+PDFs are reportlab, uncompressed. The owner's reviewed 67 Elm Street workbook
+(`estimate_upload_EST6115758_reviewed_10.06.xlsx`; revised contract 465,469.59 after
+"Confirm all as suggested") is the job the owner is working; later features are accepted
+against it.
 
 ## Discovered
+Carried from `docs/briefs/F08.md` (copied unchanged 2026-10-06; nothing is dropped):
+
+Carried from the live `current-feature.md` stub of 2026-10-05 (copied unchanged 2026-10-06 from `git show HEAD:current-feature.md`; nothing is dropped):
+
 From the owner's pass of 2026-10-06 (not fixed here):
 - Jobs list: a job is shown by its name only; the estimate number (for example 6120638) is not on the row, so a job whose name does not describe it cannot be identified without opening it. Show the estimate number of the job's original estimate beside the name.
 
@@ -132,3 +133,19 @@ New, from the owner's session of 2026-10-05, for later features and not fixed he
 - A fuel surcharge decision is drafted and waits on two owner answers; it arrives with the F08 brief. Until then `fuel_surcharge_treatment` stays undecided on every tenant.
 - D-08 (small job threshold) is still open; the key waits on it.
 - Home counts `fiscal_year_start_month` among the keys that wait for their features ("4 more keys are decided when their features arrive") although it can be set today; the sentence is out of scope here (owner, 2026-10-05: add, do not fix).
+
+Found while building F08 (2026-10-06), not fixed here:
+- openpyxl writes numbers with `%.16g`, so a Decimal with two places can land in a sheet as 72570.85000000001; `export.py` writes money cells as numeric strings holding the digits. The second report should move that writer to a shared `app/reports/` module rather than copy it.
+- `load_board` reads every billing, line, payment and application row of the tenant on each Jobs, Home and job-page request; fine at a tenant's size today; a per-job read or a short cache if it ever matters.
+- The board's Attention column and Home compute the three billing items in two reads; F09, persisting issues, computes them once.
+- The Jobs page was not rendered in a browser by Claude Code (the owner's pass checks the 19-column board at 390 px and the two export links).
+- `tests/test_frontend_effects.py` reads an apostrophe in JSX text ("job's") as an unterminated string and fails with "unbalanced source"; later screens avoid apostrophes in JSX text or the scanner learns JSX text.
+- The policy picker lists items from the latest raw `Item` versions: on a tenant with no backfill it says "No QuickBooks items are held yet"; the Home policy line does not say that the items must be created and polled first (OPERATIONS does).
+
+New, from the owner's sessions of 2026-10-05 and 2026-10-06, not fixed here:
+- Burden rates: the "To (exclusive)" date led the owner to enter 2026-12-31 for a rate meant to cover the whole year, leaving 2026-12-31 uncovered. A hint under the field, or showing the last covered day, would prevent it.
+- OPERATIONS has the rule for a shared purchase (the pool, D-30) and none for a purchase that belongs to no job at all. The owner's practice (2026-10-05): a tool or piece of equipment the crew keeps goes to overhead (6430 under 2,500.00, else 1510) with no project; a consumable used across jobs goes to the pool; a purchase for one job goes to the job. A coding note for OPERATIONS, not a decision (D-04 covers the reasoning).
+- lmn-convert (outside the repo) produces one placeholder cost line per work area on code n90 when it has no item detail; the owner rebuilt EST6120638's 74 cost lines by hand from the estimating system's item screens. What the converter would need to read is for the owner and the design partner to specify.
+- EAC includes the cost of unapproved change-order work areas while the revised contract excludes their price (F07, until the approval feature). On 6115758 that is 30,369.40 of EAC against 0.00 of contract. As specified; the change-order approval decision is the fix.
+- The Rye Beach chart gained 1350, 2410, 4190 and 4290 on 2026-10-06 (P0-3); the chart fixture and its oracle do not have them (the same kind of gap as 2630 on the carried list).
+- Retainage: D-39 takes the surcharge on the application's amount due; revisit when the retainage decision is made.

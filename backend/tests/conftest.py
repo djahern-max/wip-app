@@ -429,6 +429,11 @@ def fresh_tenant(seed: Seed, owner_engine: Engine) -> uuid.UUID:
     per tenant, so sharing A/B across tests would leak state. Entry rows for
     ``rotate_me`` (firm_admin) and ``recover_me`` (firm_staff), whose tenant lists no
     other test pins; log in with ``login_as("rotate_me", tenant=fresh_tenant)``."""
+    return new_fresh_tenant(seed, owner_engine)
+
+
+def new_fresh_tenant(seed: Seed, owner_engine: Engine) -> uuid.UUID:
+    """What ``fresh_tenant`` makes; a test that needs a second one calls this (F08)."""
     marker = uuid.uuid4().hex[:8]
     with untenanted_session(owner_engine) as s:
         t = Tenant(firm_id=seed.firm_id, name=f"Fresh {marker}", slug=f"fresh-{marker}")

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { formatMoney } from "../money.js";
-import { amountOr, offersInProgress, reasonText } from "../jobs.js";
+import { amountOr, appliedWords, daysWords, figureOr, offersInProgress, reasonText } from "../jobs.js";
 import { KindActions } from "../kindActions.js";
 import Attention from "./JobAttention.jsx";
 
@@ -240,6 +240,118 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
         Revised contract counts the kept work areas of the original estimate confirmed as original. Change orders are
         shown unapproved, outside the contract, until they are signed off (D-01).
       </p>
+
+      <h3>Billing</h3>
+      <p className="hint">
+        {job.tenant_name}. Figures to date as of {job.as_of}, computed from QuickBooks when read; nothing is stored. A
+        deposit is the invoice numbered estimate_DEP on a deposit item (D-02); fuel surcharge lines and sales tax are
+        outside billed to date (D-39).
+      </p>
+      {job.policy_note && <p className="hint">{job.policy_note}</p>}
+      <dl className="kv">
+        <dt>Deposit invoiced</dt>
+        <dd className="num">{figureOr(job.billing.deposit_invoiced, null, "Not decided")}</dd>
+        <dt>Deposit received</dt>
+        <dd className="num">{figureOr(job.billing.deposit_received, null, "Not decided")}</dd>
+        <dt>Billed to date</dt>
+        <dd className="num">{figureOr(job.billing.billed_to_date, null, "Not decided")}</dd>
+        <dt>Fuel surcharge billed</dt>
+        <dd className="num">{figureOr(job.billing.fuel_surcharge_billed, null, "Not decided")}</dd>
+        <dt>Collected to date</dt>
+        <dd className="num">{formatMoney(job.billing.collected_to_date)}</dd>
+        <dt>Open A/R</dt>
+        <dd className="num">{formatMoney(job.billing.open_ar)}</dd>
+        <dt>Unapplied payments</dt>
+        <dd className="num">{formatMoney(job.billing.unapplied_payments)}</dd>
+        <dt>Remaining to bill</dt>
+        <dd className="num">
+          {figureOr(job.billing.remaining_to_bill, job.billing.remaining_to_bill_note, "Not decided")}
+        </dd>
+        <dt>Last billing date</dt>
+        <dd>{job.billing.last_billing_date || "None"}</dd>
+        <dt>Last payment date</dt>
+        <dd>{job.billing.last_payment_date || "None"}</dd>
+        <dt>Days since last activity</dt>
+        <dd className="num">{daysWords(job.billing.days_since_activity)}</dd>
+      </dl>
+      {job.billing.deposit_note && <p className="hint">{job.billing.deposit_note}</p>}
+
+      <h4>Billing history</h4>
+      {job.billing_history.length === 0 ? (
+        <p className="hint">No invoice, credit memo or sales receipt on the QuickBooks rows of this job.</p>
+      ) : (
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Document</th>
+                <th>Date</th>
+                <th>Kind</th>
+                <th className="num">Total</th>
+                <th className="num">Sales tax</th>
+                <th className="num">Fuel surcharge</th>
+                <th className="num">Counted in billed to date</th>
+                <th className="num">Balance</th>
+                <th>Deposit</th>
+                <th>State</th>
+              </tr>
+            </thead>
+            <tbody>
+              {job.billing_history.map((d) => (
+                <tr key={d.billing_id}>
+                  <td>{d.doc_number || `QuickBooks id ${d.external_id}`}</td>
+                  <td>{d.txn_date}</td>
+                  <td>{d.kind_label}</td>
+                  <td className="num">{formatMoney(d.total)}</td>
+                  <td className="num">{formatMoney(d.sales_tax)}</td>
+                  <td className="num">{figureOr(d.fuel_surcharge, null, "Not decided")}</td>
+                  <td className="num">{d.counted ? figureOr(d.billed, null, "Not decided") : "Not counted"}</td>
+                  <td className="num">{formatMoney(d.balance)}</td>
+                  <td>{d.is_deposit ? "The deposit" : ""}</td>
+                  <td>{d.state_label}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <h4>Payment history</h4>
+      {job.payment_history.length === 0 ? (
+        <p className="hint">No payment on the QuickBooks rows or documents of this job.</p>
+      ) : (
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Payment</th>
+                <th>Date</th>
+                <th>Kind</th>
+                <th className="num">Amount</th>
+                <th>Applied to</th>
+                <th className="num">Unapplied</th>
+                <th>State</th>
+              </tr>
+            </thead>
+            <tbody>
+              {job.payment_history.map((p) => (
+                <tr key={p.payment_id}>
+                  <td>
+                    QuickBooks id {p.external_id}
+                    {!p.on_this_job && <div className="hint">On another customer row; applied here</div>}
+                  </td>
+                  <td>{p.txn_date}</td>
+                  <td>{p.kind_label}</td>
+                  <td className="num">{formatMoney(p.total)}</td>
+                  <td>{appliedWords(p.applied)}</td>
+                  <td className="num">{figureOr(p.unapplied, null, "Not on this row")}</td>
+                  <td>{p.state_label}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <h3>Estimates</h3>
       {job.estimates.length === 0 ? (

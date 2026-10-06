@@ -441,7 +441,7 @@ data" above for the exact commands).
 | 2 | Suggestion rules | At least one active `account_suggest_rule`. | "No suggestion rules are loaded…": the firm loads the client's rules file with `scripts/load_suggest_rules.py` or `PUT /api/config/suggest-rules` ("Editing suggestion rules" below). No link: there is no screen. |
 | 3 | Chart of accounts | Active `gl_account` rows exist. | "Upload the chart of accounts." → Imports ("Loading a chart of accounts" below). |
 | 4 | Account mapping | No active account lacks a confirmed mapping (the Accounts page's unmapped count). | "n of m accounts to confirm; k have a suggestion." → Configuration, Accounts: "Confirm all suggestions", then map the rest by hand. A chart loaded before the rules leaves every account unmapped with no suggestion; load the rules and "Re-run suggestions". |
-| 5 | Policy | `timezone` and `wip_basis` decided (the keys a feature reads today; `REQUIRED_POLICY_KEYS` in `app/domain/home/checklist.py`, extended by each feature that starts reading a key). | "n of 2 policy keys needed now are not decided: …" → Configuration, Policy (firm_admin): choose the time zone from the list (Eastern, Central, Mountain, Arizona, Pacific, Alaska, Hawaii); tick the cost categories in the WIP basis; the reference is optional (F04.1). Three keys (`small_job_threshold`, `deposit_identification`, `fuel_surcharge_treatment`) wait for their features and show why in place of "Decide". Done reads with a note of the keys that wait for their features. |
+| 5 | Policy | `timezone`, `wip_basis`, `deposit_identification` and `fuel_surcharge_treatment` decided (the keys a feature reads today; `REQUIRED_POLICY_KEYS` in `app/domain/home/checklist.py`, extended by each feature that starts reading a key; F08 added the two item keys). | "n of 4 policy keys needed now are not decided: …" → Configuration, Policy (firm_admin): choose the time zone from the list (Eastern, Central, Mountain, Arizona, Pacific, Alaska, Hawaii); tick the cost categories in the WIP basis; tick the deposit items and the fuel surcharge items with the rate, or record that the company charges no fuel surcharge (F08; the items must exist in QuickBooks and a backfill must have run, "The Sold Jobs Board" below); the reference is optional (F04.1). Two keys (`small_job_threshold`, `fiscal_year_start_month`) wait for their features. Done reads with a note of the keys that wait for their features. |
 | 6 | Burden rates | Every active division with a cost-code digit has a rate in force on the company's today (a tenant-wide row counts for all). Done with a note when Labor Burden is not in a decided WIP basis. | While the basis is undecided: "Burden rates are set after the WIP basis is decided." → Policy. Else: "No burden rate in force today for EX, SNOW." → Configuration, Burden rates ("Burden rates" below). |
 
 Below the list Home shows the jobs: "n sold estimates to review" (→ Review sold
@@ -531,11 +531,16 @@ the engagement letter) → Record decision. Who and when are always recorded. Ke
 today: `timezone` (a list of the United States zones in plain words; a zone off the
 list set through the API is shown by its name and kept), `fiscal_year_start_month`,
 `wip_basis` (tick the cost categories counted in both cost to date and EAC; nothing is
-pre-ticked). Keys that wait for their features show why in place of "Decide" and
-refuse a PUT with the same sentence (409): `small_job_threshold` (D-08 open; the WIP
-schedule), `deposit_identification` and `fuel_surcharge_treatment` (the billing
-reports, F08). A value already stored on a waiting key is still shown with who and
-when. The feature that first reads a key removes the sentence (`waiting` in
+pre-ticked), `deposit_identification` (F08, D-02: tick every QuickBooks item a deposit
+invoice is written on, at least one; the list is the company's items as the sync holds
+them, inactive ones marked) and `fuel_surcharge_treatment` (F08, D-39: tick every
+fuel surcharge item and give the rate as a fraction, 0.0500 for 5.00%; the rate may be
+left for later, F08 does not read it and F08.1 requires it; or tick "This company
+charges no fuel surcharge", which is a decision, not a default). An item id the company
+does not hold is refused in words. Keys that wait for their features show why in place
+of "Decide" and refuse a PUT with the same sentence (409): `small_job_threshold` (D-08
+open; the WIP schedule). A value already stored on a waiting key is still shown with
+who and when. The feature that first reads a key removes the sentence (`waiting` in
 `POLICY_KEYS`) and gives the key its control. **No key has a default**: a feature that
 needs an undecided key stops with a message naming it rather than assuming a value.
 Every change is audited `policy_set` with before and after; a blank reference is
@@ -823,6 +828,60 @@ with each one's invoice and payment counts. Merge them in QuickBooks; the platfo
 on the next sync. Nothing on the page writes anything. (Before trusting links across a
 merge, check what QuickBooks sends after one: F05.1 Discovered.)
 
+### The Sold Jobs Board (F08, D-02, D-39)
+Jobs is the board: for every job, from QuickBooks, deposit invoiced and received, billed
+to date, fuel surcharge billed, collected to date, open A/R, remaining to bill and days
+since last activity, with the original estimate's number under the name and the
+estimator. Every figure is computed when the page is read from the F05 rows through the
+job's QuickBooks links (`job_alias`, system `qbo_customer`); nothing is stored. The page
+names the company, the as-of date (the company's today; every figure is to date) and the
+tie-out status; the job page's Billing section shows the same figures with the billing
+and payment histories, newest first, voided and deleted documents marked and in no
+figure.
+
+**Before the figures show.** Two policy keys are needed (Configuration, Policy): the
+deposit items and the fuel surcharge items. In QuickBooks create one deposit item and one
+fuel surcharge item **per division income account** (Products and services → New →
+Service; income account the division's 4xxx); run a change poll or wait for one so the
+items are held; then tick them on Policy. Until both keys are decided the page says so
+and shows collected to date, open A/R and unapplied payments only.
+
+**How a deposit is recognised (D-02, owner's answer 2).** An invoice numbered
+`<estimate number>_DEP` (the LMN estimate number, e.g. `EST6115758_DEP`) whose lines,
+other than fuel surcharge lines, are all on a deposit item. One mark without the other
+is not a deposit: the invoice still counts in billed to date and raises
+`DEPOSIT_NOT_IDENTIFIED` (fix the item or the number in QuickBooks). A deposit is keyed
+on the job's project, never on the parent customer (D-35).
+
+**How a fuel surcharge is recognised (D-39).** A line on a fuel surcharge item, by item
+id only. It is outside billed to date and remaining to bill and is shown as "Fuel
+surcharge billed"; collected to date and open A/R are whole-document figures and include
+it. Sales tax is outside billed to date too (owner, 2026-10-06).
+
+**Not on a job.** One row under the totals: documents and payments on QuickBooks rows
+with no job (untracked rows, tracked rows with no job, and the parent customer of a
+construction job, D-35, D-37). It is never dropped: the tie-out needs it. Money on a
+parent customer for a construction job is a data error; move the document to the
+project in QuickBooks and the next poll moves the amount.
+
+**Collected to date.** A payment's application belongs to the job of the document it
+pays, dated by the payment; a payment's unapplied money, and an application naming a
+document the copy does not hold, belong to the payment's customer row. A payment with
+nothing to apply to raises `PAYMENT_UNAPPLIED` and is not billed or collected until it
+is applied in QuickBooks. A sales receipt is billed once and collected once.
+
+**Tie-out.** For every calendar month, jobs + not on a job = the Connections month
+totals: billed (invoices − credit memos + sales receipts, tax and surcharge included)
+and collected (payments + sales receipts), to the cent. The status is on the page and
+the XLSX has a Tie-out tab with the months and the differences. "Does not tie" names the
+months; the usual cause is a payload the normalizer skipped (Connections, skipped
+payloads).
+
+**Exports.** "Export XLSX" and "Export PDF" take the filters as shown. The XLSX holds
+values written from Decimal (no float artifacts) with the cents format, a totals row,
+the not-on-a-job row, the legend (§8.7) and the Tie-out tab; the PDF carries the same
+rows and totals (D-40). Every role that reads jobs can export.
+
 ### What each message means
 | Code (in the API; never shown alone) | The sentence says | What to do |
 |---|---|---|
@@ -832,8 +891,12 @@ merge, check what QuickBooks sends after one: F05.1 Discovered.)
 | `LEDGER_PROJECT_NO_JOB` | A tracked, active QuickBooks row (customer, sub-customer or project) has no job, with or without documents (D-37). An untracked or inactive row never raises it. | Link it to its job, or make the job first; untrack it if it is not a job. |
 | `JOB_DIVISION_UNSET` | A job has no division (only for data made outside the review). | Set the division on the job. |
 | `CUSTOMER_FUZZY` | Two customers look like one (Customers page). | Merge in QuickBooks. |
+| `PAYMENT_UNAPPLIED` | Money received on the job is applied to no invoice (D-02; F08). It is not billed or collected to date. | Apply it in QuickBooks once the invoice exists (the deposit invoice, D-02, or the pay application's invoice). |
+| `DEPOSIT_NOT_IDENTIFIED` | A `_DEP` invoice is not on a deposit item, or a deposit item is on a document that is not `<estimate number>_DEP` (F08). It still counts in billed to date. | Fix the item or the document number in QuickBooks; the next poll clears it. |
+| `BILLED_OVER_CONTRACT` | Billed to date exceeds the revised contract (F08; §10). | Likely a change order not yet approved: attach or approve it; or correct the invoice. |
 
 The review items are computed when read (`app/domain/jobs/issues.py`); F09 persists them.
+Home lists the three F08 needs after the F07 ones, first rule that applies.
 
 ## QuickBooks connection (F05)
 

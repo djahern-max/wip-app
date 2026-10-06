@@ -20,7 +20,7 @@ from app.domain.config.models import TenantPolicy
 from tests.conftest import CSRF, Seed
 
 BACKEND = Path(__file__).resolve().parents[1]
-WAITING_KEYS = ("small_job_threshold", "deposit_identification", "fuel_surcharge_treatment")
+WAITING_KEYS = ("small_job_threshold",)  # F08 gave the two item keys their controls
 US_ZONES = (
     "America/New_York",
     "America/Chicago",
@@ -206,8 +206,9 @@ def test_setting_a_key_records_who_when_reference_and_audits_before_after(
 def test_a_waiting_key_is_refused_by_the_route_and_still_read_when_stored(
     seed: Seed, rw_engine: Engine, login_as: Callable[..., TestClient], fresh_tenant
 ) -> None:
-    """F04.1: the three keys whose features have not arrived cannot be set on the screen;
-    a value already stored on one is still shown with who and when."""
+    """F04.1: the key whose feature has not arrived cannot be set on the screen; a value
+    already stored on one is still shown with who and when. F08 removed the sentence
+    from the two item keys; ``small_job_threshold`` keeps its (D-08 open)."""
     admin = login_as("rotate_me", tenant=fresh_tenant)
     rows = {p["key"]: p for p in admin.get("/api/config/policy").json()}
     for key in policy.POLICY_KEYS:
@@ -219,13 +220,7 @@ def test_a_waiting_key_is_refused_by_the_route_and_still_read_when_stored(
     assert rows["small_job_threshold"]["waiting"] == (
         "Not decided (D-08). Set when the WIP schedule arrives."
     )
-    assert rows["deposit_identification"]["waiting"] == "Set with the billing reports (F08)."
-    assert rows["fuel_surcharge_treatment"]["waiting"] == "Set with the billing reports (F08)."
-    values = {
-        "small_job_threshold": "25000.00",
-        "deposit_identification": "Customer deposit item",
-        "fuel_surcharge_treatment": "income",
-    }
+    values = {"small_job_threshold": "25000.00"}
     for key, value in values.items():
         r = admin.put(
             f"/api/config/policy/{key}", json={"value": value, "decision_ref": "x"}, headers=CSRF
@@ -244,24 +239,167 @@ def test_a_waiting_key_is_refused_by_the_route_and_still_read_when_stored(
         policy.set_policy(
             s,
             fresh_tenant,
-            "deposit_identification",
-            "Customer deposit item",
-            decision_ref="D-02",
+            "small_job_threshold",
+            "25000.00",
+            decision_ref="D-08",
             actor=Actor(user_id=seed.users["rotate_me"].id),
         )
     rows = {p["key"]: p for p in admin.get("/api/config/policy").json()}
-    dep = rows["deposit_identification"]
-    assert dep["decided"] is True and dep["value"] == "Customer deposit item"
-    assert dep["decided_by_email"] == seed.users["rotate_me"].email and dep["decided_at"]
-    assert dep["decision_ref"] == "D-02" and dep["waiting"]
+    small = rows["small_job_threshold"]
+    assert small["decided"] is True and small["value"] == "25000.00"
+    assert small["decided_by_email"] == seed.users["rotate_me"].email and small["decided_at"]
+    assert small["decision_ref"] == "D-08" and small["waiting"]
     with tenant_session(rw_engine, fresh_tenant) as s:
-        assert policy.require_policy(s, "deposit_identification") == "Customer deposit item"
-    r = admin.put(
-        "/api/config/policy/deposit_identification", json={"value": "other"}, headers=CSRF
-    )
+        assert policy.require_policy(s, "small_job_threshold") == Decimal("25000.00")
+    r = admin.put("/api/config/policy/small_job_threshold", json={"value": "1.00"}, headers=CSRF)
     assert r.status_code == 409
     rows = {p["key"]: p for p in admin.get("/api/config/policy").json()}
-    assert rows["deposit_identification"]["value"] == "Customer deposit item"
+    assert rows["small_job_threshold"]["value"] == "25000.00"
+
+
+# --- F08: the two item keys (D-02, D-39) ---------------------------------------------------------
+
+
+def _put(admin: TestClient, key: str, value, ref: str = "") -> tuple[int, dict]:
+    r = admin.put(
+        f"/api/config/policy/{key}", json={"value": value, "decision_ref": ref}, headers=CSRF
+    )
+    return r.status_code, r.json()
+
+
+def test_the_two_item_keys_take_the_tenants_items_and_refuse_what_it_does_not_have(
+    seed: Seed, rw_engine: Engine, login_as: Callable[..., TestClient], fresh_tenant
+) -> None:
+    from tests.billing_helpers import (
+        DEPOSIT_ITEM,
+        FUEL_ITEM,
+        WORK_ITEM,
+        apply_payloads,
+        item_payload,
+        seed_items,
+    )
+
+    admin = login_as("rotate_me", tenant=fresh_tenant)
+    rows = {p["key"]: p for p in admin.get("/api/config/policy").json()}
+    for key in ("deposit_identification", "fuel_surcharge_treatment"):
+        assert rows[key]["waiting"] is None and rows[key]["options"] == []  # no items held yet
+    assert rows["deposit_identification"]["kind"] == "item_ids"
+    assert rows["fuel_surcharge_treatment"]["kind"] == "surcharge"
+    assert (
+        rows["deposit_identification"]["description"]
+        == "The QuickBooks items a deposit invoice uses (D-02)."
+    )
+    assert rows["fuel_surcharge_treatment"]["description"] == (
+        "The QuickBooks items a fuel surcharge line uses, and the rate (D-39)."
+    )
+    # Nothing held: an id is refused in words; an empty deposit list is refused in words.
+    status, body = _put(admin, "deposit_identification", {"item_ids": [DEPOSIT_ITEM]})
+    assert (
+        status == 422
+        and "does not have in QuickBooks" in body["detail"]
+        and DEPOSIT_ITEM in body["detail"]
+    )
+    status, body = _put(admin, "deposit_identification", {"item_ids": []})
+    assert (
+        status == 422
+        and body["detail"]
+        == "Deposit identification needs at least one QuickBooks item: a deposit invoice is on one."
+    )
+
+    seed_items(rw_engine, fresh_tenant)
+    apply_payloads(
+        rw_engine, fresh_tenant, [("Item", item_payload("904", "Old deposit item", active=False))]
+    )
+    rows = {p["key"]: p for p in admin.get("/api/config/policy").json()}
+    options = rows["deposit_identification"]["options"]
+    assert [o["value"] for o in options] == [DEPOSIT_ITEM, FUEL_ITEM, "904", WORK_ITEM]  # by name
+    assert [o["label"] for o in options] == [
+        "Customer deposit",
+        "Fuel surcharge (EX)",
+        "Old deposit item (inactive)",
+        "Site work",
+    ]
+    assert rows["fuel_surcharge_treatment"]["options"] == options
+
+    with tenant_session(rw_engine, fresh_tenant) as s:
+        before = len(_audit_rows(s, "deposit_identification"))
+    status, body = _put(
+        admin,
+        "deposit_identification",
+        {"item_ids": [WORK_ITEM, DEPOSIT_ITEM, DEPOSIT_ITEM, "904"]},
+        "D-02",
+    )
+    assert status == 200, body
+    assert body["decided"] and body["value"] == {
+        "item_ids": [DEPOSIT_ITEM, WORK_ITEM, "904"]
+    }  # de-duplicated, sorted as strings
+    assert (
+        body["decision_ref"] == "D-02" and body["decided_by_email"] == seed.users["rotate_me"].email
+    )
+    status, body = _put(admin, "deposit_identification", {"item_ids": [DEPOSIT_ITEM]})
+    assert status == 200 and body["value"] == {"item_ids": [DEPOSIT_ITEM]}
+    with tenant_session(rw_engine, fresh_tenant) as s:
+        rows_ = _audit_rows(s, "deposit_identification")
+        assert len(rows_) == before + 2
+        assert rows_[-2].get("before") is None and rows_[-2]["after"]["value"] == {
+            "item_ids": [DEPOSIT_ITEM, WORK_ITEM, "904"]
+        }
+        assert rows_[-1]["before"]["value"] == {"item_ids": [DEPOSIT_ITEM, WORK_ITEM, "904"]}
+        assert rows_[-1]["after"] == {"value": {"item_ids": [DEPOSIT_ITEM]}, "decision_ref": ""}
+        assert policy.deposit_items(s) == frozenset({DEPOSIT_ITEM})
+    for bad in ("12", ["12"], {"item_ids": "12"}, {"item_ids": [" "]}, {"item_ids": ["999"]}):
+        status, body = _put(admin, "deposit_identification", bad)
+        assert status == 422, bad
+        assert body["detail"].startswith("Deposit identification needs ")
+
+
+def test_fuel_surcharge_takes_items_and_a_rate_or_records_no_surcharge(
+    seed: Seed, rw_engine: Engine, login_as: Callable[..., TestClient], fresh_tenant
+) -> None:
+    from tests.billing_helpers import FUEL_ITEM, seed_items
+
+    admin = login_as("rotate_me", tenant=fresh_tenant)
+    seed_items(rw_engine, fresh_tenant)
+    key = "fuel_surcharge_treatment"
+    # Rye Beach: one item per division income account and 5.00%.
+    status, body = _put(admin, key, {"item_ids": [FUEL_ITEM], "rate": "0.05"}, "D-39")
+    assert status == 200 and body["value"] == {"item_ids": [FUEL_ITEM], "rate": "0.0500"}
+    with tenant_session(rw_engine, fresh_tenant) as s:
+        got = policy.surcharge_treatment(s)
+        assert (
+            got is not None
+            and got.item_ids == frozenset({FUEL_ITEM})
+            and got.rate == Decimal("0.0500")
+        )
+    # The rate may wait (F08 does not read it; F08.1 requires it).
+    status, body = _put(admin, key, {"item_ids": [FUEL_ITEM], "rate": None})
+    assert status == 200 and body["value"] == {"item_ids": [FUEL_ITEM], "rate": None}
+    status, body = _put(admin, key, {"item_ids": [FUEL_ITEM]})
+    assert status == 200 and body["value"] == {"item_ids": [FUEL_ITEM], "rate": None}
+    # "This company charges no fuel surcharge" is a decision, read back as decided.
+    status, body = _put(admin, key, {"item_ids": [], "rate": None}, "owner, 2026-10-06")
+    assert (
+        status == 200
+        and body["decided"] is True
+        and body["value"] == {"item_ids": [], "rate": None}
+    )
+    with tenant_session(rw_engine, fresh_tenant) as s:
+        got = policy.surcharge_treatment(s)
+        assert got is not None and got.item_ids == frozenset() and got.rate is None
+        assert len(_audit_rows(s, key)) == 4
+    # Refused in words: a rate with no item, a rate out of range or as a number, an unknown item.
+    for bad, needs in (
+        ({"item_ids": [], "rate": "0.05"}, "the fuel surcharge items with the rate"),
+        ({"item_ids": [FUEL_ITEM], "rate": 0.05}, "a rate as a fraction in a string"),
+        ({"item_ids": [FUEL_ITEM], "rate": "5"}, "a rate above 0 and below 1"),
+        ({"item_ids": [FUEL_ITEM], "rate": "abc"}, "a rate as a fraction in a string"),
+        ({"item_ids": ["999"], "rate": "0.05"}, "item id(s) this company does not have"),
+        ("income", "an object"),
+    ):
+        status, body = _put(admin, key, bad)
+        assert status == 422 and needs in body["detail"], (bad, body)
+    rows = {p["key"]: p for p in admin.get("/api/config/policy").json()}
+    assert rows[key]["value"] == {"item_ids": [], "rate": None}  # the refusals changed nothing
 
 
 def test_time_zone_is_offered_as_a_labelled_list_and_any_valid_zone_is_kept(
@@ -285,8 +423,10 @@ def test_time_zone_is_offered_as_a_labelled_list_and_any_valid_zone_is_kept(
         "Hawaii (Pacific/Honolulu)",
     ]
     for key in policy.POLICY_KEYS:
-        if key != "timezone":
+        if key != "timezone" and policy.POLICY_KEYS[key].kind not in policy.ITEM_KINDS:
             assert rows[key]["options"] is None and rows[key]["value_label"] is None
+        elif key != "timezone":  # F08: the item keys carry the item picker
+            assert rows[key]["options"] == [] and rows[key]["value_label"] is None
     r = admin.put("/api/config/policy/timezone", json={"value": "America/New_York"}, headers=CSRF)
     assert r.status_code == 200 and r.json()["value_label"] == "Eastern (America/New_York)"
     assert len(r.json()["options"]) == 7

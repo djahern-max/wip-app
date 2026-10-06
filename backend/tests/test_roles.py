@@ -139,6 +139,9 @@ def _routes() -> list[Route]:
         # that does not exist in tenant A is 404 for a role the guard let through, so
         # no cell changes data. The duplicates list is for the same three roles.
         Route("GET", "/api/jobs", ALL),
+        # F08: the two exports follow the jobs read (every role).
+        Route("GET", "/api/jobs/export.xlsx", ALL),
+        Route("GET", "/api/jobs/export.pdf", ALL),
         Route("GET", "/api/jobs/review", ALL),
         Route("GET", f"/api/jobs/{_NO_JOB}", ALL, also_ok=frozenset({404})),
         Route("GET", f"/api/jobs/{_NO_JOB}/qbo-candidates", ALL, also_ok=frozenset({404})),

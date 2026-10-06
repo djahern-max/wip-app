@@ -85,3 +85,17 @@ test("the review queue opens on the chosen estimate, or at its start with one se
     "EST6115758 · 67 Elm Street | Parking Lot · 519,173.72",
   );
 });
+
+test("the board's words: estimate under the name, days since activity, applied-to (F08)", async () => {
+  const { filterQuery, daysWords, figureOr, appliedWords } = await import("./jobs.js");
+  assert.equal(filterQuery({ status: "", division_id: "", revenue_method: "", no_link: false }), "");
+  assert.equal(filterQuery({ status: "sold", division_id: "", revenue_method: "", no_link: true }), "?status=sold&no_link=true");
+  assert.equal(daysWords(0), "0");
+  assert.equal(daysWords(46), "46");
+  assert.equal(daysWords(null), "No activity");
+  assert.equal(figureOr("-16494.48", null, "Not decided"), "(16,494.48)");
+  assert.equal(figureOr(null, "Not shown: Pool has no contract.", "Not decided"), "Not shown: Pool has no contract.");
+  assert.equal(figureOr(null, null, "Not decided"), "Not decided");
+  assert.equal(appliedWords([]), "Nothing");
+  assert.equal(appliedWords([{ document: "EST6115758_PMT2", amount: "149800.00" }, { document: "CM-1", amount: "-100.00" }]), "EST6115758_PMT2: 149,800.00; CM-1: (100.00)");
+});

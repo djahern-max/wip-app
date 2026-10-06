@@ -91,3 +91,32 @@ export function missingSentence(externalId) {
 export function estimateOption(entry) {
   return `${entry.external_id} · ${entry.name} · ${formatMoney(entry.price)}`;
 }
+
+// --- F08: the Sold Jobs Board -----------------------------------------------------------
+
+// The board's filters as the query string the list and the exports share.
+export function filterQuery(filters) {
+  const q = new URLSearchParams();
+  if (filters.status) q.set("status", filters.status);
+  if (filters.division_id) q.set("division_id", filters.division_id);
+  if (filters.revenue_method) q.set("revenue_method", filters.revenue_method);
+  if (filters.no_link) q.set("no_link", "true");
+  const qs = q.toString();
+  return qs ? `?${qs}` : "";
+}
+
+// Days since the last billing or payment: a count, or the words.
+export function daysWords(days) {
+  return days === null || days === undefined ? "No activity" : String(days);
+}
+
+// A money figure the board may leave out: the note the API gives, or the page's words.
+export function figureOr(value, note, words) {
+  return amountOr(value, note || words);
+}
+
+// The payment history's "applied to" cell.
+export function appliedWords(applied) {
+  if (!applied || applied.length === 0) return "Nothing";
+  return applied.map((a) => `${a.document}: ${formatMoney(a.amount)}`).join("; ");
+}

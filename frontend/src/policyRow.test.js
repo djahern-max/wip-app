@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { EditPolicy, PolicyRow, REFERENCE_LABEL, WIP_BASIS_HINT, hasValue, showValue } from "./policyRow.js";
+import { DEPOSIT_HINT, EditPolicy, NO_SURCHARGE, PolicyRow, RATE_LABEL, REFERENCE_LABEL, SURCHARGE_HINT, WIP_BASIS_HINT, hasValue, itemValue, percentOfFraction, showValue } from "./policyRow.js";
 
 // F04.1: the Policy table asks only what a person can answer today, in words they know.
 
@@ -120,4 +120,74 @@ test("the WIP basis edit says what to tick and pre-ticks nothing", () => {
   assert.ok(html.includes(WIP_BASIS_HINT));
   assert.equal((html.match(/type="checkbox"/g) || []).length, 2);
   assert.ok(!html.includes("checked"));
+});
+
+// --- F08: the two item keys (D-02, D-39) --------------------------------------------------
+
+const ITEMS = [
+  { value: "901", label: "Customer deposit" },
+  { value: "902", label: "Fuel surcharge (EX)" },
+  { value: "904", label: "Old deposit item (inactive)" },
+];
+
+function depositKey(over) {
+  return key({ key: "deposit_identification", label: "Deposit identification", kind: "item_ids", description: "The QuickBooks items a deposit invoice uses (D-02).", options: ITEMS, ...over });
+}
+
+function surchargeKey(over) {
+  return key({ key: "fuel_surcharge_treatment", label: "Fuel surcharge treatment", kind: "surcharge", description: "The QuickBooks items a fuel surcharge line uses, and the rate (D-39).", options: ITEMS, ...over });
+}
+
+test("a fraction reads as a percent, digits only", () => {
+  assert.equal(percentOfFraction("0.0500"), "5.00%");
+  assert.equal(percentOfFraction("0.05"), "5.00%");
+  assert.equal(percentOfFraction("0.1"), "10.00%");
+  assert.equal(percentOfFraction("0.1234"), "12.34%");
+  assert.equal(percentOfFraction("0.0075"), "0.75%");
+  assert.equal(percentOfFraction(null), "");
+});
+
+test("the item keys show the names of the ticked items, the rate as a percent, or no surcharge", () => {
+  assert.equal(showValue(depositKey({ decided: true, value: { item_ids: ["901", "904"] } })), "Customer deposit, Old deposit item (inactive)");
+  assert.equal(showValue(depositKey({ decided: true, value: { item_ids: ["999"] } })), "item 999");
+  assert.equal(showValue(surchargeKey({ decided: true, value: { item_ids: ["902"], rate: "0.0500" } })), "Fuel surcharge (EX) at 5.00%");
+  assert.equal(showValue(surchargeKey({ decided: true, value: { item_ids: ["902"], rate: null } })), "Fuel surcharge (EX), rate not decided");
+  assert.equal(showValue(surchargeKey({ decided: true, value: { item_ids: [], rate: null } })), NO_SURCHARGE);
+  const html = row(depositKey());
+  assert.ok(html.includes("<td>Not decided</td>") && html.includes(">Decide</button>") && !html.includes("Set with the billing reports"));
+});
+
+test("the deposit edit is a pick-list of the company's items and needs one ticked", () => {
+  const html = edit(depositKey());
+  assert.ok(html.includes(DEPOSIT_HINT));
+  assert.equal((html.match(/type="checkbox"/g) || []).length, 3);
+  assert.ok(html.includes("Old deposit item (inactive)"));
+  assert.ok(!html.includes("checked"));
+  assert.ok(recordButton(html).includes("disabled"));
+  const stored = edit(depositKey({ decided: true, value: { item_ids: ["901"] } }));
+  assert.equal((stored.match(/checked=""/g) || []).length, 1);
+  assert.ok(!recordButton(stored).includes("disabled"));
+  assert.equal(hasValue("item_ids", "", [], []), false);
+  assert.equal(hasValue("item_ids", "", [], ["901"]), true);
+  assert.deepEqual(itemValue("item_ids", "", ["901", "904"], false), { item_ids: ["901", "904"] });
+  const none = edit(depositKey({ options: [] }));
+  assert.ok(none.includes("No QuickBooks items are held yet") && recordButton(none).includes("disabled"));
+});
+
+test("the surcharge edit takes items and a rate, or records no surcharge", () => {
+  const html = edit(surchargeKey());
+  assert.ok(html.includes(SURCHARGE_HINT) && html.includes(RATE_LABEL) && html.includes(NO_SURCHARGE));
+  assert.equal((html.match(/type="checkbox"/g) || []).length, 4); // three items and the no-surcharge box
+  assert.ok(recordButton(html).includes("disabled"));
+  assert.equal(hasValue("surcharge", "", [], [], false), false);
+  assert.equal(hasValue("surcharge", "", [], ["902"], false), true);
+  assert.equal(hasValue("surcharge", "", [], [], true), true);
+  assert.deepEqual(itemValue("surcharge", "0.05", ["902"], false), { item_ids: ["902"], rate: "0.05" });
+  assert.deepEqual(itemValue("surcharge", "  ", ["902"], false), { item_ids: ["902"], rate: null });
+  assert.deepEqual(itemValue("surcharge", "0.05", ["902"], true), { item_ids: [], rate: null });
+  const stored = edit(surchargeKey({ decided: true, value: { item_ids: ["902"], rate: "0.0500" } }));
+  assert.ok(stored.includes('value="0.0500"') && (stored.match(/checked=""/g) || []).length === 1);
+  const none = edit(surchargeKey({ decided: true, value: { item_ids: [], rate: null } }));
+  assert.equal((none.match(/checked=""/g) || []).length, 1); // the no-surcharge box
+  assert.ok(!recordButton(none).includes("disabled"));
 });

@@ -216,7 +216,7 @@ A job is on the schedule for period P if `revenue_method = fixed_price` and it h
 | 7 | Cost to date | WIP-basis job cost through period end |
 | 8 | **Percent complete** | 7 ÷ 5, capped at 100% |
 | 9 | Earned revenue | 8 × 3 |
-| 10 | Billed to date | Invoices − credit memos through period end (incl. retainage billed) |
+| 10 | Billed to date | Invoices − credit memos + sales receipts through period end (incl. retainage billed), less sales tax (owner, 2026-10-06) and less fuel surcharge lines (D-39); the deposit invoice counts from its date (D-02). F08 computes it on read. |
 | 11 | **Over / (under) billed** | 10 − 9 |
 | 12 | Gross profit to date | 9 − 7 |
 | 13 | Backlog | 3 − 9 |
@@ -224,7 +224,7 @@ A job is on the schedule for period P if `revenue_method = fixed_price` and it h
 
 Loss jobs: when column 6 is negative, the full projected loss is recognized now (earned revenue is reduced so GP to date equals the total expected loss) and the line is flagged.
 
-Supporting memo columns: collected to date, open A/R, retainage held, deposit received, last cost date, last billing date, EAC last reviewed date and by whom.
+Supporting memo columns: collected to date, open A/R, retainage held, deposit invoiced, deposit received, fuel surcharge billed (D-39), unapplied payments (D-02), last cost date, last billing date, EAC last reviewed date and by whom.
 
 ### 8.3 What counts as "cost" (WIP basis)
 Controlled by `account_map.in_job_cost` and tenant policy. Both the numerator (cost to date) and denominator (EAC) must use the **same** categories. See Decision D-04 for owned equipment. Default recommendation: burdened labor + materials + supplies + subs + rentals + disposal + permits; owned equipment and fuel excluded from the WIP fraction and shown as memo on the profitability report. Pooled supplies reach jobs by month-end allocation per D-30 and are in the WIP basis on both sides.
@@ -246,7 +246,7 @@ Using separate 4x90 adjustment accounts keeps billed revenue visible and makes t
 ### 8.5 Tie-outs that gate approval
 A period cannot move to `approved` unless each of these passes or is explicitly waived with a note:
 
-1. **Revenue**: billed-in-period across all jobs + unassigned income = GL income accounts for the period.
+1. **Revenue**: billed-in-period across all jobs + unassigned income = GL income accounts for the period. Fuel surcharge billed (D-39) and T&M revenue (D-24) are revenue outside the schedule and are shown as such; F08 ties the billing side month by month: jobs + not on a job = the QuickBooks month totals for billed (invoices − credit memos + sales receipts, tax and surcharge included) and for collected (payments + sales receipts), to the cent.
 2. **Cost**: GL-direct job cost + unassigned COGS = GL 5xxx for the period.
 3. **Labor**: computed job labor (unburdened) vs GL gross payroll COGS accounts. The difference is shown as unallocated labor (shop time, travel, PTO) with a tenant-set tolerance.
 4. **A/R**: open balances by job + unassigned = GL 1200.
@@ -264,7 +264,7 @@ Every exported schedule carries a tenant-configurable footer (default: "Prepared
 
 ## 9. Reports (in build order)
 
-1. **Sold Jobs Board** — every sold job: contract, change orders, deposit invoiced/received, billed, collected, open A/R, remaining to bill, days since last activity, estimator. *This is the report that answers your deposit question.*
+1. **Sold Jobs Board** — every sold job: contract, change orders, deposit invoiced/received, billed, fuel surcharge billed (D-39), collected, open A/R, remaining to bill, days since last activity, estimator. *This is the report that answers your deposit question.* **As built (F08, 2026-10-06)**: the Jobs page is the board; every figure is computed when read from the F05 rows through the `qbo_customer` aliases (nothing stored); a totals row and one "Not on a job" row (D-35, D-37); the tie-out status on screen; XLSX (values from Decimal, a tie-out tab) and PDF (D-40). Report 2's billing half: the job page's Billing section with the billing and payment histories.
 2. **Job Detail** — one job: estimate vs actual by cost category, billing history, payment history, change orders, cost transactions drill-down to the QBO link, labor hours estimated vs actual.
 3. **Exceptions Queue** — see §10.
 4. **Backlog** — sold and unbilled, by division, by estimator, by expected start.
@@ -293,7 +293,9 @@ All reports: on-screen, XLSX, PDF. XLSX exports contain values, not float artifa
 | `JOB_DIVISION_UNSET` | Job with no division (F07; only data made outside the review) | warn |
 | `COST_UNASSIGNED` | In-job-cost GL line with no job | warn, totals shown on tie-out |
 | `COST_DIVISION_MISMATCH` | Line's account division ≠ job division | warn |
-| `BILLED_OVER_CONTRACT` | Billed > revised contract (likely missing change order) | warn |
+| `BILLED_OVER_CONTRACT` | Billed > revised contract (likely missing change order); F08 raises it on read when remaining to bill is negative | warn |
+| `PAYMENT_UNAPPLIED` | A payment on the job's customer rows with money not applied to any invoice (D-02; F08). Not billed or collected to date until applied | warn |
+| `DEPOSIT_NOT_IDENTIFIED` | A `_DEP` document not on a deposit item, or a deposit item on a document that is not `<estimate number>_DEP` (D-02, owner's answer 2; F08). It still counts in billed to date | warn |
 | `COST_OVER_EAC` | Cost to date > EAC | block-close until EAC revised |
 | `EAC_STALE` | Job > X% complete or > N days since EAC review | warn |
 | `CUSTOMER_FUZZY` | Possible duplicate or mismatch (Hosmer/Hossler); F07: the read-only Customers list, exact token rules | info |
@@ -323,7 +325,7 @@ All reports: on-screen, XLSX, PDF. XLSX exports contain values, not float artifa
 
 ## 12. Stack and layout
 
-Same stack you already run in production, so nothing new to operate: Python 3.12, FastAPI, SQLAlchemy 2.0, Alembic, Postgres 16, React 18 + Vite (plain JS), DigitalOcean (App Platform or a droplet, Managed Postgres, Spaces). One addition: a worker process with a **Postgres-backed job queue** (no Redis) for syncs, imports, and report rendering.
+Same stack you already run in production, so nothing new to operate: Python 3.12, FastAPI, SQLAlchemy 2.0, Alembic, Postgres 16, React 18 + Vite (plain JS), DigitalOcean (App Platform or a droplet, Managed Postgres, Spaces). One addition: a worker process with a **Postgres-backed job queue** (no Redis) for syncs, imports, and report rendering. PDF documents (report exports from F08, the pay application in F08.1) are produced with `reportlab`, pinned (D-40); XLSX with openpyxl.
 
 ```
 jobcost/
@@ -423,6 +425,8 @@ For the 16 sold jobs, from QBO: first invoice date/amount, payments applied, tot
 | D-36 | What does the customer receive for a progress billing, and what does the invoice carry? | Closed by D-36 (2026-10-01): the platform produces a pay application with a schedule of values (kept original and approved change-order work areas; earned to date, retainage, less billed before, amount due); the invoice stays in QuickBooks, keyed from it (`_PMT<n>`, one line, "Pay application n") and tied to it by document number. Applied by F08.1; D-26's "#n" line rule stays for invoices keyed before pay applications are in use. |
 | D-37 | Which QuickBooks customers and projects do the screens work on: every row the sync holds, or the ones a person picks? | Closed by D-37 (2026-10-04): a person picks (tracks) rows by id on the Customers page, and a link to a job tracks the row; the screens and `LEDGER_PROJECT_NO_JOB` work from tracked rows only; what is fetched and held, the month totals and every tie-out are unchanged. Applied by F07.2. |
 | D-38 | Does a tracked row that QuickBooks has made inactive still ask for a job? | Closed by D-38 (2026-10-04, amends D-37): no; it stays tracked, reads "Inactive in QuickBooks" and raises nothing. F07.2 as built. |
+| D-39 | A fuel surcharge on a fixed-price job: contract, or recognised as billed? | Closed by D-39 (2026-10-06): outside the contract, recognised as billed, excluded from billed to date (§8.2 column 10) and shown as its own figure; recognised by item id (`fuel_surcharge_treatment`: the items and the rate); printed on the pay application. Applied by F08; the per-application choice and the two-part tie by F08.1. |
+| D-40 | Which library produces the platform's PDF documents? | Closed by D-40 (2026-10-06): `reportlab`, pinned, one library for every PDF; built from the same Decimal figures as the screen and the XLSX. Applied by F08. |
 
 ---
 

@@ -311,3 +311,25 @@ tracked, reads "Inactive in QuickBooks" and raises nothing. The rest of D-37 sta
 **Reasoning**: An inactive project cannot take a job's money, so asking for a job on it is
 noise (owner, 2026-10-04, amendment 2 to the F07.2 plan).
 **Affected**: F07.2 as built (no code change). BLUEPRINT §5, §10.
+
+## D-39 · 2026-10-06 · A fuel surcharge is outside the contract, is recognised as billed, and prints on the pay application
+
+**Decision**: A fuel surcharge on a fixed-price construction or excavation job is not part of the contract. It is not in the estimate, is not a work area, and never enters the revised contract, EAC, percent complete or earned revenue. The tenant's surcharge rate is a policy value decided by a person (Rye Beach: 0.0500); there is no default. On each pay application a person says whether the surcharge applies; nothing is assumed. When it applies, the surcharge is the application's amount due × the rate, quantized `ROUND_HALF_UP` to the cent, printed as its own line, "Fuel surcharge (5.00%)", below the amount due, followed by the total to invoice.
+
+In QuickBooks the surcharge is a line on the same invoice, on one of the tenant's fuel surcharge items (one item per division income account). The platform recognises a surcharge line by its item id only, never by its description or amount. An invoice ties to its pay application (D-36) in two parts: its surcharge lines equal the printed surcharge, and its total less surcharge lines equals the amount due. A surcharge on an invoice with no pay application, including the deposit invoice (D-02), is keyed by hand on the same items and is recognised the same way.
+
+Surcharge lines are excluded from billed to date (§8.2 column 10) on invoices and credit memos alike, and so from over / (under) billed and the WIP entry. The revenue stays in the division income account in the month it is invoiced; no entry is posted for it. The job shows it as its own figure, "Fuel surcharge billed", and the tie-out shows the total as revenue outside the schedule, as D-24 does for T&M. Collected to date and open A/R remain whole-invoice figures and include it.
+
+When fuel is priced into an estimate, it is contract price like any other and this decision does not apply to it; a job carries a surcharge only where a pay application or an invoice line says so.
+
+**Reasoning**: The surcharge is new, optional per customer and per invoice, and posts to the same income account as contract billing, so the account cannot identify it. Counted in billed to date with no matching contract value, it would leave every such job over billed by the surcharge at completion and defer revenue the job never earns back through percent complete. The owner chose recognition as billed over adding it to the contract because it is not agreed up front and its total is not known until each invoice is accepted. It prints on the pay application because that is the document the customer approves; estimates written before fuel prices rose cannot be repriced, and the surcharge is expected to fade as new estimates carry the higher cost.
+
+**Affected**: `tenant_policy` (`fuel_surcharge_treatment` becomes the fuel surcharge item ids and the rate; its description no longer cites D-04). F08 (billed to date excludes surcharge lines; the separate figure). F08.1 (the choice per pay application, the printed line, the two-part tie). F12, F13, F14, F17. D-36 amended as to what prints below the amount due and as to the tie; D-02 and D-04 unchanged. BLUEPRINT §8.2 column 10, §8.5, §14. CLAUDE.md Vocabulary gains "fuel surcharge". OPERATIONS.md: creating the items, the pay application choice, keying the invoice.
+
+## D-40 · 2026-10-06 · PDF documents are produced with reportlab
+
+**Decision**: The platform produces its PDF documents (report exports from F08 onward, and the pay application in F08.1) with the `reportlab` library, added to the backend dependencies at a pinned version. A PDF is built on the server from the same Decimal figures as the screen and the XLSX export; no figure is recomputed for it.
+
+**Reasoning**: F08 is the first feature to export a PDF, and F08.1's pay application is a customer document with a schedule of values that can run over several pages, which needs tables with repeating headers. `fpdf2` was considered as the lighter alternative. One library for every PDF keeps the documents consistent.
+
+**Affected**: F08, F08.1 and later report features. BLUEPRINT §12 (stack). The backend dependency list.

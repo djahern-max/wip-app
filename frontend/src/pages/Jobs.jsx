@@ -1,12 +1,16 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
-import { amountOr, qboCell } from "../jobs.js";
+import { formatMoney } from "../money.js";
+import { amountOr, daysWords, figureOr, filterQuery, qboCell } from "../jobs.js";
 import Attention from "./JobAttention.jsx";
 import JobDetail from "./JobDetail.jsx";
 import JobReview from "./JobReview.jsx";
 
 // Jobs (F07): every job with its computed contract figures, the review queue for sold
 // estimates, and one job's detail. The job is the unit everything after F07 reports on.
+// F08: the list is the Sold Jobs Board (BLUEPRINT §9 report 1): the billing figures per
+// job computed on read from QuickBooks (D-02, D-39), a totals row, the not-on-a-job row
+// (D-35, D-37), the tie-out status, and the two exports (plain links to GETs).
 // Matching is by id: names only ever produce labelled suggestions, and a person makes
 // every attach and link. Read by every role; the actions are for the roles that upload
 // (canManage). Mount effects only read (GET).
@@ -46,13 +50,7 @@ export default function Jobs({ me, canManage, target, onOpenEstimate }) {
 
   useEffect(() => {
     if (view !== "list") return;
-    const q = new URLSearchParams();
-    if (filters.status) q.set("status", filters.status);
-    if (filters.division_id) q.set("division_id", filters.division_id);
-    if (filters.revenue_method) q.set("revenue_method", filters.revenue_method);
-    if (filters.no_link) q.set("no_link", "true");
-    const qs = q.toString();
-    api("GET", `/api/jobs${qs ? `?${qs}` : ""}`)
+    api("GET", `/api/jobs${filterQuery(filters)}`)
       .then(setData)
       .catch(() => setError("The jobs could not be loaded. Refresh the page."));
   }, [me.active_tenant_id, view, filters, reload]);
@@ -173,56 +171,120 @@ export default function Jobs({ me, canManage, target, onOpenEstimate }) {
       {!data ? (
         <p className="hint">Loading…</p>
       ) : (
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Job</th>
-                <th>Customer</th>
-                <th>Division</th>
-                <th>Revenue method</th>
-                <th>Status</th>
-                <th className="num">Revised contract</th>
-                <th className="num">Unapproved change orders</th>
-                <th className="num">EAC in the WIP basis</th>
-                <th>QuickBooks</th>
-                <th>Attention</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.jobs.length === 0 && (
+        <>
+          <h3>Sold Jobs Board</h3>
+          <p className="hint">
+            {data.tenant_name}. Figures to date as of {data.as_of}, from QuickBooks: a deposit is the invoice
+            numbered estimate_DEP on a deposit item (D-02); fuel surcharge lines are outside billed to date (D-39).
+            Tie-out: {data.tie_out.status}
+          </p>
+          {data.policy_note && <p className="hint">{data.policy_note}</p>}
+          <div className="toolbar">
+            <a className="button" href={`/api/jobs/export.xlsx${filterQuery(filters)}`} download>
+              Export XLSX
+            </a>
+            <a className="button" href={`/api/jobs/export.pdf${filterQuery(filters)}`} download>
+              Export PDF
+            </a>
+          </div>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
                 <tr>
-                  <td colSpan={10}>
-                    No jobs yet. Review the sold estimates to make them jobs.
-                  </td>
+                  <th>Job</th>
+                  <th>Customer</th>
+                  <th>Division</th>
+                  <th>Revenue method</th>
+                  <th>Status</th>
+                  <th>Estimator</th>
+                  <th className="num">Revised contract</th>
+                  <th className="num">Unapproved change orders</th>
+                  <th className="num">EAC in the WIP basis</th>
+                  <th className="num">Deposit invoiced</th>
+                  <th className="num">Deposit received</th>
+                  <th className="num">Billed to date</th>
+                  <th className="num">Fuel surcharge billed</th>
+                  <th className="num">Collected to date</th>
+                  <th className="num">Open A/R</th>
+                  <th className="num">Remaining to bill</th>
+                  <th className="num">Days since last activity</th>
+                  <th>QuickBooks</th>
+                  <th>Attention</th>
                 </tr>
-              )}
-              {data.jobs.map((j) => (
-                <tr key={j.id}>
-                  <td>
-                    <button type="button" className="link-button" onClick={() => openJob(j.id)}>
-                      {j.name}
-                    </button>
-                  </td>
-                  <td>{j.customer_name || "Not linked"}</td>
-                  <td>{j.division_code || "Not set"}</td>
-                  <td>{j.revenue_method_label}</td>
-                  <td>{j.status_label}</td>
-                  <td className="num">
-                    {amountOr(j.revised_contract, "None")}
-                    {j.revised_contract_note && <div className="hint">{j.revised_contract_note}</div>}
-                  </td>
-                  <td className="num">{amountOr(j.unapproved_change_orders, "None")}</td>
-                  <td className="num">{amountOr(j.eac_in_basis, "Not computed")}</td>
-                  <td>{qboCell(j)}</td>
-                  <td>
-                    <Attention items={j.attention} />
-                  </td>
+              </thead>
+              <tbody>
+                {data.jobs.length === 0 && (
+                  <tr>
+                    <td colSpan={19}>No jobs yet. Review the sold estimates to make them jobs.</td>
+                  </tr>
+                )}
+                {data.jobs.map((j) => (
+                  <tr key={j.id}>
+                    <td>
+                      <button type="button" className="link-button" onClick={() => openJob(j.id)}>
+                        {j.name}
+                      </button>
+                      {j.estimate_number && <div className="hint">{j.estimate_number}</div>}
+                    </td>
+                    <td>{j.customer_name || "Not linked"}</td>
+                    <td>{j.division_code || "Not set"}</td>
+                    <td>{j.revenue_method_label}</td>
+                    <td>{j.status_label}</td>
+                    <td>{j.estimator || "Not on the estimate"}</td>
+                    <td className="num">
+                      {amountOr(j.revised_contract, "None")}
+                      {j.revised_contract_note && <div className="hint">{j.revised_contract_note}</div>}
+                    </td>
+                    <td className="num">{amountOr(j.unapproved_change_orders, "None")}</td>
+                    <td className="num">{amountOr(j.eac_in_basis, "Not computed")}</td>
+                    <td className="num">{figureOr(j.billing.deposit_invoiced, null, "Not decided")}</td>
+                    <td className="num">{figureOr(j.billing.deposit_received, null, "Not decided")}</td>
+                    <td className="num">{figureOr(j.billing.billed_to_date, null, "Not decided")}</td>
+                    <td className="num">{figureOr(j.billing.fuel_surcharge_billed, null, "Not decided")}</td>
+                    <td className="num">{formatMoney(j.billing.collected_to_date)}</td>
+                    <td className="num">{formatMoney(j.billing.open_ar)}</td>
+                    <td className="num">
+                      {figureOr(j.billing.remaining_to_bill, j.billing.remaining_to_bill_note, "Not decided")}
+                    </td>
+                    <td className="num">{daysWords(j.billing.days_since_activity)}</td>
+                    <td>{qboCell(j)}</td>
+                    <td>
+                      <Attention items={j.attention} />
+                    </td>
+                  </tr>
+                ))}
+                <tr className="totals">
+                  <td>Total ({data.total} jobs listed)</td>
+                  <td colSpan={8}></td>
+                  <td className="num">{figureOr(data.totals.deposit_invoiced, null, "Not decided")}</td>
+                  <td className="num">{figureOr(data.totals.deposit_received, null, "Not decided")}</td>
+                  <td className="num">{figureOr(data.totals.billed_to_date, null, "Not decided")}</td>
+                  <td className="num">{figureOr(data.totals.fuel_surcharge_billed, null, "Not decided")}</td>
+                  <td className="num">{formatMoney(data.totals.collected_to_date)}</td>
+                  <td className="num">{formatMoney(data.totals.open_ar)}</td>
+                  <td className="num">{figureOr(data.totals.remaining_to_bill, null, "None")}</td>
+                  <td colSpan={3}></td>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                <tr className="totals">
+                  <td>Not on a job</td>
+                  <td colSpan={8}>
+                    Documents and payments on QuickBooks rows with no job: untracked rows, tracked rows with no job, and
+                    the parent customer of a construction job (D-35, D-37). Unapplied:{" "}
+                    {formatMoney(data.not_on_a_job.unapplied_payments)}
+                  </td>
+                  <td className="num">{figureOr(data.not_on_a_job.deposit_invoiced, null, "Not decided")}</td>
+                  <td className="num">{figureOr(data.not_on_a_job.deposit_received, null, "Not decided")}</td>
+                  <td className="num">{figureOr(data.not_on_a_job.billed_to_date, null, "Not decided")}</td>
+                  <td className="num">{figureOr(data.not_on_a_job.fuel_surcharge_billed, null, "Not decided")}</td>
+                  <td className="num">{formatMoney(data.not_on_a_job.collected_to_date)}</td>
+                  <td className="num">{formatMoney(data.not_on_a_job.open_ar)}</td>
+                  <td className="num"></td>
+                  <td colSpan={3}></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
 
       {data && data.ledger_items.length > 0 && (

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import date
 from uuid import UUID
 
+from app.domain.billing.figures import JobFigures, words
 from app.domain.estimates.exceptions import Issue
 from app.domain.jobs.models import JOB_STATUS_LABELS, LINK_REQUIRED_STATUSES
 
@@ -40,6 +41,22 @@ SENTENCES: dict[str, str] = {
     "CUSTOMER_FUZZY": (
         'QuickBooks customers "{a}" and "{b}" look like one customer. Merge in '
         "QuickBooks; the platform follows."
+    ),
+    # F08 (D-02): money received on the job with no invoice to apply it to
+    "PAYMENT_UNAPPLIED": (
+        'Job "{name}" has {amount} received and not applied to any invoice ({payments}). '
+        "It is not billed or collected to date until it is applied in QuickBooks (D-02)."
+    ),
+    # F08 (D-02, owner's answer 2): one of the two deposit marks without the other
+    "DEPOSIT_NOT_IDENTIFIED": (
+        '{kind} {document} on job "{name}" is not identified as the deposit: {reason}. '
+        "It counts in billed to date; fix the item or the document number in QuickBooks "
+        "(D-02)."
+    ),
+    # §10 BILLED_OVER_CONTRACT
+    "BILLED_OVER_CONTRACT": (
+        'Job "{name}" is billed {over} over its revised contract ({billed} billed against '
+        "{contract}): likely a change order not yet approved."
     ),
 }
 
@@ -141,3 +158,69 @@ def ledger_issue(r: LedgerRow) -> Issue | None:
 
 def ledger_issues(rows: Sequence[LedgerRow]) -> list[Issue]:
     return [issue for r in rows if (issue := ledger_issue(r)) is not None]
+
+
+# --- F08: the billing side ------------------------------------------------------------------
+
+
+def billing_issues(name: str, figures: JobFigures) -> list[Issue]:
+    """The three F08 review items of one job, in the brief's order; pure, from the
+    figures ``app.domain.billing.figures`` computed."""
+    out: list[Issue] = []
+    if figures.unapplied_count:
+        n = figures.unapplied_count
+        out.append(
+            Issue(
+                "PAYMENT_UNAPPLIED",
+                sentence(
+                    "PAYMENT_UNAPPLIED",
+                    name=name,
+                    amount=words(figures.unapplied_payments),
+                    payments=f"{n} payment{'' if n == 1 else 's'}",
+                ),
+                {"amount": str(figures.unapplied_payments), "payments": n},
+            )
+        )
+    for d in figures.deposit_mismatches:
+        out.append(
+            Issue(
+                "DEPOSIT_NOT_IDENTIFIED",
+                sentence(
+                    "DEPOSIT_NOT_IDENTIFIED",
+                    kind=d.kind_label,
+                    document=d.doc.doc_number or d.doc.external_id,
+                    name=name,
+                    reason=d.deposit_reason,
+                ),
+                {
+                    "billing_id": d.doc.id,
+                    "external_id": d.doc.external_id,
+                    "reason": d.deposit_reason,
+                },
+            )
+        )
+    over = figures.over_contract
+    if (
+        over is not None
+        and figures.billed_to_date is not None
+        and figures.remaining_to_bill is not None
+    ):
+        contract = figures.billed_to_date + figures.remaining_to_bill
+        out.append(
+            Issue(
+                "BILLED_OVER_CONTRACT",
+                sentence(
+                    "BILLED_OVER_CONTRACT",
+                    name=name,
+                    over=words(over),
+                    billed=words(figures.billed_to_date),
+                    contract=words(contract),
+                ),
+                {
+                    "over": str(over),
+                    "billed": str(figures.billed_to_date),
+                    "contract": str(contract),
+                },
+            )
+        )
+    return out
