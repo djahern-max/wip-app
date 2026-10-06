@@ -2,8 +2,8 @@
 
 _No feature in flight (2026-10-06)._ **F07.4 · Change order approval is built** (2026-10-06,
 one commit; migration 0013 `change_order_approval`; D-42 and D-43 pasted by the owner and
-D-44 made by the brief are in `docs/DECISIONS.md`; ROADMAP ◐ until the owner's pass on
-jobcost.dev, tenant `rye-beach`). The brief, with the Plan, the owner's answers A to D, the
+D-44 made by the brief are in `docs/DECISIONS.md`; the owner's pass on
+jobcost.dev, tenant `rye-beach`; **passed 2026-10-06; ROADMAP ☑**). The brief, with the Plan, the owner's answers A to D, the
 build notes and the Discovered list, is `docs/briefs/F07.4.md`. A change-order work area
 joins the revised contract when a `client_pm` or `firm_admin` records that the customer
 agreed (the date, optionally who, a reference when the new policy key
@@ -14,11 +14,7 @@ ends for good when a later version changes the work area's name or price (rule C
 EAC unchanged (D-44). The unapproved change orders list is a page from Jobs. Dev `wip` is
 at 0012: deploying F07.4 runs 0013.
 
-Open passes carried: **F07.4** (set the evidence key; a project manager's login,
-`scripts/create_user.py create-user … --membership rye-beach:client_pm`; one approval on
-6115758 under that login: approving #18 moves the revised contract from 465,469.59 to
-470,944.59 and unapproved from 53,704.13 to 48,229.13; withdrawing restores them; the list
-shows what is left), **F07.3** (`docs/briefs/F07.3.md`), **F07.2** (`docs/briefs/F07.2.md`;
+Open passes carried: **F07.3** (`docs/briefs/F07.3.md`), **F07.2** (`docs/briefs/F07.2.md`;
 deploying it runs migration 0012), **F07.1** (`docs/briefs/F07.1.md`) and **F07** (the pass
 job by job; 67 Elm Street passed 2026-10-01). D-08 is still open. Retainage is owed as a
 later feature with its own decision before any tenant that holds it (D-43; a Later line in
@@ -205,3 +201,22 @@ Found while building F07.4 (2026-10-06), not fixed here:
 - The job page reads the policy list to know whether a reference is required; a field on the job detail would save that request.
 - The F07.4 screens (the Approval column, the in-row form, the change-order estimates table, the history, the list page) were not rendered in a browser by Claude Code; the owner's pass checks them at 390 px as well.
 - An estimate attached as a change order with no work areas loaded counts its header price as unapproved and has nothing to approve; loading its work areas (D-32) is the way to approve it.
+
+From the owner's pass of 2026-10-06 (F07.4), not fixed here:
+- The browser's back button leaves the application or forces a new sign-in instead of
+  returning to the previous page (every page; the address stays jobcost.dev).
+- Review sold estimates: when the suggested job has no original estimate, the Attention
+  sentence offers only "a new job" or "attach it as a change order" and Role defaults to
+  Change order. It should point to Original.
+- Job page, Action column: "Change to original" and "Approve" run together as
+  "Change to originalApprove".
+- A refused approval shows its sentence at the top of the job page, a full screen above
+  the form; it belongs beside the form.
+- "Decide the policy key Change order evidence..." is shown to a client_pm, who cannot
+  open Configuration; it should say who can.
+- Approve is offered, and the form opens, while the evidence key is undecided.
+- A successful approval gives no confirmation where the person is looking.
+- Billing for unapproved change orders is not flagged. On 6115758 two invoices
+  (38,325.00 and 10,950.00, together 49,275.00) equal nine change orders at 5,475.00
+  that are unapproved, so remaining to bill is understated by that amount. The owner
+  wants a flag; the rule needs a decision first.
