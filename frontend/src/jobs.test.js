@@ -107,7 +107,8 @@ test("the tie-out line reads checking until its own request answers, then the AP
   assert.equal(tieOutText(false), "Tie-out: could not be checked. Refresh the page.");
   assert.equal(tieOutText({ status: "Ties to the cent to the QuickBooks month totals (308 months)." }), "Tie-out: Ties to the cent to the QuickBooks month totals (308 months).");
   // Link and Unlink: the pressed control says what is happening; the others keep their word.
-  assert.deepEqual(PENDING_WORDS, { link: "Linking…", unlink: "Unlinking…" });
+  // F07.4 added Approve and Withdraw approval to the same convention.
+  assert.deepEqual(PENDING_WORDS, { link: "Linking…", unlink: "Unlinking…", approve: "Approving…", withdraw: "Withdrawing…" });
   assert.equal(pendingLabel("link", null, "201"), null);
   assert.equal(pendingLabel("link", { id: "201", action: "link" }, "201"), "Linking…");
   assert.equal(pendingLabel("link", { id: "201", action: "link" }, "202"), null);
@@ -115,3 +116,36 @@ test("the tie-out line reads checking until its own request answers, then the AP
   assert.equal(pendingLabel("unlink", { id: "a1", action: "link" }, "a1"), null);
 });
 
+
+// --- F07.4 (D-42) ----------------------------------------------------------------------
+
+test("approval words and actions: a confirmed change order is approved or not; only two roles act", async () => {
+  const { approvalActions, canApproveChangeOrders, kindActions, pendingLabel } = await import("./jobs.js");
+  assert.equal(canApproveChangeOrders("client_pm"), true);
+  assert.equal(canApproveChangeOrders("firm_admin"), true);
+  assert.equal(canApproveChangeOrders("client_admin"), false);
+  assert.equal(canApproveChangeOrders("firm_staff"), false);
+  assert.equal(canApproveChangeOrders("client_viewer"), false);
+  const unapproved = { kept: true, kind: "change_order", approved: false, approval_label: "Change order, not approved" };
+  const approved = { kept: true, kind: "change_order", approved: true, approval_label: "Change order, approved 2026-09-14 by Dane" };
+  assert.deepEqual(approvalActions(unapproved), [{ action: "approve", label: "Approve" }]);
+  assert.deepEqual(approvalActions(approved), [{ action: "withdraw", label: "Withdraw approval" }]);
+  assert.deepEqual(approvalActions({ kept: true, kind: "original", approved: false, approval_label: null }), []);
+  assert.deepEqual(approvalActions({ kept: true, kind: null, approved: false, approval_label: null }), []);
+  assert.deepEqual(approvalActions({ kept: false, kind: null, approved: false, approval_label: null }), []);
+  // An approved change order offers no "Change to original": the server refuses it too.
+  assert.deepEqual(kindActions(approved), []);
+  assert.deepEqual(kindActions(unapproved), [{ kind: "original", label: "Change to original" }]);
+  // The busy labels follow the F08.2 convention.
+  assert.equal(pendingLabel("approve", { id: "w1", action: "approve" }, "w1"), "Approving…");
+  assert.equal(pendingLabel("withdraw", { id: "w1", action: "withdraw" }, "w1"), "Withdrawing…");
+  assert.equal(pendingLabel("approve", { id: "w1", action: "approve" }, "w2"), null);
+});
+
+test("an approval is ready with the agreed date, and a reference only when the policy requires one", async () => {
+  const { approvalReady } = await import("./jobs.js");
+  assert.equal(approvalReady({ agreed_on: "", evidence_ref: "" }, false), false);
+  assert.equal(approvalReady({ agreed_on: "2026-09-14", evidence_ref: "" }, false), true);
+  assert.equal(approvalReady({ agreed_on: "2026-09-14", evidence_ref: "  " }, true), false);
+  assert.equal(approvalReady({ agreed_on: "2026-09-14", evidence_ref: "e-mail" }, true), true);
+});

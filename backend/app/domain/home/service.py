@@ -128,6 +128,9 @@ def job_facts(db: Session, tenant_id: UUID) -> list[JobFacts]:
                 unapplied_payments=(money_str(f.unapplied_payments) if f.unapplied_count else None),
                 deposit_not_identified=len(f.deposit_mismatches),
                 billed_over_contract=money_str(f.over_contract),
+                unapproved_change_orders=money_str(v.contract.unapproved_change_orders),
+                unapproved_count=v.contract.unapproved_count,
+                approvals_ended=sum(1 for i in v.issues if i.code == "CO_APPROVAL_NOT_CARRIED"),
             )
         )
     return out

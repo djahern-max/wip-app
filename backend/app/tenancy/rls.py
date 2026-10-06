@@ -37,6 +37,7 @@ APPEND_ONLY_TABLES: tuple[str, ...] = (
     "firm_audit_log",
     "raw_record",  # D-20
     "webhook_event",  # F05.1 (D-29): tenant-less, stored before the tenant is known
+    "change_order_approval",  # F07.4 (D-42): approvals and withdrawals are history
 )
 
 

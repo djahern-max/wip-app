@@ -233,6 +233,22 @@ def _routes() -> list[Route]:
             frozenset({FA, FS, CA}),
             also_ok=frozenset({404}),
         ),
+        # F07.4 (D-42): client_pm and firm_admin approve and withdraw; every role reads the list.
+        Route(
+            "POST",
+            f"/api/jobs/{_NO_JOB}/work-areas/{uuid.uuid4()}/approval",
+            frozenset({FA, PM}),
+            body=lambda: {"agreed_on": "2026-09-14"},
+            also_ok=frozenset({404, 409}),
+        ),
+        Route(
+            "POST",
+            f"/api/jobs/{_NO_JOB}/work-areas/{uuid.uuid4()}/approval/withdraw",
+            frozenset({FA, PM}),
+            body=lambda: {"reason": "matrix"},
+            also_ok=frozenset({404, 409}),
+        ),
+        Route("GET", "/api/change-orders/unapproved", ALL),
         Route("GET", "/api/admin/users", frozenset({FA})),
         Route(
             "POST",

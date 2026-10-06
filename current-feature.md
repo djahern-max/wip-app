@@ -1,66 +1,82 @@
 # current-feature.md
 
-_No feature in flight (2026-10-06)._ **F08 · Sold Jobs Board & Job Detail (billing side)
-and F08.2 · Board tie-out on the collected side, speed, and three screen fixes are closed**
-(the owner's pass on jobcost.dev, tenant `rye-beach`, passed 2026-10-06; ROADMAP ☑ for both;
-F08.2 was built in two commits, items 2 to 5 and the item 1 diagnostic, then item 1 on
-**D-41**; no migration, no index, no dependency). The briefs, with the Plans, the owner's
-answers, the finding, the build notes, the speed before and after and the Discovered lists,
-are `docs/briefs/F08.md` and `docs/briefs/F08.2.md`. F08's §13.6 spreadsheet criterion is not
-built and stays unticked, stood in for by the owner's check of 6115758 against a QuickBooks
-export (288,618.87, 250,293.87, 38,325.00, 176,850.72, to the cent). **D-41** (collected to
-date is cash; a payment's remainder on its own row; "Other credits applied";
-`PAYMENT_OTHER_CREDIT`) was decided 2026-10-06 on the diagnostic's finding and is in
-`docs/DECISIONS.md` and BLUEPRINT §14.
+_No feature in flight (2026-10-06)._ **F07.4 · Change order approval is built** (2026-10-06,
+one commit; migration 0013 `change_order_approval`; D-42 and D-43 pasted by the owner and
+D-44 made by the brief are in `docs/DECISIONS.md`; ROADMAP ◐ until the owner's pass on
+jobcost.dev, tenant `rye-beach`). The brief, with the Plan, the owner's answers A to D, the
+build notes and the Discovered list, is `docs/briefs/F07.4.md`. A change-order work area
+joins the revised contract when a `client_pm` or `firm_admin` records that the customer
+agreed (the date, optionally who, a reference when the new policy key
+`change_order_evidence` requires one, a note), at its price that day; a withdrawal with a
+reason takes it out; both are append-only history with one audit row each; an approval
+ends for good when a later version changes the work area's name or price (rule C;
+`CO_APPROVAL_NOT_CARRIED`). Revised contract = original contract + approved change orders;
+EAC unchanged (D-44). The unapproved change orders list is a page from Jobs. Dev `wip` is
+at 0012: deploying F07.4 runs 0013.
 
-Open passes carried: **F07.3 · Home says what to do next** (built 2026-10-04,
-`docs/briefs/F07.3.md`; ROADMAP ◐), **F07.2 · Pick what to work on** (`docs/briefs/F07.2.md`;
-deploying it runs migration 0012), **F07.1** (`docs/briefs/F07.1.md`) and **F07** (the pass job
-by job; 67 Elm Street passed 2026-10-01). The dev `wip` database is at 0012; F08 and F08.2 add
-no migration. D-08 is still open.
+Open passes carried: **F07.4** (set the evidence key; a project manager's login,
+`scripts/create_user.py create-user … --membership rye-beach:client_pm`; one approval on
+6115758 under that login: approving #18 moves the revised contract from 465,469.59 to
+470,944.59 and unapproved from 53,704.13 to 48,229.13; withdrawing restores them; the list
+shows what is left), **F07.3** (`docs/briefs/F07.3.md`), **F07.2** (`docs/briefs/F07.2.md`;
+deploying it runs migration 0012), **F07.1** (`docs/briefs/F07.1.md`) and **F07** (the pass
+job by job; 67 Elm Street passed 2026-10-01). D-08 is still open. Retainage is owed as a
+later feature with its own decision before any tenant that holds it (D-43; a Later line in
+ROADMAP).
 
-Next per ROADMAP: **F08.1 · Pay applications (billing requests)**, as D-36 restates it and
-D-39 extends it: capture the operations billing request per job (cumulative percent complete
-per work area, D-26), produce the pay application with its schedule of values on screen and
-as PDF (reportlab, D-40), the summary (earned to date, less retainage, less billed to date
-before this application: the deposit, D-02, and earlier applications; amount due), the fuel
-surcharge choice on each application with the printed line "Fuel surcharge (5.00%)" and the
-two-part tie of the invoice to its application (D-39), issue, void and re-issue audited,
-`job.retainage_pct` (a migration: wait for a yes), tables `pay_application` and
-`pay_application_line` (tenant-scoped, RLS forced). Not started; the owner supplies the brief.
-Copy it here, expand it, and restate the acceptance criteria before coding. It reads the rate
-from `fuel_surcharge_treatment` (`policy.surcharge_treatment`) and requires it.
+Next per ROADMAP: **F08.1 · Pay applications (billing requests)**, as D-36 restates it, D-39
+extends it and D-42 and D-43 qualify it: capture the operations billing request per job
+(cumulative percent complete per work area, D-26), produce the pay application with its
+schedule of values (every kept original and **approved** change-order work area, D-42) on
+screen and as PDF (reportlab, D-40), the summary (earned to date, less billed to date
+before this application: the deposit, D-02, and earlier applications; amount due; **no
+retainage line**, D-43), the fuel surcharge choice on each application with the printed
+line "Fuel surcharge (5.00%)" and the two-part tie of the invoice to its application
+(D-39), issue, void and re-issue audited, tables `pay_application` and
+`pay_application_line` (tenant-scoped, RLS forced; a migration: wait for a yes). Not
+started; the owner supplies the brief. Copy it here, expand it, and restate the acceptance
+criteria before coding. It reads the rate from `fuel_surcharge_treatment`
+(`policy.surcharge_treatment`) and requires it.
 
-Standing state from F07 to F08.2: the job is the reporting unit; matching is by alias
-(`job_alias`), never by name (a QuickBooks row is suggested when its name begins with or
-contains an attached estimate's number, within the F07 scope). The revised contract,
-unapproved change orders, EAC and every billing figure are computed on read
-(`app/domain/jobs/contract.py`, `app/domain/billing/figures.py` and `board.py`), never
-stored; nothing in `app/wip/` has been touched. Billed to date is total − sales tax − fuel
-surcharge lines, the deposit invoice (`<estimate number>_DEP` on a deposit item, both marks)
-counted from its date. Collected to date is cash (D-41): a payment's total less its unapplied
-amount; invoice, sales receipt and credit memo lines follow the document's job, dated by the
-payment; the net of every other line is the payment's remainder on the payment's own row; a
-credit remainder is "Other credits applied". The board reads the listed jobs' own rows; the
-"Not on a job" row (D-35, D-37), every per-month sum and the Connections month totals are
-summed by the database; the tie-out is `GET /api/jobs/tie-out`, over every job, and holds to
-the cent; the sign of a payment line is `CREDIT_TXN_TYPES` beside `INVOICE_TXN_TYPES` in
-`figures.py`, one place. Review items are pure generators (`app/domain/jobs/issues.py`: the
-F07 ones, `PAYMENT_UNAPPLIED`, `DEPOSIT_NOT_IDENTIFIED`, `BILLED_OVER_CONTRACT`,
-`PAYMENT_OTHER_CREDIT`); F09 persists them. Home composes the pages' functions; `JOB_NEEDS`
-has the three F08 rules after the F07 ones (not `PAYMENT_OTHER_CREDIT`, Discovered);
-`REQUIRED_POLICY_KEYS` holds the four keys read today. Policy: no key has a default; the two
-item keys take the company's QuickBooks items from the raw `Item` versions
-(`app/domain/config/items.py`: active, inactive and deleted, each with its flag and its label
-built on the server); `small_job_threshold` still waits (D-08). XLSX money cells are written
+Standing state from F07 to F08.2 and F07.4: the job is the reporting unit; matching is by
+alias (`job_alias`), never by name (a QuickBooks row is suggested when its name begins with
+or contains an attached estimate's number, within the F07 scope). The original contract,
+approved change orders, revised contract, unapproved change orders, EAC and every billing
+figure are computed on read (`app/domain/jobs/contract.py`, `app/domain/billing/figures.py`
+and `board.py`), never stored; the only F07.4 rows are approvals and withdrawals
+(`change_order_approval`, keyed by `(estimate_id, order_no)`, the name and price as the
+read-time guard; `contract.approval_state` decides whether one applies, rule C); nothing in
+`app/wip/` has been touched. Billed to date is total − sales tax − fuel surcharge lines, the
+deposit invoice (`<estimate number>_DEP` on a deposit item, both marks) counted from its
+date. Collected to date is cash (D-41): a payment's total less its unapplied amount;
+invoice, sales receipt and credit memo lines follow the document's job, dated by the
+payment; the net of every other line is the payment's remainder on the payment's own row;
+a credit remainder is "Other credits applied". The board reads the listed jobs' own rows;
+the "Not on a job" row (D-35, D-37), every per-month sum and the Connections month totals
+are summed by the database; the tie-out is `GET /api/jobs/tie-out`, over every job, and
+holds to the cent; the sign of a payment line is `CREDIT_TXN_TYPES` beside
+`INVOICE_TXN_TYPES` in `figures.py`, one place. Review items are pure generators
+(`app/domain/jobs/issues.py`: the F07 ones, `PAYMENT_UNAPPLIED`, `DEPOSIT_NOT_IDENTIFIED`,
+`BILLED_OVER_CONTRACT`, `PAYMENT_OTHER_CREDIT`, `CO_APPROVAL_NOT_CARRIED`); F09 persists
+them. Home composes the pages' functions; `JOB_NEEDS` has the three F08 rules after the F07
+ones and the two F07.4 rules after those (an ended approval, then unapproved change orders;
+not `PAYMENT_OTHER_CREDIT`, Discovered); `REQUIRED_POLICY_KEYS` holds the five keys read
+today. Policy: no key has a default; the two item keys take the company's QuickBooks items
+from the raw `Item` versions (`app/domain/config/items.py`); `change_order_evidence` is a
+`choice` with its two values' words on the registry entry; `small_job_threshold` still
+waits (D-08). Roles: `client_pm` and `firm_admin` approve and withdraw
+(`can_approve_change_orders`); `can_manage_jobs` is unchanged. XLSX money cells are written
 as numeric strings holding the Decimal's digits (`export.py`, `_write_money`); PDFs are
-reportlab, uncompressed. `scripts/collected_tieout.py` (read-only, no customer name) and
-`scripts/seed_board_load.py` (dev only) are in OPERATIONS, "The Sold Jobs Board". The owner's
-reviewed 67 Elm Street workbook (`estimate_upload_EST6115758_reviewed_10.06.xlsx`; revised
-contract 465,469.59 after "Confirm all as suggested") is the job the owner is working; later
-features are accepted against it.
+reportlab, uncompressed. The owner's reviewed 67 Elm Street workbook
+(`estimate_upload_EST6115758_reviewed_10.06.xlsx`; original contract 465,469.59 and twelve
+change orders 53,704.13 after "Confirm all as suggested") is the job the owner is working;
+later features are accepted against it.
 
 ## Discovered
+Carried from `docs/briefs/F07.4.md` (copied unchanged 2026-10-06; nothing is dropped):
+
+Carried from the live `current-feature.md` stub of 2026-10-06 (copied unchanged 2026-10-06 from `git show HEAD:current-feature.md`; nothing is dropped):
+
 Carried from `docs/briefs/F08.2.md` (copied unchanged 2026-10-06; nothing is dropped):
 
 Carried from the live `current-feature.md` stub of 2026-10-06 (copied unchanged 2026-10-06 from `git show HEAD:current-feature.md`; nothing is dropped). Closed by F08: the estimate number on the Jobs row (owner's pass, 2026-10-06).
@@ -175,3 +191,17 @@ Found while building F08.2 (2026-10-06), not fixed here:
 - The SQL month sums leave out a month whose collected sum is 0.00, while the pure per-job figures may keep such a key from zero-amount lines; harmless to the tie-out (the ledger side lists the month) and compared on non-zero months in the test; F13's tie-outs should settle on one rule.
 - The F08.2 screens (the pick-list's search box and switch, the busy labels, the tie-out line, the "Other credits applied" column) were not rendered in a browser by Claude Code; the owner's pass checks them at 390 px as well.
 - `test_collected_tieout.py` imports the two scripts by path like `test_accounts_without_number.py`; a `scripts` package with tests importing it as one would be tidier.
+
+New, from the owner's sessions of 2026-10-06, not fixed here:
+- A job has no project manager of its own: any `client_pm` on the tenant can approve any job's change orders. Assigning a project manager to a job, and reports by project manager, are for a later brief.
+- An evidence document cannot be uploaded; the reference is text. Upload is for a later brief if a tenant requires it.
+- Retainage is owed as a feature with its own decision (D-43); the fuel surcharge base (D-39) is revisited then.
+- 6115758: nine of its eleven priced change orders are the ledge removal days that the owner expects to move to a time-and-materials job (D-24). Approving them here would put 49,275.00 into a fixed-price contract; the owner decides with the project manager before any is approved.
+- Burden rates entered with "To" 2026-12-31 stop a day short of year end (carried from 2026-10-06).
+
+Found while building F07.4 (2026-10-06), not fixed here:
+- Home shows a job's unapproved change orders only once the F07 rules are quiet: a sold, unlinked job reads as backlog first (D-35) and its unapproved change orders appear on the list page and the job, not on Home. Whether backlog with unapproved change orders deserves its own Home sentence is for a later brief.
+- `GET /api/jobs` computes the unapproved count with a second read of every job's views; fine at a tenant's size today; a later patch could count from the page's rows.
+- The job page reads the policy list to know whether a reference is required; a field on the job detail would save that request.
+- The F07.4 screens (the Approval column, the in-row form, the change-order estimates table, the history, the list page) were not rendered in a browser by Claude Code; the owner's pass checks them at 390 px as well.
+- An estimate attached as a change order with no work areas loaded counts its header price as unapproved and has nothing to approve; loading its work areas (D-32) is the way to approve it.

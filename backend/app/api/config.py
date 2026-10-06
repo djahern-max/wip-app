@@ -451,8 +451,16 @@ def _policy_out(
             PolicyOptionOut(value=v, label=label)
             for v, label in policy.time_zone_options(value if row is not None else None)
         ]
+    elif spec.kind == "choice":  # F07.4: the values with their words, from the registry
+        options = [PolicyOptionOut(value=v, label=label) for v, label in spec.choices or ()]
     else:
         options = None
+    if zone and row is not None:
+        value_label = policy.time_zone_label(value)
+    elif spec.kind == "choice" and row is not None:
+        value_label = policy.choice_label(spec.key, value)
+    else:
+        value_label = None
     return PolicyOut(
         key=spec.key,
         label=spec.label,
@@ -460,7 +468,7 @@ def _policy_out(
         description=spec.description,
         decided=row is not None,
         value=value,
-        value_label=policy.time_zone_label(value) if zone and row is not None else None,
+        value_label=value_label,
         decided_by_email=email,
         decided_at=row.decided_at.isoformat() if row is not None else None,
         # F04.1: a blank reference is stored as "" and read as none.

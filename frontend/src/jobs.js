@@ -63,6 +63,7 @@ export function chooseJob(attach, jobId, jobs) {
 // to the other. Omitted: nothing.
 export function kindActions(area) {
   if (!area.kept) return [];
+  if (area.approved) return []; // F07.4: withdraw the approval first (the server refuses too)
   if (area.kind === null || area.kind === undefined) {
     return [
       { kind: "original", label: "Confirm original" },
@@ -135,10 +136,43 @@ export function tieOutText(tie) {
 // happening while its request is in flight; the others are only disabled.
 // `pending` is {id, action} or null; the id is the QuickBooks row's external id for
 // a link and the alias id for an unlink.
-export const PENDING_WORDS = { link: "Linking…", unlink: "Unlinking…" };
+export const PENDING_WORDS = {
+  link: "Linking…",
+  unlink: "Unlinking…",
+  approve: "Approving…", // F07.4
+  withdraw: "Withdrawing…",
+};
 
 export function pendingLabel(action, pending, id) {
   if (!pending || pending.action !== action || pending.id !== id) return null;
   return PENDING_WORDS[action] || null;
 }
 
+// --- F07.4 (D-42): change order approval ---------------------------------------------------
+
+// The roles that approve a change order and withdraw an approval (can_approve_change_orders
+// in app/core/authz.py; the owner's answer A). The server enforces it; this only decides
+// whether the controls are shown.
+export const APPROVER_ROLES = ["firm_admin", "client_pm"];
+
+export function canApproveChangeOrders(role) {
+  return APPROVER_ROLES.includes(role);
+}
+
+// The approval control of a work-area row: Approve for a change order without an applying
+// approval, Withdraw approval for one with; nothing for an original, an unconfirmed or an
+// omitted row (the row's approval_label is null then).
+export function approvalActions(area) {
+  if (!area.kept || !area.approval_label) return [];
+  return area.approved
+    ? [{ action: "withdraw", label: "Withdraw approval" }]
+    : [{ action: "approve", label: "Approve" }];
+}
+
+// The approval form is ready with the date the customer agreed, and a reference when the
+// company's policy requires one (the server refuses either way; this disables the button).
+export function approvalReady(form, referenceRequired) {
+  if (!form.agreed_on) return false;
+  if (referenceRequired && !(form.evidence_ref && form.evidence_ref.trim())) return false;
+  return true;
+}

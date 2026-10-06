@@ -1,7 +1,9 @@
 """Jobs and the crosswalk (F07). Every role reads jobs (``can_view_jobs``); creating,
 attaching, detaching, linking, unlinking, confirming a work-area kind and editing are
 for ``firm_admin``, ``firm_staff`` and ``client_admin`` (``can_manage_jobs``), each one
-audit row. The customer duplicates list is read-only, for the same three roles.
+audit row. The customer duplicates list is read-only, for the same three roles. F07.4
+(D-42): approving a change order and withdrawing an approval are for ``client_pm`` and
+``firm_admin`` (``can_approve_change_orders``), one audit row each.
 
 Money is strings with cents (D-22). Suggestions carry their reason; nothing is
 attached or linked except by a person's request naming an id.
@@ -19,6 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.schemas import (
+    ApprovalEventOut,
     AttachCandidateOut,
     BillingHistoryOut,
     BillingTotalsOut,
@@ -51,6 +54,7 @@ from app.api.schemas import (
 from app.core.audit import request_meta
 from app.core.auth import Principal, TenantSession
 from app.core.authz import (
+    can_approve_change_orders,
     can_manage_jobs,
     can_track_customers,
     can_view_customer_duplicates,
@@ -68,6 +72,7 @@ from app.domain.jobs import service
 from app.domain.jobs.issues import billing_issues, sentence
 from app.domain.jobs.models import (
     ALIAS_SYSTEM_LABELS,
+    APPROVAL_ACTION_LABELS,
     JOB_STATUS_LABELS,
     JOB_STATUSES,
     REVENUE_METHOD_LABELS,
@@ -85,6 +90,7 @@ Viewer = Annotated[Principal, Depends(can_view_jobs)]
 Manager = Annotated[Principal, Depends(can_manage_jobs)]
 DuplicatesViewer = Annotated[Principal, Depends(can_view_customer_duplicates)]
 Tracker = Annotated[Principal, Depends(can_track_customers)]  # F07.2 (D-37)
+Approver = Annotated[Principal, Depends(can_approve_change_orders)]  # F07.4 (D-42)
 
 
 class _In(BaseModel):
@@ -127,6 +133,20 @@ class AliasIn(_In):
 
 class KindIn(_In):
     kind: str = Field(max_length=20)
+
+
+class ApprovalIn(_In):
+    """F07.4 (D-42): the date the customer agreed (required), who at the customer agreed,
+    a reference to the evidence (required when the policy says so) and a note."""
+
+    agreed_on: date
+    agreed_by: str | None = Field(default=None, max_length=200)
+    evidence_ref: str | None = Field(default=None, max_length=500)
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class WithdrawalIn(_In):
+    reason: str | None = Field(default=None, max_length=2000)
 
 
 def _actor(p: Principal, request: Request) -> Actor:
@@ -252,7 +272,7 @@ def _tie_out_out(rows: list[TieRow]) -> TieOutOut:
     )
 
 
-def _history(f: JobFigures) -> tuple[list[BillingHistoryOut], list[PaymentHistoryOut]]:
+def _billing_history(f: JobFigures) -> tuple[list[BillingHistoryOut], list[PaymentHistoryOut]]:
     documents = [
         BillingHistoryOut(
             billing_id=d.doc.id,
@@ -330,6 +350,9 @@ def _row(v: service.JobView, f: JobFigures) -> dict:
         ],
         "attention": _issues([*v.issues, *billing_issues(job.name, f)]),
         "billing": _billing(v, f),
+        "original_contract": money(v.contract.original_contract),
+        "approved_change_orders": money(v.contract.approved_change_orders),
+        "unapproved_change_order_count": v.contract.unapproved_count,
     }
 
 
@@ -340,6 +363,96 @@ def _kind_label(kind: str | None, suggested: str | None, kept: bool) -> str:
     if kind is not None:
         return "Original, confirmed" if kind == "original" else "Change order, confirmed"
     return "Original (suggested)" if suggested == "original" else "Change order (suggested)"
+
+
+def _approval_words(v: service.JobView, estimate_id: UUID, row, role: str) -> dict:
+    """F07.4: the approval fields of one work-area row. Words only for a change order
+    (confirmed on the original, or any kept row of an estimate attached as one)."""
+    is_change_order = row.kept and (role == "change_order" or row.kind == "change_order")
+    view = v.approval_for(estimate_id, row.order_no)
+    if not is_change_order:
+        return {
+            "approved": False,
+            "approval_label": None,
+            "approval_id": None,
+            "approval_note": None,
+        }
+    if view is not None and view.applies:
+        who = v.users.get(view.latest.recorded_by, "a user")
+        label = f"Change order, approved {view.latest.agreed_on.isoformat()} by {who}"
+    else:
+        label = "Change order, not approved"
+    note = None
+    if view is not None and view.ended is not None:
+        note = next(
+            (
+                i.message
+                for i in v.issues
+                if i.code == "CO_APPROVAL_NOT_CARRIED"
+                and i.detail.get("approval") == str(view.latest.id)
+            ),
+            None,
+        )
+    return {
+        "approved": bool(view is not None and view.applies),
+        "approval_label": label,
+        "approval_id": str(view.latest.id)
+        if view is not None and view.latest.action == "approved"
+        else None,
+        "approval_note": note,
+    }
+
+
+def _work_area_out(v: service.JobView, a: service.AttachedView, row) -> JobWorkAreaOut:
+    suggestion = suggested_kind(row.change_order_suggested) if row.kept else None
+    role = a.link.role
+    return JobWorkAreaOut(
+        id=str(row.id),
+        order_no=row.order_no,
+        name=row.name,
+        kept=row.kept,
+        kept_label="Kept" if row.kept else "Omitted",
+        price=money(row.price),
+        kind=row.kind,
+        suggested_kind=suggestion,
+        kind_label=_kind_label(row.kind, suggestion, row.kept)
+        if role == "original"
+        else ("Change order" if row.kept else "Omitted"),
+        confirmed=row.kind is not None if role == "original" else row.kept,
+        estimate_external_id=a.estimate.external_id,
+        estimate_role=role,
+        **_approval_words(v, a.estimate.id, row, role),
+    )
+
+
+def _history(v: service.JobView) -> list[ApprovalEventOut]:
+    external_ids = {a.estimate.id: a.estimate.external_id for a in v.attached}
+    out = []
+    for e in v.approval_history:
+        view = v.approval_for(e.estimate_id, e.order_no)
+        is_latest = view is not None and view.latest.id == e.id
+        out.append(
+            ApprovalEventOut(
+                id=str(e.id),
+                action=e.action,
+                action_label=APPROVAL_ACTION_LABELS[e.action],
+                estimate_external_id=external_ids.get(e.estimate_id),
+                order_no=e.order_no,
+                work_area_name=e.work_area_name,
+                price=money(e.price),
+                agreed_on=e.agreed_on.isoformat() if e.agreed_on else None,
+                agreed_by=e.agreed_by,
+                evidence_ref=e.evidence_ref,
+                note=e.note,
+                reason=e.reason,
+                withdraws_id=str(e.withdraws_id) if e.withdraws_id else None,
+                recorded_by=v.users.get(e.recorded_by),
+                recorded_at=e.recorded_at.isoformat(),
+                applies=bool(is_latest and view.applies),
+                ended=view.ended if is_latest else None,
+            )
+        )
+    return out
 
 
 def _confirm_message(confirmed: int, skipped: int) -> str:
@@ -357,27 +470,17 @@ def _confirm_message(confirmed: int, skipped: int) -> str:
 def _detail(db: Session, tenant_id: UUID, v: service.JobView) -> JobDetailOut:
     board = load_board(db, tenant_id, [v], other=False)  # F08.2: this job's rows only
     f = board.per_job[v.job.id]
-    documents, payments = _history(f)
+    documents, payments = _billing_history(f)
     original = v.original
     work_areas: list[JobWorkAreaOut] = []
     if original is not None:
-        for w in original.view.work_areas or ():
-            row = w.row
-            suggestion = suggested_kind(row.change_order_suggested) if row.kept else None
-            work_areas.append(
-                JobWorkAreaOut(
-                    id=str(row.id),
-                    order_no=row.order_no,
-                    name=row.name,
-                    kept=row.kept,
-                    kept_label="Kept" if row.kept else "Omitted",
-                    price=money(row.price),
-                    kind=row.kind,
-                    suggested_kind=suggestion,
-                    kind_label=_kind_label(row.kind, suggestion, row.kept),
-                    confirmed=row.kind is not None,
-                )
-            )
+        work_areas = [_work_area_out(v, original, w.row) for w in original.view.work_areas or ()]
+    change_order_areas = [
+        _work_area_out(v, a, w.row)
+        for a in v.attached
+        if a.link.role == "change_order"
+        for w in a.view.work_areas or ()
+    ]
     return JobDetailOut(
         **_row(v, f),
         billing_history=documents,
@@ -428,6 +531,8 @@ def _detail(db: Session, tenant_id: UUID, v: service.JobView) -> JobDetailOut:
         divisions=_divisions(db),
         revenue_methods=_choices(REVENUE_METHODS, REVENUE_METHOD_LABELS),
         statuses=_choices(JOB_STATUSES, JOB_STATUS_LABELS),
+        change_order_work_areas=change_order_areas,
+        approval_history=_history(v),
     )
 
 
@@ -541,6 +646,9 @@ def list_jobs(
         totals=_totals_out(page.totals),
         not_on_a_job=_not_on_a_job_out(page.board.not_on_a_job),
         policy_note=page.board.policy_note,
+        unapproved_change_order_count=len(
+            service.unapproved_change_orders(db, viewer.active_tenant_id)
+        ),
     )
 
 
@@ -1007,3 +1115,57 @@ def confirm_suggested(request: Request, m: Manager, db: TenantSession, job_id: U
         skipped=done.skipped,
         message=_confirm_message(done.confirmed, done.skipped),
     )
+
+
+# --- F07.4 (D-42): change order approval -------------------------------------------------------
+
+
+@router.post("/{job_id}/work-areas/{work_area_id}/approval", response_model=JobDetailOut)
+def approve_change_order(
+    request: Request,
+    a: Approver,
+    db: TenantSession,
+    job_id: UUID,
+    work_area_id: UUID,
+    body: ApprovalIn,
+):
+    """The project manager (or firm_admin) records that the customer agreed to a change
+    order, at its price today; one row, one audit row; the job detail comes back."""
+    try:
+        service.approve_change_order(
+            db,
+            a.active_tenant_id,
+            job_id,
+            work_area_id,
+            agreed_on=body.agreed_on,
+            agreed_by=body.agreed_by,
+            evidence_ref=body.evidence_ref,
+            note=body.note,
+            actor=_actor(a, request),
+        )
+    except service.JobError as exc:
+        _raise(exc)
+    return _fresh_detail(db, a, job_id)
+
+
+@router.post("/{job_id}/work-areas/{work_area_id}/approval/withdraw", response_model=JobDetailOut)
+def withdraw_approval(
+    request: Request,
+    a: Approver,
+    db: TenantSession,
+    job_id: UUID,
+    work_area_id: UUID,
+    body: WithdrawalIn,
+):
+    try:
+        service.withdraw_approval(
+            db,
+            a.active_tenant_id,
+            job_id,
+            work_area_id,
+            reason=body.reason,
+            actor=_actor(a, request),
+        )
+    except service.JobError as exc:
+        _raise(exc)
+    return _fresh_detail(db, a, job_id)

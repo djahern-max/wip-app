@@ -436,8 +436,14 @@ def test_time_zone_is_offered_as_a_labelled_list_and_any_valid_zone_is_kept(
         "Hawaii (Pacific/Honolulu)",
     ]
     for key in policy.POLICY_KEYS:
-        if key != "timezone" and policy.POLICY_KEYS[key].kind not in policy.ITEM_KINDS:
+        kind = policy.POLICY_KEYS[key].kind
+        if key != "timezone" and kind not in policy.ITEM_KINDS and kind != "choice":
             assert rows[key]["options"] is None and rows[key]["value_label"] is None
+        elif kind == "choice":  # F07.4: a choice key carries its values with their words
+            assert [o["value"] for o in rows[key]["options"]] == [
+                c for c, _label in policy.POLICY_KEYS[key].choices
+            ]
+            assert rows[key]["value_label"] is None
         elif key != "timezone":  # F08: the item keys carry the item picker
             assert rows[key]["options"] == [] and rows[key]["value_label"] is None
     r = admin.put("/api/config/policy/timezone", json={"value": "America/New_York"}, headers=CSRF)
@@ -462,3 +468,34 @@ def test_policy_rows_are_tenant_scoped(seed: Seed, rw_engine: Engine) -> None:
         )
     with tenant_session(rw_engine, seed.tenant_b) as s:
         assert policy.get_policy(s, "timezone") is None
+
+
+def test_a_choice_key_takes_one_of_its_values_and_nothing_else(
+    seed: Seed, login_as: Callable[..., TestClient], fresh_tenant, rw_engine: Engine
+) -> None:
+    """F07.4 (D-42): ``change_order_evidence`` is a choice between two values, each with
+    its words; no default; the label travels with the value."""
+    admin = login_as("rotate_me", tenant=fresh_tenant)
+    spec = policy.POLICY_KEYS[policy.CHANGE_ORDER_EVIDENCE]
+    assert spec.kind == "choice" and spec.waiting is None
+    assert spec.choices == (("none", "None required"), ("reference", "A reference is required"))
+    for bad in ("signed", "", 1, None, ["none"]):
+        r = admin.put(
+            f"/api/config/policy/{policy.CHANGE_ORDER_EVIDENCE}", json={"value": bad}, headers=CSRF
+        )
+        assert r.status_code == 422, bad
+        assert r.json()["detail"] == (
+            'Change order evidence needs one of "none" (None required) or "reference" '
+            "(A reference is required)."
+        )
+    r = admin.put(
+        f"/api/config/policy/{policy.CHANGE_ORDER_EVIDENCE}", json={"value": "none"}, headers=CSRF
+    )
+    assert r.status_code == 200
+    assert (r.json()["value"], r.json()["value_label"]) == ("none", "None required")
+    with tenant_session(rw_engine, fresh_tenant) as s:
+        assert policy.evidence_required(s) is False
+        policy.set_policy(
+            s, fresh_tenant, policy.CHANGE_ORDER_EVIDENCE, "reference", actor=Actor(user_id=None)
+        )
+        assert policy.evidence_required(s) is True

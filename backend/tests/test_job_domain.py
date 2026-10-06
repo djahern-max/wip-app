@@ -6,7 +6,16 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
-from app.domain.jobs.contract import AreaIn, AttachedIn, job_contract
+from app.domain.jobs.contract import (
+    ApprovalIn,
+    ApprovalState,
+    AreaIn,
+    AttachedIn,
+    RowIn,
+    VersionIn,
+    approval_state,
+    job_contract,
+)
 from app.domain.jobs.duplicates import NamedRow, duplicate_pairs
 from app.domain.jobs.issues import JobState, LedgerRow, job_issues, ledger_issues, unattached_issue
 from app.domain.jobs.names import (
@@ -390,3 +399,102 @@ def test_no_float_on_the_contract_path() -> None:
         src = p.read_text()
         assert "float(" not in src, p.name
         assert ": float" not in src, p.name
+
+
+# --- F07.4 (D-42, D-44): approved change orders and the approval chain (pure) -------------------
+
+
+def _rows(*rows: tuple[int, str, bool, str, str | None]) -> tuple[RowIn, ...]:
+    return tuple(RowIn(o, n, k, D(p), kind) for o, n, k, p, kind in rows)
+
+
+def test_an_approved_change_order_moves_its_price_into_the_revised_contract_not_eac() -> None:
+    areas = (
+        AreaIn(1, True, D("100.00"), "original"),
+        AreaIn(2, True, D("50.00"), "change_order", approved=True),
+        AreaIn(3, True, D("25.00"), "change_order"),
+        AreaIn(4, True, D("0.00"), "change_order", approved=True),  # priced 0.00: moves nothing
+        AreaIn(5, False, D("9.00"), "change_order", approved=True),  # omitted: never counts
+    )
+    c = job_contract("fixed_price", [AttachedIn("original", D("175.00"), areas, D("80.00"))])
+    assert (c.original_contract, c.approved_change_orders, c.revised_contract) == (
+        D("100.00"),
+        D("50.00"),
+        D("150.00"),
+    )
+    assert (c.unapproved_change_orders, c.unapproved_count, c.eac_in_basis) == (
+        D("25.00"),
+        1,
+        D("80.00"),
+    )
+    # An estimate attached as a change order (answer B): its kept work areas by their role.
+    co = AttachedIn(
+        "change_order",
+        D("30.00"),
+        (AreaIn(1, True, D("20.00"), None, approved=True), AreaIn(2, True, D("10.00"), None)),
+        D("12.00"),
+    )
+    c = job_contract("fixed_price", [AttachedIn("original", D("175.00"), areas, D("80.00")), co])
+    assert (c.approved_change_orders, c.revised_contract) == (D("70.00"), D("170.00"))
+    assert (c.unapproved_change_orders, c.unapproved_count, c.eac_in_basis) == (
+        D("35.00"),
+        2,
+        D("92.00"),
+    )
+    # No work areas loaded on the attached estimate: its header price, unapproved, nothing
+    # to approve.
+    header = AttachedIn("change_order", D("30.00"), None, None)
+    c = job_contract(
+        "fixed_price", [AttachedIn("original", D("175.00"), areas, D("80.00")), header]
+    )
+    assert (c.unapproved_change_orders, c.unapproved_count) == (D("55.00"), 2)
+    # T&M, pool and a program still show no contract figures.
+    tm = job_contract(
+        "time_and_materials", [AttachedIn("original", D("175.00"), areas, D("80.00"))]
+    )
+    assert (tm.original_contract, tm.approved_change_orders, tm.revised_contract) == (
+        None,
+        None,
+        None,
+    )
+
+
+def test_the_approval_chain_rule_c() -> None:
+    approval = ApprovalIn(18, "CO: Ledge removal", D("5475.00"), version_no=1)
+    v2_same = VersionIn(2, _rows((18, "co: ledge removal", True, "5475.00", "change_order")))
+    assert approval_state(approval, [v2_same], "original") == ApprovalState(True, None)
+    assert approval_state(approval, [], "original") == ApprovalState(
+        True, None
+    )  # version 1 is latest
+    priced = VersionIn(2, _rows((18, "CO: Ledge removal", True, "6000.00", "change_order")))
+    assert approval_state(approval, [priced], "original") == ApprovalState(
+        False, "version 2 priced it 6,000.00"
+    )
+    renamed = VersionIn(2, _rows((18, "CO: Something else", True, "5475.00", None)))
+    assert approval_state(approval, [renamed], "original") == ApprovalState(
+        False, 'version 2 renamed it "CO: Something else"'
+    )
+    missing = VersionIn(2, _rows((1, "Other", True, "1.00", "original")))
+    assert approval_state(approval, [missing], "original") == ApprovalState(
+        False, "version 2 does not carry it"
+    )
+    omitted = VersionIn(2, _rows((18, "CO: Ledge removal", False, "5475.00", "change_order")))
+    assert approval_state(approval, [omitted], "original") == ApprovalState(
+        False, "version 2 omits it"
+    )
+    # Rule C: a version 3 that restores the row does not revive the approval; the first
+    # break names it.
+    restored = VersionIn(3, _rows((18, "CO: Ledge removal", True, "5475.00", "change_order")))
+    assert approval_state(approval, [priced, restored], "original") == ApprovalState(
+        False, "version 2 priced it 6,000.00"
+    )
+    assert approval_state(approval, [v2_same, priced, restored], "original").ended == (
+        "version 2 priced it 6,000.00"
+    )
+    # On the original the latest row must be confirmed as a change order; on an estimate
+    # attached as a change order the kind is its role.
+    unconfirmed = VersionIn(2, _rows((18, "CO: Ledge removal", True, "5475.00", None)))
+    assert approval_state(approval, [unconfirmed], "original") == ApprovalState(
+        False, "it is no longer confirmed as a change order"
+    )
+    assert approval_state(approval, [unconfirmed], "change_order") == ApprovalState(True, None)

@@ -119,6 +119,9 @@ class TenantEvent(enum.StrEnum):
     customer_tracked = "customer_tracked"
     customer_untracked = "customer_untracked"
     work_area_kind_confirmed = "work_area_kind_confirmed"
+    # F07.4 (D-42): a project manager records that the customer agreed, or withdraws it
+    change_order_approved = "change_order_approved"
+    change_order_approval_withdrawn = "change_order_approval_withdrawn"
 
 
 @dataclass(frozen=True)

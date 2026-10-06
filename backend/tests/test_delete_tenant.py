@@ -103,6 +103,19 @@ def _fill_every_tenant_table(
         headers=CSRF,
     )
     assert r.status_code == 201, r.text
+    # F07.4: one approval row (change_order_approval): the evidence key, the kinds, #18.
+    job = r.json()
+    with tenant_session(rw_engine, tenant_id) as db:
+        policy.set_policy(db, tenant_id, "change_order_evidence", "none", actor=actor)
+    r = admin.post(f"/api/jobs/{job['id']}/work-areas/kinds/confirm-suggested", headers=CSRF)
+    assert r.status_code == 200, r.text
+    area = next(w for w in r.json()["work_areas"] if w["order_no"] == 18)
+    r = admin.post(
+        f"/api/jobs/{job['id']}/work-areas/{area['id']}/approval",
+        json={"agreed_on": "2026-09-14"},
+        headers=CSRF,
+    )
+    assert r.status_code == 200, r.text
     with tenant_session(owner_engine, tenant_id) as db:
         db.add(RlsProbe(tenant_id=tenant_id, label="to-delete"))
     return fake, _slug(rw_engine, tenant_id)

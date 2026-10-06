@@ -20,7 +20,7 @@ from app.domain.config.models import (
     TenantPolicy,
 )
 from app.domain.estimates.models import Estimate, EstimateCost, EstimateVersion, EstimateWorkArea
-from app.domain.jobs.models import Job, JobAlias, JobEstimate
+from app.domain.jobs.models import ChangeOrderApproval, Job, JobAlias, JobEstimate
 from app.ingest.models import Connection, ImportBatch, RawRecord, SyncRun
 from app.tenancy import catalog
 from app.tenancy.models import Membership, RlsProbe, Role
@@ -41,6 +41,7 @@ F03_TABLES = ("connection", "sync_run", "import_batch", "raw_record", "task")
 F05_TABLES = ("customer", "billing", "billing_line", "payment", "payment_application")
 F06_TABLES = ("estimate", "estimate_version", "estimate_work_area", "estimate_cost")
 F07_TABLES = ("job", "job_estimate", "job_alias")
+F07_4_TABLES = ("change_order_approval",)  # F07.4 (D-42), 0013
 F04_TABLES = (
     "division",
     "cost_category",
@@ -63,6 +64,7 @@ def test_every_tenant_table_is_enumerated(migrated_db: None, owner_engine: Engin
         *F05_TABLES,
         *F06_TABLES,
         *F07_TABLES,
+        *F07_4_TABLES,
     }
 
 
@@ -484,6 +486,58 @@ def test_f07_tables_read_zero_rows_of_another_tenant(
     assert seed.tenant_b not in orm_tenants and raw == 0
     with tenant_session(rw_engine, seed.tenant_b) as s:
         assert s.execute(text(f'SELECT count(*) FROM "{table}"')).scalar_one() >= 1
+
+
+def _seed_f07_4_rows(
+    owner_engine: Engine, tenant_id: uuid.UUID, marker: str, user_id: uuid.UUID
+) -> None:
+    """One approval row in ``tenant_id`` on top of the F07 rows."""
+    _seed_f07_rows(owner_engine, tenant_id, marker)
+    with tenant_session(owner_engine, tenant_id) as s:
+        job = s.execute(select(Job).where(Job.name == marker)).scalar_one()
+        est = s.execute(select(Estimate).where(Estimate.external_id == marker)).scalar_one()
+        area = (
+            s.execute(
+                select(EstimateWorkArea)
+                .join(EstimateVersion, EstimateVersion.id == EstimateWorkArea.estimate_version_id)
+                .where(EstimateVersion.estimate_id == est.id)
+            )
+            .scalars()
+            .first()
+        )
+        s.add(
+            ChangeOrderApproval(
+                tenant_id=tenant_id,
+                job_id=job.id,
+                estimate_id=est.id,
+                order_no=area.order_no,
+                work_area_name=area.name,
+                estimate_work_area_id=area.id,
+                action="approved",
+                price=area.price,
+                agreed_on=date(2026, 9, 14),
+                recorded_by=user_id,
+            )
+        )
+
+
+@pytest.mark.parametrize("table", F07_4_TABLES)
+def test_f07_4_tables_read_zero_rows_of_another_tenant(
+    seed: Seed, owner_engine: Engine, rw_engine: Engine, table: str
+) -> None:
+    marker = uuid.uuid4().hex[:12]
+    _seed_f07_4_rows(owner_engine, seed.tenant_b, marker, seed.users["firm_admin"].id)
+    with tenant_session(rw_engine, seed.tenant_a) as s:
+        orm_tenants = {r.tenant_id for r in s.execute(select(ChangeOrderApproval)).scalars()}
+        raw = s.execute(
+            text(f'SELECT count(*) FROM "{table}" WHERE tenant_id = :b'), {"b": seed.tenant_b}
+        ).scalar_one()
+    assert seed.tenant_b not in orm_tenants and raw == 0
+    with tenant_session(rw_engine, seed.tenant_b) as s:
+        assert s.execute(text(f'SELECT count(*) FROM "{table}"')).scalar_one() >= 1
+        # D-13: the history is never edited, by any role.
+        with pytest.raises(ProgrammingError):
+            s.execute(text(f"UPDATE \"{table}\" SET note = 'x'"))
 
 
 @pytest.mark.parametrize("table", F03_TABLES)

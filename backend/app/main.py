@@ -10,6 +10,7 @@ from sqlalchemy.exc import DBAPIError
 from app.api.admin import router as admin_router
 from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
+from app.api.change_orders import router as change_orders_router
 from app.api.config import router as config_router
 from app.api.estimates import router as estimates_router
 from app.api.health import router as health_router
@@ -121,6 +122,7 @@ def create_app() -> FastAPI:
         admin_router,
         audit_router,
         imports_router,
+        change_orders_router,
         config_router,
         qbo_router,
         estimates_router,

@@ -1,5 +1,6 @@
 """The decisions a brief makes are appended to ``docs/DECISIONS.md`` word for word
-(F08: D-39 and D-40; F08.2: D-41). The brief is the source: the live
+(F08: D-39 and D-40; F08.2: D-41; F07.4: D-44, with D-42 and D-43 pasted by the owner).
+The brief is the source: the live
 ``current-feature.md`` while the feature is in flight, ``docs/briefs/Fxx.md`` after
 close-out."""
 
@@ -33,7 +34,8 @@ def test_d39_and_d40_are_in_decisions_after_d38_word_for_word() -> None:
     decisions = DECISIONS.read_text()
     brief = _brief()
     order = [m.group(1) for m in re.finditer(r"^## (D-\d+[a-z]?) ·", decisions, re.M)]
-    assert order[-4:] == ["D-38", "D-39", "D-40", "D-41"]
+    run = ["D-38", "D-39", "D-40", "D-41", "D-42", "D-43", "D-44"]
+    assert order[order.index("D-38") : order.index("D-38") + len(run)] == run
     for number in ("D-39", "D-40"):
         assert _entry(decisions, number) == _entry(brief, number), number
 
@@ -43,3 +45,18 @@ def test_d41_is_in_decisions_after_d40_word_for_word() -> None:
     decisions = DECISIONS.read_text()
     brief = _brief("D-41", "F08.2.md")
     assert _entry(decisions, "D-41") == _entry(brief, "D-41")
+
+
+def test_d42_d43_once_and_d44_word_for_word_after_d43() -> None:
+    """F07.4: D-42 and D-43 are the owner's paste (2026-10-06), present once each and left
+    alone; D-44 is made by the brief and appended word for word."""
+    decisions = DECISIONS.read_text()
+    order = [m.group(1) for m in re.finditer(r"^## (D-\d+[a-z]?) ·", decisions, re.M)]
+    for number in ("D-42", "D-43", "D-44"):
+        assert order.count(number) == 1, number
+    assert order.index("D-42") == order.index("D-41") + 1
+    assert order.index("D-44") == order.index("D-43") + 1
+    brief = _brief("D-44", "F07.4.md")
+    assert _entry(decisions, "D-44") == _entry(brief, "D-44")
+    assert "project manager" in _entry(decisions, "D-42")
+    assert "Retainage" in _entry(decisions, "D-43")

@@ -22,7 +22,13 @@ from app.domain.billing.models import Billing, Customer, Payment
 from app.domain.billing.sync import SOURCE as QBO_SOURCE
 from app.domain.config.audit import Actor, audit
 from app.domain.config.models import Division
-from app.domain.config.policy import TIMEZONE, get_policy
+from app.domain.config.policy import (
+    CHANGE_ORDER_EVIDENCE,
+    POLICY_KEYS,
+    TIMEZONE,
+    evidence_required,
+    get_policy,
+)
 from app.domain.estimates.exceptions import Issue
 from app.domain.estimates.models import (
     STATUS_LABELS,
@@ -39,11 +45,23 @@ from app.domain.estimates.service import (
     load_views,
 )
 from app.domain.estimates.totals import with_burden
-from app.domain.jobs.contract import AreaIn, AttachedIn, Contract, job_contract
+from app.domain.estimates.versions import same_name
+from app.domain.jobs.contract import (
+    ApprovalIn,
+    ApprovalState,
+    AreaIn,
+    AttachedIn,
+    Contract,
+    RowIn,
+    VersionIn,
+    approval_state,
+    job_contract,
+)
 from app.domain.jobs.duplicates import NamedRow, duplicate_pairs
 from app.domain.jobs.issues import (
     JobState,
     LedgerRow,
+    approval_not_carried_issue,
     job_issues,
     ledger_issue,
     ledger_issues,
@@ -55,6 +73,7 @@ from app.domain.jobs.models import (
     NO_ESTIMATE_METHODS,
     REVENUE_METHODS,
     ROLES,
+    ChangeOrderApproval,
     Job,
     JobAlias,
     JobEstimate,
@@ -76,6 +95,7 @@ LMN = "lmn_estimate"
 QBO = "qbo_customer"
 SEARCH_LIMIT = 25
 PAGE_SIZE = 50  # F07.2: the picker's search, one page
+LISTED_STATUSES = frozenset({"sold", "in_progress", "substantially_complete"})  # F07.4: the list
 
 
 class JobError(Exception):
@@ -159,12 +179,169 @@ def estimate_eac(db: Session, view: EstimateView, grid: Grid) -> Decimal | None:
     return with_burden(view.totals(grid), grid.basis, burden.result.total).eac_in_basis
 
 
-def _areas(view: EstimateView) -> tuple[AreaIn, ...] | None:
+def _areas(
+    view: EstimateView, approvals: dict[tuple[UUID, int], "ApprovalView"] | None = None
+) -> tuple[AreaIn, ...] | None:
     if view.work_areas is None:
         return None
+    approvals = approvals or {}
+    eid = view.estimate.id
     return tuple(
-        AreaIn(w.row.order_no, w.row.kept, w.row.price, w.row.kind) for w in view.work_areas
+        AreaIn(
+            w.row.order_no,
+            w.row.kept,
+            w.row.price,
+            w.row.kind,
+            approved=(eid, w.row.order_no) in approvals
+            and approvals[(eid, w.row.order_no)].applies,
+        )
+        for w in view.work_areas
     )
+
+
+# --- F07.4 (D-42): approvals, read against the versions after them ---------------------------
+
+
+@dataclass
+class ApprovalView:
+    """One work area's approval state on read: the latest event for
+    ``(estimate_id, order_no)`` and, for an approval, whether it still applies (rule C)."""
+
+    latest: ChangeOrderApproval
+    state: ApprovalState | None  # None when the latest event is a withdrawal
+
+    @property
+    def applies(self) -> bool:
+        return self.latest.action == "approved" and self.state is not None and self.state.applies
+
+    @property
+    def ended(self) -> str | None:
+        """Why an approval no longer applies; None while it does or after a withdrawal."""
+        if self.latest.action != "approved" or self.state is None or self.state.applies:
+            return None
+        return self.state.ended
+
+
+ApprovalKey = tuple[UUID, int]
+
+
+def _approval_events(db: Session, job_ids: Sequence[UUID]) -> list[ChangeOrderApproval]:
+    if not job_ids:
+        return []
+    return list(
+        db.execute(
+            select(ChangeOrderApproval)
+            .where(ChangeOrderApproval.job_id.in_(job_ids))
+            .order_by(ChangeOrderApproval.recorded_at, ChangeOrderApproval.id)
+        ).scalars()
+    )
+
+
+def _later_versions(db: Session, after: dict[UUID, int]) -> dict[UUID, list[VersionIn]]:
+    """Per estimate, the versions with work areas received after version ``after[eid]``,
+    in order, as the pure chain reads them."""
+    if not after:
+        return {}
+    versions = list(
+        db.execute(
+            select(EstimateVersion)
+            .where(
+                EstimateVersion.estimate_id.in_(list(after)),
+                EstimateVersion.work_areas_raw_record_id.is_not(None),
+            )
+            .order_by(EstimateVersion.estimate_id, EstimateVersion.version_no)
+        ).scalars()
+    )
+    versions = [v for v in versions if v.version_no > after[v.estimate_id]]
+    rows_by_version: dict[UUID, list[RowIn]] = {v.id: [] for v in versions}
+    if versions:
+        for w in db.execute(
+            select(EstimateWorkArea)
+            .where(EstimateWorkArea.estimate_version_id.in_(list(rows_by_version)))
+            .order_by(EstimateWorkArea.order_no)
+        ).scalars():
+            rows_by_version[w.estimate_version_id].append(
+                RowIn(w.order_no, w.name, w.kept, w.price, w.kind)
+            )
+    out: dict[UUID, list[VersionIn]] = {}
+    for v in versions:
+        out.setdefault(v.estimate_id, []).append(
+            VersionIn(v.version_no, tuple(rows_by_version[v.id]))
+        )
+    return out
+
+
+def _approvals(
+    db: Session, job_ids: Sequence[UUID], roles: dict[UUID, str]
+) -> tuple[dict[UUID, dict[ApprovalKey, ApprovalView]], dict[UUID, list[ChangeOrderApproval]]]:
+    """Per job: the approval state per ``(estimate_id, order_no)`` and the history, newest
+    first. ``roles``: estimate id → its role on the job. Three reads for every job listed."""
+    events = _approval_events(db, job_ids)
+    if not events:
+        return {}, {}
+    latest: dict[tuple[UUID, ApprovalKey], ChangeOrderApproval] = {}
+    for e in events:
+        latest[(e.job_id, (e.estimate_id, e.order_no))] = e
+    approved = [e for e in latest.values() if e.action == "approved"]
+    version_of: dict[UUID, int] = {}
+    if approved:
+        version_of = dict(
+            db.execute(
+                select(EstimateWorkArea.id, EstimateVersion.version_no)
+                .join(EstimateVersion, EstimateVersion.id == EstimateWorkArea.estimate_version_id)
+                .where(EstimateWorkArea.id.in_([e.estimate_work_area_id for e in approved]))
+            ).all()
+        )
+    after: dict[UUID, int] = {}
+    for e in approved:
+        v = version_of.get(e.estimate_work_area_id)
+        if v is not None:
+            after[e.estimate_id] = min(after.get(e.estimate_id, v), v)
+    later = _later_versions(db, after)
+    views: dict[UUID, dict[ApprovalKey, ApprovalView]] = {}
+    for (job_id, key), e in latest.items():
+        state = None
+        if e.action == "approved":
+            made_on = version_of.get(e.estimate_work_area_id, 0)
+            chain = [v for v in later.get(e.estimate_id, []) if v.version_no > made_on]
+            state = approval_state(
+                ApprovalIn(e.order_no, e.work_area_name, e.price, made_on),
+                chain,
+                roles.get(e.estimate_id, "original"),
+            )
+        views.setdefault(job_id, {})[key] = ApprovalView(e, state)
+    history: dict[UUID, list[ChangeOrderApproval]] = {}
+    for e in reversed(events):
+        history.setdefault(e.job_id, []).append(e)
+    return views, history
+
+
+def _approval_issues(
+    approvals: dict[ApprovalKey, ApprovalView],
+    external_ids: dict[UUID, str],
+    users: dict[UUID, str],
+) -> list[Issue]:
+    """One ``CO_APPROVAL_NOT_CARRIED`` sentence per approval a later version ended that no
+    one has withdrawn or replaced."""
+    out: list[Issue] = []
+    for (eid, _order), view in sorted(approvals.items(), key=lambda kv: (str(kv[0][0]), kv[0][1])):
+        ended = view.ended
+        if ended is None:
+            continue
+        e = view.latest
+        out.append(
+            approval_not_carried_issue(
+                order_no=e.order_no,
+                name=e.work_area_name,
+                estimate=external_ids.get(eid, ""),
+                agreed_on=e.agreed_on or e.recorded_at.date(),
+                approved=e.price,
+                who=users.get(e.recorded_by, "a user"),
+                ended=ended,
+                approval_id=e.id,
+            )
+        )
+    return out
 
 
 # --- job views -----------------------------------------------------------------------
@@ -190,6 +367,12 @@ class JobView:
     issues: list[Issue]
     users: dict[UUID, str] = field(default_factory=dict)
     sold_on_set_by_person: bool = False  # F07.1: a ``job_updated`` row names ``sold_on``
+    # F07.4 (D-42): per (estimate id, order number), the approval state; the history, newest first.
+    approvals: dict[ApprovalKey, ApprovalView] = field(default_factory=dict)
+    approval_history: list[ChangeOrderApproval] = field(default_factory=list)
+
+    def approval_for(self, estimate_id: UUID, order_no: int) -> ApprovalView | None:
+        return self.approvals.get((estimate_id, order_no))
 
     @property
     def original(self) -> AttachedView | None:
@@ -260,14 +443,19 @@ def load_job_views(db: Session, tenant_id: UUID, jobs: Sequence[Job]) -> list[Jo
         ).scalars()
     }
     divisions = {d.id: d for d in db.execute(select(Division)).scalars()}
+    roles = {ln.estimate_id: ln.role for ln in links}
+    approvals_by_job, history_by_job = _approvals(db, ids, roles)
+    external_ids = {e.id: e.external_id for e in estimates.values()}
     users = _user_names(
         db,
         {j.created_by for j in jobs}
         | {ln.attached_by for ln in links}
-        | {a.linked_by for a in aliases},
+        | {a.linked_by for a in aliases}
+        | {e.recorded_by for h in history_by_job.values() for e in h},
     )
     out: list[JobView] = []
     for job in jobs:
+        approvals = approvals_by_job.get(job.id, {})
         attached = [
             AttachedView(
                 ln,
@@ -281,7 +469,10 @@ def load_job_views(db: Session, tenant_id: UUID, jobs: Sequence[Job]) -> list[Jo
         job_aliases = [a for a in aliases if a.job_id == job.id]
         contract = job_contract(
             job.revenue_method,
-            [AttachedIn(a.link.role, a.estimate.price, _areas(a.view), a.eac) for a in attached],
+            [
+                AttachedIn(a.link.role, a.estimate.price, _areas(a.view, approvals), a.eac)
+                for a in attached
+            ],
         )
         state = JobState(
             job.id,
@@ -303,9 +494,11 @@ def load_job_views(db: Session, tenant_id: UUID, jobs: Sequence[Job]) -> list[Jo
                     if a.external_id in rows and a.system == QBO
                 },
                 contract=contract,
-                issues=job_issues(state),
+                issues=[*job_issues(state), *_approval_issues(approvals, external_ids, users)],
                 users=users,
                 sold_on_set_by_person=str(job.id) in set_by_person,
+                approvals=approvals,
+                approval_history=history_by_job.get(job.id, []),
             )
         )
     return out
@@ -1212,6 +1405,17 @@ def confirm_kind(
         )
     if not area.kept:
         raise Invalid(f"Work area #{area.order_no} is omitted; only kept work areas have a kind.")
+    if kind == "original" and area.kind == "change_order":
+        view = (
+            _approvals(db, [job.id], {est.id: "original"})[0]
+            .get(job.id, {})
+            .get((est.id, area.order_no))
+        )
+        if view is not None and view.applies:  # F07.4 (D-42)
+            raise Conflict(
+                f"Work area #{area.order_no} is an approved change order; withdraw the approval "
+                "before changing its kind."
+            )
     _confirm_area(db, tenant_id, job, est, area, kind, actor, datetime.now(UTC))
     return area
 
@@ -1269,3 +1473,344 @@ def confirm_suggested_kinds(
             db, tenant_id, job, est, by_order[choice.order_no], choice.suggestion, actor, when
         )
     return ConfirmedSuggested(confirmed=len(chosen), skipped=skipped)
+
+
+# --- F07.4 (D-42): approve a change order, withdraw an approval, the unapproved list ----------
+
+
+@dataclass(frozen=True)
+class _AreaOnJob:
+    link: JobEstimate
+    estimate: Estimate
+    area: EstimateWorkArea
+
+
+def _attached_work_areas(db: Session, tenant_id: UUID, job: Job) -> list[_AreaOnJob]:
+    """Every kept or omitted work area on the latest version of each estimate attached to
+    the job as original or change order (``ignored`` counts for nothing)."""
+    links = list(
+        db.execute(
+            select(JobEstimate)
+            .where(JobEstimate.job_id == job.id, JobEstimate.role != "ignored")
+            .order_by(JobEstimate.attached_at)
+        ).scalars()
+    )
+    if not links:
+        return []
+    ests = {
+        e.id: e
+        for e in db.execute(
+            select(Estimate).where(Estimate.id.in_([ln.estimate_id for ln in links]))
+        ).scalars()
+    }
+    views = {
+        v.estimate.id: v for v in load_views(db, list(ests.values()), load_grid(db, tenant_id))
+    }
+    return [
+        _AreaOnJob(ln, ests[ln.estimate_id], w.row)
+        for ln in links
+        for w in views[ln.estimate_id].work_areas or ()
+    ]
+
+
+NOT_ON_JOB = "That work area is not on the latest version of an estimate on this job."
+
+
+def _find_area(db: Session, tenant_id: UUID, job: Job, work_area_id: UUID) -> _AreaOnJob:
+    found = next(
+        (a for a in _attached_work_areas(db, tenant_id, job) if a.area.id == work_area_id), None
+    )
+    if found is None:
+        raise NotFound(NOT_ON_JOB)
+    return found
+
+
+def _job_approvals(db: Session, job: Job) -> dict[ApprovalKey, ApprovalView]:
+    roles = dict(
+        db.execute(
+            select(JobEstimate.estimate_id, JobEstimate.role).where(JobEstimate.job_id == job.id)
+        ).all()
+    )
+    return _approvals(db, [job.id], roles)[0].get(job.id, {})
+
+
+def _approval_fields(row: ChangeOrderApproval) -> dict:
+    return {
+        "approved": row.action == "approved",
+        "price": str(row.price) if row.action == "approved" else None,
+        "agreed_on": row.agreed_on.isoformat() if row.agreed_on else None,
+        "agreed_by": row.agreed_by,
+        "evidence_ref": row.evidence_ref,
+        "note": row.note,
+        "reason": row.reason,
+    }
+
+
+def _clean(text: str | None, limit: int) -> str | None:
+    cleaned = " ".join((text or "").split())
+    return cleaned[:limit] or None
+
+
+def approve_change_order(
+    db: Session,
+    tenant_id: UUID,
+    job_id: UUID,
+    work_area_id: UUID,
+    *,
+    agreed_on: date,
+    agreed_by: str | None,
+    evidence_ref: str | None,
+    note: str | None,
+    actor: Actor,
+) -> ChangeOrderApproval:
+    """D-42: a person with the role records that the customer agreed to a change order,
+    at its price today; one row, one audit row. Refusals are one sentence and write
+    nothing. The evidence the approval must carry is the tenant's policy, never a default."""
+    job = _job(db, job_id)
+    required = evidence_required(db)
+    if required is None:
+        raise Conflict(
+            f"Decide the policy key {POLICY_KEYS[CHANGE_ORDER_EVIDENCE].label} before approving "
+            "a change order (D-42)."
+        )
+    found = _find_area(db, tenant_id, job, work_area_id)
+    area, est, link = found.area, found.estimate, found.link
+    n = area.order_no
+    if not area.kept:
+        raise Invalid(f"Work area #{n} is omitted; an omitted work area cannot be approved.")
+    if link.role == "original":
+        if area.kind is None:
+            raise Invalid(
+                f"Work area #{n} is not confirmed; confirm it as a change order before "
+                "approving it."
+            )
+        if area.kind != "change_order":
+            raise Invalid(
+                f"Work area #{n} is an original work area; only a change order is approved."
+            )
+    today = tenant_today(db)
+    if agreed_on > today:
+        raise Invalid(f"The date the customer agreed cannot be after today ({today.isoformat()}).")
+    ref = _clean(evidence_ref, 500)
+    if required and ref is None:
+        raise Invalid(
+            "A reference to the evidence is required by this company's policy "
+            f"({POLICY_KEYS[CHANGE_ORDER_EVIDENCE].label}, D-42)."
+        )
+    current = _job_approvals(db, job).get((est.id, n))
+    if current is not None and current.applies:
+        who = _user_names(db, {current.latest.recorded_by}).get(
+            current.latest.recorded_by, "a user"
+        )
+        when = current.latest.agreed_on.isoformat()
+        raise Conflict(
+            f"Work area #{n} is already approved ({when} by {who}); withdraw that approval first."
+        )
+    row = ChangeOrderApproval(
+        tenant_id=tenant_id,
+        job_id=job.id,
+        estimate_id=est.id,
+        order_no=n,
+        work_area_name=area.name,
+        estimate_work_area_id=area.id,
+        action="approved",
+        price=area.price,
+        agreed_on=agreed_on,
+        agreed_by=_clean(agreed_by, 200),
+        evidence_ref=ref,
+        note=_clean(note, 2000),
+        recorded_by=actor.user_id,
+    )
+    db.add(row)
+    db.flush()
+    audit(
+        db,
+        tenant_id,
+        TenantEvent.change_order_approved,
+        "job",
+        job.id,
+        actor,
+        before={"approved": False, "price": None},
+        after=_approval_fields(row),
+        rows={
+            "change_order_approval": str(row.id),
+            "estimate": est.external_id,
+            "order_no": n,
+            "estimate_work_area": str(area.id),
+        },
+    )
+    return row
+
+
+def withdraw_approval(
+    db: Session,
+    tenant_id: UUID,
+    job_id: UUID,
+    work_area_id: UUID,
+    *,
+    reason: str | None,
+    actor: Actor,
+) -> ChangeOrderApproval:
+    """D-42: an approval is withdrawn with a reason; the work area is unapproved again. An
+    approval a later version ended may be withdrawn too (the platform never writes one on
+    its own); the work area id may be the one the approval row names when the latest
+    version no longer carries the row."""
+    job = _job(db, job_id)
+    text = _clean(reason, 2000)
+    if text is None:
+        raise Invalid("Give the reason: an approval is withdrawn only with a reason.")
+    try:
+        found = _find_area(db, tenant_id, job, work_area_id)
+        key: ApprovalKey = (found.estimate.id, found.area.order_no)
+    except NotFound:
+        named = db.execute(
+            select(ChangeOrderApproval)
+            .where(
+                ChangeOrderApproval.job_id == job.id,
+                ChangeOrderApproval.estimate_work_area_id == work_area_id,
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+        if named is None:
+            raise
+        key = (named.estimate_id, named.order_no)
+    current = _job_approvals(db, job).get(key)
+    if current is None or current.latest.action != "approved":
+        raise Conflict(f"Work area #{key[1]} is not approved; there is nothing to withdraw.")
+    approval = current.latest
+    row = ChangeOrderApproval(
+        tenant_id=tenant_id,
+        job_id=job.id,
+        estimate_id=approval.estimate_id,
+        order_no=approval.order_no,
+        work_area_name=approval.work_area_name,
+        estimate_work_area_id=approval.estimate_work_area_id,
+        action="withdrawn",
+        price=approval.price,
+        reason=text,
+        withdraws_id=approval.id,
+        recorded_by=actor.user_id,
+    )
+    db.add(row)
+    db.flush()
+    est = db.get(Estimate, approval.estimate_id)
+    audit(
+        db,
+        tenant_id,
+        TenantEvent.change_order_approval_withdrawn,
+        "job",
+        job.id,
+        actor,
+        before={**_approval_fields(approval), "approval": str(approval.id)},
+        after={"approved": False, "price": None, "reason": text},
+        rows={
+            "change_order_approval": str(row.id),
+            "withdraws": str(approval.id),
+            "estimate": est.external_id if est else None,
+            "order_no": approval.order_no,
+            "estimate_work_area": str(approval.estimate_work_area_id),
+        },
+    )
+    return row
+
+
+@dataclass(frozen=True)
+class UnapprovedRow:
+    job_id: UUID
+    job_name: str
+    estimate_number: str
+    estimator: str | None
+    order_no: int
+    name: str
+    price: Decimal
+    first_seen: date  # the received date of the first version that carries the work area
+    days: int
+    approval_ended: bool  # an earlier approval no longer applies (rule C)
+
+
+def _first_seen(
+    db: Session, estimate_ids: Sequence[UUID]
+) -> dict[tuple[UUID, int], tuple[str, datetime]]:
+    """Per (estimate, order number): the latest version's name and the received time of
+    the earliest version in the unbroken run of versions carrying a row with that name
+    at that order number (a renamed row is a new row, as the kind carry says)."""
+    if not estimate_ids:
+        return {}
+    versions = list(
+        db.execute(
+            select(EstimateVersion)
+            .where(
+                EstimateVersion.estimate_id.in_(list(estimate_ids)),
+                EstimateVersion.work_areas_raw_record_id.is_not(None),
+            )
+            .order_by(EstimateVersion.estimate_id, EstimateVersion.version_no)
+        ).scalars()
+    )
+    if not versions:
+        return {}
+    names: dict[UUID, dict[int, str]] = {v.id: {} for v in versions}
+    for w in db.execute(
+        select(
+            EstimateWorkArea.estimate_version_id, EstimateWorkArea.order_no, EstimateWorkArea.name
+        ).where(EstimateWorkArea.estimate_version_id.in_(list(names)))
+    ).all():
+        names[w.estimate_version_id][w.order_no] = w.name
+    by_est: dict[UUID, list[EstimateVersion]] = {}
+    for v in versions:
+        by_est.setdefault(v.estimate_id, []).append(v)
+    out: dict[tuple[UUID, int], tuple[str, datetime]] = {}
+    for eid, vs in by_est.items():
+        latest = vs[-1]
+        for order_no, name in names[latest.id].items():
+            since = latest.received_at
+            for v in reversed(vs[:-1]):
+                earlier = names[v.id].get(order_no)
+                if earlier is None or not same_name(earlier, name):
+                    break
+                since = v.received_at
+            out[(eid, order_no)] = (name, since)
+    return out
+
+
+def unapproved_change_orders(db: Session, tenant_id: UUID) -> list[UnapprovedRow]:
+    """Every kept change-order work area without an applying approval on a job that is
+    sold, in progress or substantially complete, in job order then by estimate and order
+    number; computed on read."""
+    views = [v for v in list_jobs(db, tenant_id) if v.job.status in LISTED_STATUSES]
+    wanted: list[tuple[JobView, AttachedView, EstimateWorkArea]] = []
+    for v in views:
+        for a in v.attached:
+            if a.link.role == "ignored" or a.view.work_areas is None:
+                continue
+            for w in a.view.work_areas:
+                row = w.row
+                if not row.kept:
+                    continue
+                if a.link.role == "original" and row.kind != "change_order":
+                    continue
+                approval = v.approval_for(a.estimate.id, row.order_no)
+                if approval is not None and approval.applies:
+                    continue
+                wanted.append((v, a, row))
+    first = _first_seen(db, sorted({a.estimate.id for _v, a, _r in wanted}, key=str))
+    today = tenant_today(db)
+    out: list[UnapprovedRow] = []
+    for v, a, row in wanted:
+        _name, since = first.get((a.estimate.id, row.order_no), (row.name, datetime.now(UTC)))
+        seen = _local_date(db, since)
+        approval = v.approval_for(a.estimate.id, row.order_no)
+        out.append(
+            UnapprovedRow(
+                job_id=v.job.id,
+                job_name=v.job.name,
+                estimate_number=a.estimate.external_id,
+                estimator=a.estimate.estimator,
+                order_no=row.order_no,
+                name=row.name,
+                price=row.price,
+                first_seen=seen,
+                days=max((today - seen).days, 0),
+                approval_ended=approval is not None and approval.ended is not None,
+            )
+        )
+    return out

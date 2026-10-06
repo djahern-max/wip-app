@@ -5,6 +5,7 @@ import { amountOr, daysWords, figureOr, filterQuery, qboCell, tieOutText } from 
 import Attention from "./JobAttention.jsx";
 import JobDetail from "./JobDetail.jsx";
 import JobReview from "./JobReview.jsx";
+import UnapprovedChangeOrders from "./UnapprovedChangeOrders.jsx";
 
 // Jobs (F07): every job with its computed contract figures, the review queue for sold
 // estimates, and one job's detail. The job is the unit everything after F07 reports on.
@@ -104,6 +105,10 @@ export default function Jobs({ me, canManage, target, onOpenEstimate }) {
       />
     );
   }
+  if (view === "unapproved") {
+    // F07.4 (D-42): every unapproved change order on an open job, with its amount and age.
+    return <UnapprovedChangeOrders me={me} onBack={backToList} onOpenJob={openJob} />;
+  }
   if (view === "detail" && jobId) {
     return (
       <JobDetail me={me} jobId={jobId} canManage={canManage} onBack={backToList} onOpenEstimate={onOpenEstimate} />
@@ -125,6 +130,9 @@ export default function Jobs({ me, canManage, target, onOpenEstimate }) {
           disabled={!data}
         >
           Review sold estimates ({data ? data.to_review : "…"})
+        </button>
+        <button type="button" className="link-button" onClick={() => setView("unapproved")} disabled={!data}>
+          Unapproved change orders ({data ? data.unapproved_change_order_count : "…"})
         </button>
       </div>
       {data && (

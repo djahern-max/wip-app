@@ -6,6 +6,7 @@ code has one sentence here (D-22: the sentence, never the code alone).
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
+from decimal import Decimal
 from uuid import UUID
 
 from app.domain.billing.figures import JobFigures, words
@@ -58,6 +59,12 @@ SENTENCES: dict[str, str] = {
         'Job "{name}" has {amount} of other credits applied on {date} (payment {payment}): '
         "an invoice was settled through a payment by something other than cash, such as a "
         "journal entry or a deposit. Collected to date leaves it out (D-41)."
+    ),
+    # F07.4 (D-42, rule C): an approval ended by a later version of the estimate
+    "CO_APPROVAL_NOT_CARRIED": (
+        'Work area #{order_no} "{name}" on estimate {estimate} was approved on {agreed_on} '
+        "at {approved} by {who}, and {ended}, so it is unapproved until it is approved "
+        "again (D-42)."
     ),
     # §10 BILLED_OVER_CONTRACT
     "BILLED_OVER_CONTRACT": (
@@ -251,3 +258,38 @@ def billing_issues(name: str, figures: JobFigures) -> list[Issue]:
                 )
             )
     return out
+
+
+def approval_not_carried_issue(
+    *,
+    order_no: int,
+    name: str,
+    estimate: str,
+    agreed_on: date,
+    approved: Decimal,
+    who: str,
+    ended: str,
+    approval_id: UUID,
+) -> Issue:
+    """F07.4 (D-42, rule C): one sentence per ended approval that no one has withdrawn or
+    replaced, naming the approved price and date and what the later version did."""
+    return Issue(
+        "CO_APPROVAL_NOT_CARRIED",
+        sentence(
+            "CO_APPROVAL_NOT_CARRIED",
+            order_no=order_no,
+            name=name,
+            estimate=estimate,
+            agreed_on=agreed_on.isoformat(),
+            approved=words(approved),
+            who=who,
+            ended=ended,
+        ),
+        {
+            "order_no": order_no,
+            "estimate": estimate,
+            "approved_price": str(approved),
+            "agreed_on": agreed_on.isoformat(),
+            "approval": str(approval_id),
+        },
+    )

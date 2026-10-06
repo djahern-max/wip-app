@@ -10,10 +10,17 @@ RLS enabled and forced in migration 0011.
 - ``job_alias``: the crosswalk. One outside id maps to one job; a job may carry
   several ``qbo_customer`` aliases (owner's answer 15). Matching is by alias, never
   by name.
+- ``change_order_approval`` (F07.4, D-42; migration 0013): the approval history of a
+  job's change-order work areas, one row per approval or withdrawal, never edited
+  (append-only, D-13). An approval is for the work area at its price that day, keyed
+  by ``(estimate_id, order_no)`` with the name and price stored as the read-time guard;
+  whether it still applies is computed on read (``contract.approval_state``), never
+  stored.
 """
 
 import uuid
 from datetime import date, datetime
+from decimal import Decimal
 
 from sqlalchemy import (
     CheckConstraint,
@@ -21,6 +28,8 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
+    Numeric,
     String,
     UniqueConstraint,
     func,
@@ -73,6 +82,8 @@ ROLE_LABELS: dict[str, str] = {
     "ignored": "Ignored",
 }
 ALIAS_SYSTEMS: tuple[str, ...] = ("lmn_estimate", "qbo_customer")
+APPROVAL_ACTIONS: tuple[str, ...] = ("approved", "withdrawn")
+APPROVAL_ACTION_LABELS: dict[str, str] = {"approved": "Approved", "withdrawn": "Approval withdrawn"}
 ALIAS_SYSTEM_LABELS: dict[str, str] = {
     "lmn_estimate": "Estimate",
     "qbo_customer": "QuickBooks",
@@ -85,6 +96,17 @@ STATUS_CHECK_SQL = "status IN ('sold','in_progress','substantially_complete','cl
 ROLE_CHECK_SQL = "role IN ('original','change_order','ignored')"
 IGNORED_NOTE_CHECK_SQL = "role <> 'ignored' OR (note IS NOT NULL AND btrim(note) <> '')"
 SYSTEM_CHECK_SQL = "system IN ('lmn_estimate','qbo_customer')"
+APPROVAL_ACTION_CHECK_SQL = "action IN ('approved','withdrawn')"
+# An approval carries the agreed date and no reason or withdrawn pointer; a withdrawal
+# carries a non-blank reason and the approval it withdraws, and no agreed date.
+APPROVAL_APPROVED_CHECK_SQL = (
+    "action <> 'approved' OR (agreed_on IS NOT NULL AND reason IS NULL AND withdraws_id IS NULL)"
+)
+APPROVAL_WITHDRAWN_CHECK_SQL = (
+    "action <> 'withdrawn' OR (reason IS NOT NULL AND btrim(reason) <> '' "
+    "AND withdraws_id IS NOT NULL AND agreed_on IS NULL AND agreed_by IS NULL "
+    "AND evidence_ref IS NULL AND note IS NULL)"
+)
 ORIGINAL_INDEX = "uq_job_estimate_one_original"
 
 
@@ -176,3 +198,33 @@ class JobAlias(Base):
     external_id: Mapped[str] = mapped_column(String(80), nullable=False)
     linked_by: Mapped[uuid.UUID | None] = _fk("user.id")
     linked_at: Mapped[datetime] = _now()
+
+
+class ChangeOrderApproval(Base):
+    __tablename__ = "change_order_approval"
+    __table_args__ = (
+        Index("ix_change_order_approval_tenant_id_job_id", "tenant_id", "job_id", "recorded_at"),
+        CheckConstraint(APPROVAL_ACTION_CHECK_SQL, name="ck_change_order_approval_action"),
+        CheckConstraint(APPROVAL_APPROVED_CHECK_SQL, name="ck_change_order_approval_approved"),
+        CheckConstraint(APPROVAL_WITHDRAWN_CHECK_SQL, name="ck_change_order_approval_withdrawn"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = _tenant_id()
+    job_id: Mapped[uuid.UUID] = _fk("job.id", nullable=False)
+    estimate_id: Mapped[uuid.UUID] = _fk("estimate.id", nullable=False)
+    order_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    work_area_name: Mapped[str] = mapped_column(String(500), nullable=False)
+    # The row the person pressed on: the record, never the key (a new version has new rows).
+    estimate_work_area_id: Mapped[uuid.UUID] = _fk("estimate_work_area.id", nullable=False)
+    action: Mapped[str] = mapped_column(String(20), nullable=False)
+    # Approved: the price that day (D-42). Withdrawn: the approved price being withdrawn.
+    price: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    agreed_on: Mapped[date | None] = mapped_column(Date)
+    agreed_by: Mapped[str | None] = mapped_column(String(200))
+    evidence_ref: Mapped[str | None] = mapped_column(String(500))
+    note: Mapped[str | None] = mapped_column(String(2000))
+    reason: Mapped[str | None] = mapped_column(String(2000))
+    withdraws_id: Mapped[uuid.UUID | None] = _fk("change_order_approval.id")
+    recorded_by: Mapped[uuid.UUID] = _fk("user.id", nullable=False)
+    recorded_at: Mapped[datetime] = _now()

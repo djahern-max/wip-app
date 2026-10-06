@@ -10,6 +10,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from app.domain.config.policy import (
+    CHANGE_ORDER_EVIDENCE,
     DEPOSIT_IDENTIFICATION,
     FUEL_SURCHARGE_TREATMENT,
     TIMEZONE,
@@ -20,8 +21,9 @@ from app.domain.estimates.totals import BURDEN_SLOT
 # The policy keys a feature already reads. Each feature that starts reading a key adds
 # it here (owner, 2026-10-04): F07 reads the time zone (Sold on, the estimate dates); F06
 # reads the WIP basis (EAC in the basis); F08 reads the deposit items (D-02) and the fuel
-# surcharge items (D-39) for billed to date. The other keys are decided when their
-# features arrive and never block a first job. The names come from the registry's
+# surcharge items (D-39) for billed to date; F07.4 reads the change order evidence key
+# (D-42) before an approval. The other keys are decided when their features arrive and
+# never block a first job. The names come from the registry's
 # constants: a key is a string literal only in ``app/domain/config/policy.py``
 # (tests/test_policy.py).
 REQUIRED_POLICY_KEYS: tuple[str, ...] = (
@@ -29,6 +31,7 @@ REQUIRED_POLICY_KEYS: tuple[str, ...] = (
     WIP_BASIS,
     DEPOSIT_IDENTIFICATION,
     FUEL_SURCHARGE_TREATMENT,
+    CHANGE_ORDER_EVIDENCE,
 )
 
 LISTED_JOB_STATUSES = frozenset({"sold", "in_progress", "substantially_complete"})
@@ -333,6 +336,10 @@ class JobFacts:
     unapplied_payments: str | None = None  # PAYMENT_UNAPPLIED: the amount, cents, as the API
     deposit_not_identified: int = 0  # DEPOSIT_NOT_IDENTIFIED: documents on the job
     billed_over_contract: str | None = None  # BILLED_OVER_CONTRACT: the amount over
+    # F07.4 (D-42); defaults so the F07.3 and F08 facts and tests stand as they are.
+    unapproved_change_orders: str | None = None  # the amount, cents, as the API; None: no contract
+    unapproved_count: int = 0  # kept change-order work areas without an applying approval
+    approvals_ended: int = 0  # CO_APPROVAL_NOT_CARRIED sentences on the job
 
 
 @dataclass(frozen=True)
@@ -428,9 +435,43 @@ def _over_contract(j: JobFacts) -> Need | None:
     return None
 
 
+# --- F07.4 (D-42): change order approval, appended after the F08 entries -------------------
+
+
+def _approval_ended(j: JobFacts) -> Need | None:
+    """An approval a later version ended (rule C) asks for a decision before the plain
+    count of unapproved change orders does: approve the work area again, or withdraw."""
+    if j.approvals_ended:
+        n = j.approvals_ended
+        return Need(
+            "co_approval_not_carried",
+            f"{n} change order {_plural(n, 'approval', 'approvals')} no longer "
+            f"{_plural(n, 'applies', 'apply')}: the price or the name changed in a later "
+            f"version. Approve {_plural(n, 'it', 'them')} again or withdraw "
+            f"{_plural(n, 'it', 'them')}.",
+            Link("jobs", job_id=j.id),
+            n,
+        )
+    return None
+
+
+def _unapproved_change_orders(j: JobFacts) -> Need | None:
+    if j.unapproved_count and j.unapproved_change_orders is not None:
+        n = j.unapproved_count
+        return Need(
+            "change_orders_unapproved",
+            f"{n} change {_plural(n, 'order', 'orders')}, "
+            f"{_money_words(j.unapproved_change_orders)}, not approved.",
+            Link("jobs", job_id=j.id),
+            n,
+        )
+    return None
+
+
 # First rule that applies wins. F08 appended its three after the F07 ones, in the brief's
-# order (PAYMENT_UNAPPLIED, DEPOSIT_NOT_IDENTIFIED, BILLED_OVER_CONTRACT); later features
-# add theirs (a billing request due, a cost without a job…) with a sentence and a test.
+# order (PAYMENT_UNAPPLIED, DEPOSIT_NOT_IDENTIFIED, BILLED_OVER_CONTRACT); F07.4 its two
+# (an ended approval, then unapproved change orders); later features add theirs (a billing
+# request due, a cost without a job…) with a sentence and a test.
 JOB_NEEDS: tuple[Callable[[JobFacts], Need | None], ...] = (
     _confirm,
     _link,
@@ -438,6 +479,8 @@ JOB_NEEDS: tuple[Callable[[JobFacts], Need | None], ...] = (
     _unapplied,
     _deposit,
     _over_contract,
+    _approval_ended,
+    _unapproved_change_orders,
 )
 
 

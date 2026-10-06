@@ -19,6 +19,10 @@ one; ``fuel_surcharge_treatment`` is the fuel surcharge item ids and the rate (a
 kept as a string, ``"0.0500"``), where no items and no rate is "this company charges no
 fuel surcharge", a decision like any other. Item ids are checked against the items the
 sync holds (``app.domain.config.items``); a name is never stored.
+
+F07.4 (D-42): ``change_order_evidence`` is a ``choice`` between two values the registry
+names with their words, "None required" and "A reference is required"; no default. The
+approval of a change order is refused while it is undecided.
 """
 
 from dataclasses import dataclass
@@ -58,9 +62,10 @@ class PolicyWaiting(LookupError):
 class PolicyKey:
     key: str
     label: str
-    kind: str  # timezone | month | category_slots | money | text | item_ids | surcharge
+    kind: str  # timezone | month | category_slots | money | text | item_ids | surcharge | choice
     description: str
     waiting: str | None = None  # F04.1: why the key cannot be set on the screen yet
+    choices: tuple[tuple[str, str], ...] | None = None  # F07.4: a choice kind's (value, words)
 
 
 # Key names other modules may import (tests/test_policy.py: a key name is a string
@@ -69,6 +74,13 @@ WIP_BASIS = "wip_basis"
 TIMEZONE = "timezone"
 DEPOSIT_IDENTIFICATION = "deposit_identification"  # F08 (D-02)
 FUEL_SURCHARGE_TREATMENT = "fuel_surcharge_treatment"  # F08 (D-39)
+CHANGE_ORDER_EVIDENCE = "change_order_evidence"  # F07.4 (D-42)
+EVIDENCE_NONE = "none"
+EVIDENCE_REFERENCE = "reference"
+EVIDENCE_CHOICES: tuple[tuple[str, str], ...] = (
+    (EVIDENCE_NONE, "None required"),
+    (EVIDENCE_REFERENCE, "A reference is required"),
+)
 ITEM_KINDS: frozenset[str] = frozenset({"item_ids", "surcharge"})  # the two item pickers
 RATE_PLACES = Decimal("0.0001")
 
@@ -141,8 +153,23 @@ POLICY_KEYS: dict[str, PolicyKey] = {
             "surcharge",
             "The QuickBooks items a fuel surcharge line uses, and the rate (D-39).",
         ),
+        PolicyKey(
+            CHANGE_ORDER_EVIDENCE,
+            "Change order evidence",
+            "choice",
+            "What an approval of a change order must carry (D-42).",
+            choices=EVIDENCE_CHOICES,
+        ),
     )
 }
+
+
+def choice_label(key: str, value) -> str | None:
+    """The words of a choice key's stored value (D-22: one mapping, on the server)."""
+    spec = POLICY_KEYS.get(key)
+    if spec is None or spec.kind != "choice" or spec.choices is None:
+        return None
+    return next((label for v, label in spec.choices if v == value), None)
 
 
 def _item_list(db: Session, tenant_id: UUID | None, value, *, field: str) -> list[str]:
@@ -239,6 +266,12 @@ def validate_value(db: Session, key: str, value, *, tenant_id: UUID | None = Non
         if not isinstance(value, str) or not value.strip():
             raise PolicyValueError("a short text")
         return value.strip()[:500]
+    if spec.kind == "choice":
+        choices = spec.choices or ()
+        if not isinstance(value, str) or value not in {v for v, _label in choices}:
+            offered = " or ".join(f'"{v}" ({label})' for v, label in choices)
+            raise PolicyValueError(f"one of {offered}")
+        return value
     raise PolicyValueError(f"unknown policy kind {spec.kind!r}")
 
 
@@ -337,3 +370,15 @@ def surcharge_treatment(db: Session) -> SurchargeTreatment | None:
         item_ids=frozenset(str(i) for i in row.value.get("item_ids") or ()),
         rate=Decimal(str(rate)) if rate is not None else None,
     )
+
+
+# --- F07.4: what approving a change order reads -----------------------------------------------
+
+
+def evidence_required(db: Session) -> bool | None:
+    """D-42: whether an approval must carry a reference; None when the key is not
+    decided (the approval is then refused, never defaulted)."""
+    row = get_policy(db, CHANGE_ORDER_EVIDENCE)
+    if row is None:
+        return None
+    return row.value == EVIDENCE_REFERENCE

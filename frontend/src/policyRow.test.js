@@ -226,3 +226,25 @@ test("a ticked inactive item is always shown and marked; an unticked one waits b
   assert.equal(showValue(depositKey({ options: FLAGGED, decided: true, value: { item_ids: ["904"] } })), "Old deposit item (inactive)");
 });
 
+
+// --- F07.4 (D-42): a choice key ----------------------------------------------------------
+
+test("a choice key shows the chosen value's words and offers its options", () => {
+  const p = key({
+    key: "change_order_evidence",
+    label: "Change order evidence",
+    kind: "choice",
+    description: "What an approval of a change order must carry (D-42).",
+    options: [
+      { value: "none", label: "None required" },
+      { value: "reference", label: "A reference is required" },
+    ],
+  });
+  assert.equal(showValue({ ...p, decided: true, value: "reference", value_label: "A reference is required" }, []), "A reference is required");
+  assert.equal(showValue({ ...p, decided: true, value: "none", value_label: null }, []), "none");
+  assert.equal(hasValue("choice", "", [], []), false);
+  assert.equal(hasValue("choice", "none", [], []), true);
+  const html = renderToStaticMarkup(createElement(EditPolicy, { p, categories: [], busy: false, onCancel() {}, onSave() {} }));
+  assert.ok(html.includes("None required") && html.includes("A reference is required"));
+  assert.ok(html.includes("<select"));
+});

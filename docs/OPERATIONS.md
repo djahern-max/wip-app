@@ -735,13 +735,67 @@ nothing. Figures are computed each time the job is read, never stored:
   no work areas loaded counts its price ("No work areas loaded").
 - **Unapproved change orders**: work areas confirmed as change orders, and every kept
   work area of an estimate attached as a change order (its price when it has no work
-  areas). They stay outside the contract until the sign-off feature approves them.
+  areas), without an approval that applies. They stay outside the contract until the
+  project manager approves them (F07.4, D-42, below); **Approved change orders** then
+  join the **Revised contract** = original contract + approved change orders.
 - **EAC in the WIP basis**: the sum of each attached estimate's own figure (burdened,
   F06.1), ignored estimates excluded; "Not computed" if any of them is not computed.
 - Time and materials: no revised contract (D-24). Pool: no contract and no EAC (D-30).
 
 A confirmation survives a re-upload when the work area keeps both its order number and
 its name; a renamed or new work area is suggested again and needs confirming.
+
+### Approving a change order (F07.4, D-42, D-44)
+A change-order work area (confirmed as one on the original estimate, or any kept work
+area of an estimate attached as a change order) is outside the revised contract until a
+person records that the customer agreed. The platform records approval; it does not
+obtain it: sending the change order and collecting the signature happen outside it.
+- **Who**: roles `client_pm` and `firm_admin`, under their own login. `client_admin`,
+  `firm_staff` and `client_viewer` do not approve. Give the project manager a login on
+  the droplet (the display name is what the approval shows, "approved 2026-09-14 by
+  <display name>"):
+  ```sh
+  cd /opt/wip/backend
+  sudo -u wip ENV_FILE=/etc/wip/app.env .venv/bin/python scripts/create_user.py create-user \
+      --email <project manager's e-mail> --display-name "<project manager's name>" \
+      --membership rye-beach:client_pm
+  ```
+  It prints the activation link once, to stdout only; hand it over directly. The link
+  sets the password; TOTP is offered and not required for a client role. A lost link:
+  `scripts/create_user.py issue-link --email <e-mail>`.
+- **The evidence key**: Configuration → Policy → **Change order evidence** (`firm_admin`):
+  "None required" or "A reference is required". No default; approving is refused in one
+  sentence while it is undecided. Rye Beach: None required (D-42).
+- **Approve**: on the job, the work-area table's Approval column reads "Change order, not
+  approved"; **Approve** opens a small form in the row: the date the customer agreed
+  (required, not after today), who at the customer agreed, a reference to the evidence
+  (required when the key says so), a note; **Record approval** writes one row and one
+  `change_order_approved` audit row, and the row reads "Change order, approved <date> by
+  <name>". Approved change orders join the revised contract at the price approved; EAC
+  does not move (D-44: the cost of an unapproved change order is expected whether or not
+  its price is agreed). A change order priced 0.00 may be approved; it moves no figure.
+- **Withdraw approval** asks for the reason (required) and writes one row and one
+  `change_order_approval_withdrawn` audit row; the work area is unapproved again.
+  Approving again is a new row. **Approval history** below the table lists every
+  approval and withdrawal, newest first; nothing in it is ever edited.
+- **A later version of the estimate**: an approval is for the work area at its price that
+  day. If a later version changes the work area's price or name, omits it or drops it,
+  the approval ends for good, the work area is unapproved again, and the job's attention
+  and Home say so (`CO_APPROVAL_NOT_CARRIED`, naming the approved price and date and what
+  the version did) until a person approves it again (a new row at the new price) or
+  withdraws the ended approval with a reason. A version that restores the name and price
+  does not revive it. A version that leaves the work area as it was carries the approval.
+- **Kinds**: an approved change order cannot be changed to original until its approval is
+  withdrawn (the refusal says so). "Confirm all as suggested" never approves anything.
+- **The unapproved change orders list**: Jobs → **Unapproved change orders (n)**: every
+  kept, confirmed, unapproved change order on a sold, in progress or substantially
+  complete job, with the job, estimate, estimator, work area, price, the days since the
+  work area first appeared (the received date of the first version carrying it under that
+  name) and a note when an earlier approval no longer applies; a total. Every role reads
+  it; each row opens its job. Closed and cancelled jobs are absent.
+- Rye Beach, 6115758: nine of the eleven priced change orders are the ledge removal days
+  the owner expects to move to a time-and-materials job (D-24); the owner decides with the
+  project manager before any of them is approved.
 
 ### Correcting Sold on
 A job's **Sold on** is the original estimate's date when the file carried one, else the

@@ -321,7 +321,9 @@ def test_67_elm_street_unapplied_then_applied_and_the_voided_deposit_invoice(t: 
 
         assert b["days_since_activity"] == (today(s) - date(2026, 8, 21)).days
     home = next(j for j in t.get("/api/home")["jobs"] if j["id"] == job["id"])
-    assert home["code"] is None
+    # F07.4 (D-42): with the billing quiet, the job's next need is its unapproved change
+    # orders (before F07.4 this read "Nothing needed").
+    assert home["code"] == "change_orders_unapproved"
 
     # A deleted document and a deleted payment: in no figure, in the history, marked.
     gone = document_payload(

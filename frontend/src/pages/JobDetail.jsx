@@ -1,7 +1,18 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { formatMoney } from "../money.js";
-import { amountOr, appliedWords, daysWords, figureOr, offersInProgress, pendingLabel, reasonText } from "../jobs.js";
+import {
+  amountOr,
+  appliedWords,
+  approvalActions,
+  approvalReady,
+  canApproveChangeOrders,
+  daysWords,
+  figureOr,
+  offersInProgress,
+  pendingLabel,
+  reasonText,
+} from "../jobs.js";
 import { KindActions } from "../kindActions.js";
 import Attention from "./JobAttention.jsx";
 
@@ -13,7 +24,10 @@ import Attention from "./JobAttention.jsx";
 // action writes one audit row. Mount effects only read (GET). F07.1: "Confirm all as
 // suggested" confirms every unconfirmed kept work area at its suggestion in one press
 // (one audit row each); the Action column says what a click will do; Sold on can be
-// corrected.
+// corrected. F07.4 (D-42): a confirmed change order reads approved or not; client_pm and
+// firm_admin approve it (a small form in the row: the date the customer agreed, who, a
+// reference, a note) or withdraw an approval with a reason; the approval history is below
+// the table; the figures follow on read.
 
 export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate }) {
   const [job, setJob] = useState(null);
@@ -26,6 +40,9 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null); // F07.1: what "Confirm all as suggested" did
   const [setInProgress, setSetInProgress] = useState(true); // D-35: offered for a sold job
+  // F07.4: the open approval or withdrawal form, {id, action, agreed_on, agreed_by, evidence_ref, note, reason}
+  const [approval, setApproval] = useState(null);
+  const [evidence, setEvidence] = useState(null); // the policy key's value, read once: "none" | "reference" | null
 
   useEffect(() => {
     api("GET", `/api/jobs/${jobId}`)
@@ -39,6 +56,17 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
       .then((d) => setSuggestions(d.rows))
       .catch(() => setSuggestions([]));
   }, [me.active_tenant_id, jobId, job && job.aliases.length]);
+
+  useEffect(() => {
+    // F07.4: whether an approval must carry a reference (the server refuses either way).
+    if (!canApproveChangeOrders(me.role)) return;
+    api("GET", "/api/config/policy")
+      .then((rows) => {
+        const key = rows.find((p) => p.key === "change_order_evidence");
+        setEvidence(key && key.decided ? key.value : null);
+      })
+      .catch(() => setEvidence(null));
+  }, [me.active_tenant_id, me.role]);
 
   function show(j) {
     setJob(j);
@@ -123,6 +151,140 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
     } finally {
       setPending(null);
     }
+  }
+
+  // F07.4 (D-42): Approve opens the small form in the row; Withdraw approval asks for the reason.
+  function openApproval(areaId, action) {
+    setApproval({ id: areaId, action, agreed_on: "", agreed_by: "", evidence_ref: "", note: "", reason: "" });
+  }
+
+  async function submitApproval(e) {
+    e.preventDefault();
+    const a = approval;
+    setPending({ id: a.id, action: a.action });
+    try {
+      const ok = await run(() =>
+        a.action === "approve"
+          ? api("POST", `/api/jobs/${jobId}/work-areas/${a.id}/approval`, {
+              agreed_on: a.agreed_on,
+              agreed_by: a.agreed_by || null,
+              evidence_ref: a.evidence_ref || null,
+              note: a.note || null,
+            })
+          : api("POST", `/api/jobs/${jobId}/work-areas/${a.id}/approval/withdraw`, { reason: a.reason }),
+      );
+      if (ok) setApproval(null);
+    } finally {
+      setPending(null);
+    }
+  }
+
+  const canApprove = canApproveChangeOrders(me.role);
+  const referenceRequired = evidence === "reference";
+
+  function approvalForm(w) {
+    if (!approval || approval.id !== w.id) return null;
+    const approving = approval.action === "approve";
+    return (
+      <tr key={`${w.id}-form`}>
+        <td colSpan={canManage || canApprove ? 7 : 6}>
+          <form onSubmit={submitApproval}>
+            {approving ? (
+              <>
+                <label className="label">
+                  Date the customer agreed
+                  <input
+                    className="input"
+                    type="date"
+                    value={approval.agreed_on}
+                    onChange={(e) => setApproval({ ...approval, agreed_on: e.target.value })}
+                    required
+                    disabled={busy}
+                  />
+                </label>
+                <label className="label">
+                  Who at the customer agreed (optional)
+                  <input className="input" value={approval.agreed_by} onChange={(e) => setApproval({ ...approval, agreed_by: e.target.value })} disabled={busy} />
+                </label>
+                <label className="label">
+                  {referenceRequired ? "Reference to the evidence (required by this company)" : "Reference to the evidence (optional)"}
+                  <input className="input" value={approval.evidence_ref} onChange={(e) => setApproval({ ...approval, evidence_ref: e.target.value })} disabled={busy} />
+                </label>
+                <label className="label">
+                  Note (optional)
+                  <input className="input" value={approval.note} onChange={(e) => setApproval({ ...approval, note: e.target.value })} disabled={busy} />
+                </label>
+              </>
+            ) : (
+              <label className="label">
+                Reason for withdrawing the approval
+                <input className="input" value={approval.reason} onChange={(e) => setApproval({ ...approval, reason: e.target.value })} required disabled={busy} />
+              </label>
+            )}
+            <button
+              type="submit"
+              className="button"
+              disabled={busy || (approving ? !approvalReady(approval, referenceRequired) : !approval.reason.trim())}
+            >
+              {pendingLabel(approval.action, pending, w.id) || (approving ? "Record approval" : "Withdraw approval")}
+            </button>{" "}
+            <button type="button" className="link-button" disabled={busy} onClick={() => setApproval(null)}>
+              Cancel
+            </button>
+          </form>
+        </td>
+      </tr>
+    );
+  }
+
+  function approvalCell(w) {
+    if (!canApprove) return null;
+    const actions = approvalActions(w);
+    if (actions.length === 0) return null;
+    return (
+      <span className="actions">
+        {actions.map((a) => (
+          <button
+            key={a.action}
+            type="button"
+            className="link-button"
+            disabled={busy}
+            onClick={() => openApproval(w.id, a.action)}
+          >
+            {pendingLabel(a.action, pending, w.id) || a.label}
+          </button>
+        ))}
+      </span>
+    );
+  }
+
+  function workAreaRows(areas) {
+    return areas.map((w) => [
+      <tr key={w.id}>
+        <td>#{w.order_no}</td>
+        <td>{w.name}</td>
+        <td>{w.kept_label}</td>
+        <td className="num">{formatMoney(w.price)}</td>
+        <td>{w.kind_label}</td>
+        <td>
+          {w.approval_label || ""}
+          {w.approval_note && <div className="hint">{w.approval_note}</div>}
+        </td>
+        {(canManage || canApprove) && (
+          <td>
+            {canManage && w.estimate_role === "original" && (
+              <KindActions
+                area={w}
+                busy={busy}
+                onConfirm={(k) => run(() => api("POST", `/api/jobs/${jobId}/work-areas/${w.id}/kind`, { kind: k }))}
+              />
+            )}
+            {approvalCell(w)}
+          </td>
+        )}
+      </tr>,
+      approvalForm(w),
+    ]);
   }
 
   if (!job) {
@@ -238,13 +400,24 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
 
       <h3>Contract</h3>
       <dl className="kv">
-        <dt>Revised contract</dt>
+        <dt>Original contract</dt>
         <dd className="num">
-          {amountOr(job.revised_contract, "None")}
+          {amountOr(job.original_contract, "None")}
           {job.revised_contract_note && <div className="hint">{job.revised_contract_note}</div>}
         </dd>
+        <dt>Approved change orders</dt>
+        <dd className="num">{amountOr(job.approved_change_orders, "None")}</dd>
+        <dt>Revised contract</dt>
+        <dd className="num">{amountOr(job.revised_contract, "None")}</dd>
         <dt>Unapproved change orders</dt>
-        <dd className="num">{amountOr(job.unapproved_change_orders, "None")}</dd>
+        <dd className="num">
+          {amountOr(job.unapproved_change_orders, "None")}
+          {job.unapproved_change_order_count > 0 && (
+            <div className="hint">
+              {job.unapproved_change_order_count} change {job.unapproved_change_order_count === 1 ? "order" : "orders"}
+            </div>
+          )}
+        </dd>
         <dt>EAC in the WIP basis</dt>
         <dd className="num">
           {amountOr(job.eac_in_basis, "Not computed")}
@@ -252,8 +425,10 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
         </dd>
       </dl>
       <p className="hint">
-        Revised contract counts the kept work areas of the original estimate confirmed as original. Change orders are
-        shown unapproved, outside the contract, until they are signed off (D-01).
+        Original contract counts the kept work areas of the original estimate confirmed as original. A change order
+        joins the revised contract when the project manager records that the customer agreed, at its price that day
+        (D-42); until then it is shown unapproved, outside the contract. EAC counts the estimated cost of every kept
+        work area, approved or not (D-44).
       </p>
 
       <h3>Billing</h3>
@@ -454,35 +629,104 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
                     <th>Kept</th>
                     <th className="num">Price</th>
                     <th>Kind</th>
-                    {canManage && <th>Action</th>}
+                    <th>Approval</th>
+                    {(canManage || canApprove) && <th>Action</th>}
                   </tr>
                 </thead>
-                <tbody>
-                  {job.work_areas.map((w) => (
-                    <tr key={w.id}>
-                      <td>#{w.order_no}</td>
-                      <td>{w.name}</td>
-                      <td>{w.kept_label}</td>
-                      <td className="num">{formatMoney(w.price)}</td>
-                      <td>{w.kind_label}</td>
-                      {canManage && (
-                        <td>
-                          <KindActions
-                            area={w}
-                            busy={busy}
-                            onConfirm={(k) =>
-                              run(() => api("POST", `/api/jobs/${jobId}/work-areas/${w.id}/kind`, { kind: k }))
-                            }
-                          />
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
+                <tbody>{workAreaRows(job.work_areas)}</tbody>
               </table>
             </div>
             </>
           )}
+        </>
+      )}
+
+      {job.change_order_work_areas.length > 0 && (
+        <>
+          <h3>Work areas of the estimates attached as change orders (latest versions)</h3>
+          <p className="hint">
+            Every kept work area here is a change order by the role of its estimate (D-03); it joins the revised
+            contract when it is approved (D-42).
+          </p>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Order</th>
+                  <th>Name</th>
+                  <th>Kept</th>
+                  <th className="num">Price</th>
+                  <th>Estimate</th>
+                  <th>Approval</th>
+                  {(canManage || canApprove) && <th>Action</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {job.change_order_work_areas.map((w) => [
+                  <tr key={w.id}>
+                    <td>#{w.order_no}</td>
+                    <td>{w.name}</td>
+                    <td>{w.kept_label}</td>
+                    <td className="num">{formatMoney(w.price)}</td>
+                    <td>{w.estimate_external_id}</td>
+                    <td>
+                      {w.approval_label || ""}
+                      {w.approval_note && <div className="hint">{w.approval_note}</div>}
+                    </td>
+                    {(canManage || canApprove) && <td>{approvalCell(w)}</td>}
+                  </tr>,
+                  approvalForm(w),
+                ])}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {job.approval_history.length > 0 && (
+        <>
+          <h3>Approval history</h3>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Work area</th>
+                  <th>What</th>
+                  <th className="num">Price</th>
+                  <th>Customer agreed on</th>
+                  <th>Who at the customer</th>
+                  <th>Reference</th>
+                  <th>Note or reason</th>
+                  <th>Recorded</th>
+                </tr>
+              </thead>
+              <tbody>
+                {job.approval_history.map((h) => (
+                  <tr key={h.id}>
+                    <td>
+                      #{h.order_no} {h.work_area_name}
+                      {h.estimate_external_id ? ` (${h.estimate_external_id})` : ""}
+                    </td>
+                    <td>
+                      {h.action_label}
+                      {h.action === "approved" && !h.applies && (
+                        <div className="hint">{h.ended ? `No longer applies: ${h.ended}` : "Withdrawn or replaced"}</div>
+                      )}
+                    </td>
+                    <td className="num">{formatMoney(h.price)}</td>
+                    <td>{h.agreed_on || ""}</td>
+                    <td>{h.agreed_by || ""}</td>
+                    <td className="wrap-anywhere">{h.evidence_ref || ""}</td>
+                    <td>{h.note || h.reason || ""}</td>
+                    <td>
+                      {new Date(h.recorded_at).toLocaleString()}
+                      {h.recorded_by ? ` by ${h.recorded_by}` : ""}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </>
       )}
 

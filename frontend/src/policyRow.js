@@ -57,6 +57,7 @@ export function showValue(p, categories) {
     return names.length ? names.join(", ") : p.value.join(", ");
   }
   if (p.kind === "timezone") return p.value_label || String(p.value);
+  if (p.kind === "choice") return p.value_label || String(p.value); // F07.4: the words come from the API
   if (p.kind === "item_ids") return itemNames(p, p.value.item_ids || []);
   if (p.kind === "surcharge") {
     const ids = p.value.item_ids || [];
@@ -148,12 +149,12 @@ export function EditPolicy({ p, categories, busy, onCancel, onSave }) {
         ...MONTHS.map((m, i) => h("option", { key: m, value: i + 1 }, m)),
       ),
     );
-  } else if (p.kind === "timezone") {
+  } else if (p.kind === "timezone" || p.kind === "choice") {
     // The options and their labels come from the API (one mapping, on the server).
     control = h(
       "label",
       { className: "label" },
-      "Time zone",
+      p.kind === "timezone" ? "Time zone" : p.label,
       h(
         "select",
         { className: "input", value: text, onChange: (e) => setText(e.target.value), disabled: busy },

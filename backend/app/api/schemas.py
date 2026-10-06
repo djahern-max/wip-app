@@ -548,6 +548,37 @@ class JobWorkAreaOut(_Out):
     suggested_kind: str | None  # None for an omitted work area
     kind_label: str  # "Original", "Change order (suggested)", "Omitted"…
     confirmed: bool
+    # F07.4 (D-42): which estimate the row is on (the original's, or one attached as a
+    # change order), and the approval words: "Change order, not approved" or
+    # "Change order, approved 2026-09-14 by <name>"; None for an original or omitted row.
+    estimate_external_id: str | None = None
+    estimate_role: str = "original"
+    approved: bool = False
+    approval_label: str | None = None
+    approval_id: str | None = None  # the applying (or ended) approval's row
+    approval_note: str | None = None  # the CO_APPROVAL_NOT_CARRIED sentence, when one applies
+
+
+class ApprovalEventOut(_Out):
+    """F07.4 (D-42): one row of a job's approval history, never edited."""
+
+    id: str
+    action: str  # approved | withdrawn
+    action_label: str
+    estimate_external_id: str | None
+    order_no: int
+    work_area_name: str
+    price: str
+    agreed_on: str | None
+    agreed_by: str | None
+    evidence_ref: str | None
+    note: str | None
+    reason: str | None
+    withdraws_id: str | None
+    recorded_by: str | None
+    recorded_at: str
+    applies: bool  # an approval that still counts (the latest event for its work area, unbroken)
+    ended: str | None  # why an approval no longer applies (rule C); None otherwise
 
 
 class JobBillingOut(_Out):
@@ -653,6 +684,10 @@ class JobRowOut(_Out):
     qbo_names: list[str]
     attention: list[EstimateIssueOut]
     billing: JobBillingOut  # F08
+    # F07.4 (D-42): revised contract = original contract + approved change orders.
+    original_contract: str | None
+    approved_change_orders: str | None
+    unapproved_change_order_count: int
 
 
 class JobsOut(_Out):
@@ -670,6 +705,8 @@ class JobsOut(_Out):
     not_on_a_job: BillingTotalsOut
     policy_note: str | None  # a key the figures need is not decided
     # F08.2: the tie-out is its own request, GET /api/jobs/tie-out (TieOutOut).
+    # F07.4: the count on the "Unapproved change orders (n)" link, over every open job.
+    unapproved_change_order_count: int
 
 
 class JobDetailOut(JobRowOut):
@@ -690,6 +727,33 @@ class JobDetailOut(JobRowOut):
     tenant_name: str
     as_of: str
     policy_note: str | None
+    # F07.4 (D-42): the work areas of estimates attached as change orders (approvable by
+    # their role), and the approval history, newest first.
+    change_order_work_areas: list[JobWorkAreaOut]
+    approval_history: list[ApprovalEventOut]
+
+
+class UnapprovedChangeOrderOut(_Out):
+    """F07.4: one unapproved change-order work area on an open job."""
+
+    job_id: str
+    job_name: str
+    estimate_number: str
+    estimator: str | None
+    order_no: int
+    name: str
+    price: str
+    first_seen: str  # the received date of the first version that carries the work area
+    days: int
+    approval_ended: bool  # an earlier approval no longer applies (D-42, rule C)
+
+
+class UnapprovedChangeOrdersOut(_Out):
+    tenant_name: str
+    as_of: str
+    rows: list[UnapprovedChangeOrderOut]
+    total: str
+    count: int
 
 
 class ConfirmSuggestedOut(JobDetailOut):

@@ -345,3 +345,33 @@ For every month, jobs plus not on a job plus unapplied equals QuickBooks payment
 **Reasoning**: On rye-beach the collected side of the board's tie-out failed in 18 of 308 months by 261,929.94 in total. A read-only diagnostic showed one cause in all 18: a journal entry credit (once, a deposit) applied to invoices through a payment was added as cash. Collected to date was defined in F08 as tying to QuickBooks payments and sales receipts; the owner kept that meaning over counting an invoice as collected whenever it is settled. Taking the remainder from the payment's cash needs no guess about any line. What each journal entry was (a write-off, a discount, a transfer between a customer and its project) is not known until journal entries are held, which belongs with the ledger work.
 
 **Affected**: F08.2 (the fix, the figure, the sentence, the tie-out). F08's figures and exports. F13 and later tie-outs. BLUEPRINT §8.2 memo columns, §9 report 1, §10 (PAYMENT_OTHER_CREDIT). CLAUDE.md Vocabulary gains "other credits applied". OPERATIONS.md, "The Sold Jobs Board".
+
+## D-42 · 2026-10-06 · A change order is approved by the project manager, on the evidence the company requires
+
+**Decision**: A work area of kind change order joins the revised contract when a person marks it approved. A user with the client_pm or firm_admin role may do so; the approval records that user, the date the customer agreed, and optionally who at the customer agreed, a reference to the evidence and a note. What evidence an approval must carry is a policy value each tenant decides, with no default: none required, or a reference required (Rye Beach: none required).
+
+An approval is for the work area at its price on that day. If a later version of the estimate changes that price, the work area returns to unapproved and says so, until it is approved again. An approval can be withdrawn, with a reason; the work area is then unapproved again. Approvals and withdrawals are kept as history, never edited, with one audit row each.
+
+A change order counts in the revised contract from its approval date. Once a period has been approved its figures do not change: an approval or withdrawal recorded afterwards takes effect in the first open period.
+
+The platform records approval; it does not obtain it. Sending a change order to the customer and collecting a signature are outside the platform.
+
+**Reasoning**: Rye Beach has lost money on change-order work that was performed and never approved. Requiring a signed document before the project manager can record approval would not be kept up, so the control is accountability: the project manager who says the customer agreed is named on the record. The platform already holds each change order's price and estimated cost, so it is the place where an unapproved one can be seen. Other companies will want stricter evidence, so the requirement is a tenant's decision.
+
+**Affected**: A new feature before F08.1 (approval, withdrawal, the unapproved change orders list). tenant_policy (a new key for the evidence requirement). F07 (the revised contract reads approvals). F08.1 and D-36 (the schedule of values includes approved change orders). F14 (the revised contract as of a period end). D-01 completed as to how a change order is signed off. BLUEPRINT §5, §7, §8.2, §10, §14. CLAUDE.md Vocabulary.
+
+## D-43 · 2026-10-06 · Retainage is not built yet and needs its own decision first
+
+**Decision**: F08.1's pay application carries no retainage. Retainage is a required later feature: before any tenant that holds or is subject to retainage is taken on, a decision records how it is invoiced, how it is recorded in QuickBooks, and what it does to billed to date, over / (under) billed and the fuel surcharge base (D-39). Nothing about that treatment is decided here.
+
+**Reasoning**: Rye Beach's contracts carry no retainage, so there is no real case to design against, and a treatment chosen without one would be a guess. The platform is meant for other contractors, most of whom will have it, so it is recorded as owed and not as out of scope.
+
+**Affected**: F08.1 (no retainage line). A later feature, not yet on the ROADMAP. D-39 (the surcharge base is revisited then).
+
+## D-44 · 2026-10-06 · EAC includes the estimated cost of unapproved change orders
+
+**Decision**: EAC in the WIP basis counts the estimated cost of every kept work area on a job's attached estimates, including change-order work areas that are not approved (D-42). Approving a change order moves its price into the revised contract; it never moves EAC. Until a change order is approved, the job therefore carries its estimated cost with none of its price.
+
+**Reasoning**: The owner's decision of 2026-10-06, confirming what F07 already does. At Rye Beach change-order work is often performed before it is approved, so its cost is expected whether or not the price is ever agreed. Counting the cost and not the price shows the exposure on the job and understates margin and percent complete rather than overstating them. On 6115758 the effect was 30,369.40 of EAC against 0.00 of contract on 2026-10-06.
+
+**Affected**: F07 and F07.4 (no change in behaviour; now decided). F14 (percent complete uses this EAC). BLUEPRINT §8.2 and §8.3 say so in words. D-01 and D-04 unchanged.

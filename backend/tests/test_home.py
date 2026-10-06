@@ -49,22 +49,25 @@ KEYS = (
     "small_job_threshold",
     "deposit_identification",
     "fuel_surcharge_treatment",
+    "change_order_evidence",
 )
 LABELS = {
     "timezone": "Time zone",
     "wip_basis": "WIP basis",
     "deposit_identification": "Deposit identification",
     "fuel_surcharge_treatment": "Fuel surcharge treatment",
+    "change_order_evidence": "Change order evidence",
 }
 # F08: the four keys read today (owner's go-ahead, 2026-10-06: these seven assertions
-# moved from two keys to four; nothing else in this file changed).
+# moved from two keys to four; nothing else in this file changed). F07.4 (D-42): five,
+# with the change order evidence key; the same assertions, nothing else.
 FOUR = (
-    "4 of 4 policy keys needed now are not decided: Time zone, WIP basis, "
-    "Deposit identification, Fuel surcharge treatment."
+    "5 of 5 policy keys needed now are not decided: Time zone, WIP basis, "
+    "Deposit identification, Fuel surcharge treatment, Change order evidence."
 )
 THREE = (
-    "3 of 4 policy keys needed now are not decided: WIP basis, Deposit identification, "
-    "Fuel surcharge treatment."
+    "4 of 5 policy keys needed now are not decided: WIP basis, Deposit identification, "
+    "Fuel surcharge treatment, Change order evidence."
 )
 
 
@@ -147,9 +150,10 @@ def test_policy_needs_the_two_keys_read_today_and_then_notes_the_rest() -> None:
         "wip_basis",
         "deposit_identification",
         "fuel_surcharge_treatment",
+        "change_order_evidence",
     )
     one = setup_lines(_facts(decided_keys=frozenset({"timezone"})))[4]
-    assert (one.done, one.message, one.count, one.total) == (False, THREE, 3, 4)
+    assert (one.done, one.message, one.count, one.total) == (False, THREE, 4, 5)
     both = setup_lines(
         _facts(decided_keys=frozenset(REQUIRED_POLICY_KEYS), wip_basis=frozenset(D05_BASIS))
     )[4]
@@ -393,10 +397,11 @@ def test_policy_and_burden_lines_follow_the_owners_answers(
     from tests.billing_helpers import billing_policy
 
     billing_policy(rw_engine, seed, fresh_tenant)  # F08: the two keys the board reads
+    policy(rw_engine, seed, fresh_tenant, "change_order_evidence", "none")  # F07.4 (D-42)
     home = _home(admin)
     pol, bur = _line(home, "policy"), _line(home, "burden_rates")
     assert pol["done"] and pol["note"] == "2 more keys are decided when their features arrive."
-    assert sum(p["decided"] for p in _get(admin, "/api/config/policy")) == 4
+    assert sum(p["decided"] for p in _get(admin, "/api/config/policy")) == 5
     assert bur["done"] and bur["note"] == "Labor Burden is not in the WIP basis."
     policy(rw_engine, seed, fresh_tenant, "wip_basis", D05_BASIS)
     bur = _line(_home(admin), "burden_rates")
@@ -487,9 +492,11 @@ def test_the_job_path_d35_and_d37(seed: Seed, rw_engine: Engine, login_as, fresh
     assert "JOB_NO_LEDGER_LINK" in {i["code"] for i in t.job(job["id"])["attention"]}
     t.link(job["id"], "elm")
     line = mine()
+    # F07.4 (D-42): the linked job's next need is its unapproved change orders (the
+    # reviewed workbook's twelve, 53,704.13); before F07.4 this line read "Nothing needed."
     assert (line["code"], line["message"], line["status_label"]) == (
-        None,
-        "Nothing needed.",
+        "change_orders_unapproved",
+        "12 change orders, 53,704.13, not approved.",
         "In progress",
     )
     assert _home(t.client)["review"]["count"] == t.get("/api/jobs")["to_review"] > 0
