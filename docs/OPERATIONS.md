@@ -1016,21 +1016,40 @@ platform says what to bill and gives the customer the document.
 - **Entering the request** (`client_pm`, `client_admin`, `firm_staff`, `firm_admin`): on
   the job, **Pay applications → New billing request**: the application date; whether the
   fuel surcharge applies to this application (no default, D-39); one percent for every
-  listed work area, or a cumulative percent complete to date per work area (D-26),
-  prefilled from the last issued application. The schedule lists every kept original
-  work area and every change order approved on the application date (D-42); an
-  unapproved change order is not listed and cannot be billed by percent. **Save draft**
-  makes pay application n (one more than the highest `_PMT` number on the job's
-  invoices, then continuing); the next request replaces the open draft.
+  listed work area, or a cumulative percent complete to date per work area (D-26). The
+  form starts from what has been billed (F08.3): on a job's first application each work
+  area is prefilled with the percent its tied invoice lines stand for (billed to date per
+  work area over its price, half up to two places, D-45; a work area with nothing billed
+  starts at 0.00); on later applications, with the last issued application's percent.
+  The schedule lists every kept original work area and every change order approved on
+  the application date (D-42); an unapproved change order is not listed and cannot be
+  billed by percent. **Save draft** makes pay application n (one more than the highest
+  `_PMT` number on the job's invoices, then continuing); the next request replaces the
+  open draft. Enter in a field never saves: only **Save draft** does.
+- **Editing and discarding a draft** (F08.3): **Edit billing request** reopens the open
+  draft with the percents, the application date and the surcharge choice it holds;
+  saving changes what was changed and keeps the number. **Discard draft** (whoever may
+  enter a request) removes the draft and its lines, writes `pay_application_discarded`,
+  and the number is used by the next application. Void on a draft stays as built (the
+  row kept, with a reason).
 - **Reading the exceptions**: one sentence each on the draft, none stopping the other
-  lines; the work area is left off this application: over 100.00%
-  (`BILLING_OVER_100`), priced 0.00 (`BILLING_UNPRICED_CO`), omitted from the estimate
-  (`BILLING_OMITTED_AREA`), below the previous application's percent
-  (`BILLING_NEGATIVE`). Enter the request again with the corrected percents.
+  lines. Over 100.00% (`BILLING_OVER_100`), priced 0.00 (`BILLING_UNPRICED_CO`) and
+  omitted from the estimate (`BILLING_OMITTED_AREA`) leave the work area off this
+  application. A percent that would earn less than has already been earned on the work
+  area (on earlier applications or by its tied invoice lines, D-26; `BILLING_NEGATIVE`)
+  leaves it listed at its previous percent with 0.00 earned this application; the
+  sentence beside the line names the work area, the percent entered and the amount
+  already earned, for example: Work area #2 "Erosion Control & Site Prep" was requested
+  at 50.00%, which earns 5,415.34 against 10,830.68 already earned on it by the invoice
+  lines tied to it; it stays at 100.00% on this application. The sentence stays on the
+  draft until it is saved again; no application shows a negative amount. Enter the
+  request again with the corrected percents.
 - **The application**: per line the scheduled value, percent complete to date, earned to
   date, earned on previous applications (the last issued application, or, before the
-  first one, what the "#n" and assigned invoice lines billed on the work area, D-45),
-  earned this application, balance to finish; the summary: total earned to date, less
+  first one, the scheduled value at the percent the "#n" and assigned invoice lines'
+  billing stands for, half up to two places, D-45; the cents the rounding leaves are in
+  the summary's billed before, so the amount due is the same either way), earned this
+  application, balance to finish; the summary: total earned to date, less
   billed to date before this application (the job's whole billed to date as QuickBooks
   has it on or before the application date, the owner's answer A: the deposit, earlier
   applications and any other invoice alike), the amount due, never below 0.00; when
@@ -1052,7 +1071,8 @@ platform says what to bill and gives the customer the document.
 - **PDF**: the customer's copy, from the same figures as the screen: the company, "Pay
   application n", the customer, the job, the estimate, the application date, the status,
   the schedule of values, the summary, the surcharge line when it applies, "Invoice
-  <number>", "Page n of m". No legend; no product name.
+  <number>", "Page n of m". Landscape Letter (F08.3), every column inside the margins.
+  No legend; no product name.
 - **What each tie sentence means**: `PAYAPP_NOT_INVOICED`, an issued application with an
   amount due and no invoice of that number in QuickBooks (key it); `INVOICE_NO_PAYAPP`,
   an invoice on the job dated on or after the job's first issued application that is not
@@ -1075,7 +1095,8 @@ platform says what to bill and gives the customer the document.
 | `DEPOSIT_NOT_IDENTIFIED` | A `_DEP` invoice is not on a deposit item, or a deposit item is on a document that is not `<estimate number>_DEP` (F08). It still counts in billed to date. | Fix the item or the document number in QuickBooks; the next poll clears it. |
 | `BILLED_OVER_CONTRACT` | Billed to date exceeds the revised contract (F08; §10). | Likely a change order not yet approved: attach or approve it; or correct the invoice. |
 | `BILLING_UNAPPROVED_CO` | Billed to date on kept change orders that are not approved is above 0.00 (D-45; F08.1): the amount and the work areas, from the lines tied to them. No figure changes. | Approve the change orders (the project manager, D-42), move the work to a time-and-materials job (D-24), or correct the assignment; the flag clears on read. |
-| `BILLING_OVER_100`, `BILLING_UNPRICED_CO`, `BILLING_OMITTED_AREA`, `BILLING_NEGATIVE` | A billing request named a work area above 100.00%, priced 0.00, omitted, or below the previous application's percent (D-26; F08.1); the work area is left off the draft, the other lines stand. | Enter the request again with the corrected percent, or leave the work area off. |
+| `BILLING_OVER_100`, `BILLING_UNPRICED_CO`, `BILLING_OMITTED_AREA` | A billing request named a work area above 100.00%, priced 0.00, or omitted (D-26; F08.1); the work area is left off the draft, the other lines stand. | Enter the request again with the corrected percent, or leave the work area off. |
+| `BILLING_NEGATIVE` | A billing request named a percent that would earn less than has already been earned on the work area, on earlier applications or by its tied invoice lines (D-26; F08.1, F08.3); the work area stays at its previous percent with 0.00 earned this application, the sentence names the percent entered and the amount already earned. | Enter the request again with the corrected percent; no application shows a negative amount. |
 | `PAYAPP_NOT_INVOICED` | An issued pay application with an amount due and no invoice of its number in QuickBooks (D-36; F08.1). | Key the invoice from the application ("Pay applications" above). |
 | `INVOICE_NO_PAYAPP` | An invoice on the job dated on or after the job's first issued pay application that is not an application's and not the deposit (D-36; F08.1). | Enter the billing request it belongs to, or correct its number. |
 | `PAYAPP_INVOICE_MISMATCH` | The invoice does not tie to its pay application: the amount less fuel surcharge lines, or the fuel surcharge lines themselves, differ from the application (D-39; F08.1); the sentence names the difference. | Correct the invoice in QuickBooks; the next poll clears it. |

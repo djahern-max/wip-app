@@ -1,33 +1,32 @@
 # current-feature.md
 
-_No feature in flight (2026-10-07)._ **F08.1 · Pay applications (billing requests) is built**
-(2026-10-07, two commits plus the Part 1 check: migration 0014 `billing_line_work_area`
-and 0015 `pay_application`, `pay_application_line`; D-45 committed with Part 1; the
-owner's answers A, B and C and the Part 2 go-ahead in the brief; the owner's check of
-Part 1 on jobcost.dev, tenant `rye-beach`, 6115758, passed 2026-10-07; **the owner's pass
-on Part 2 is open; ROADMAP ◐**). The brief, with the Plan, the owner's answers, the
-build notes for both parts and the Discovered list, is `docs/briefs/F08.1.md`. Part 1: a
-line of an invoice, credit memo or sales receipt is tied to a work area by its pay
-application, by "#n" (when n is on the original estimate and on no other attached
-estimate), or by a person's assignment made by id, which follows the work-area number
-through later versions; billed to date per work area is Σ of the tied lines, computed on
-read; `BILLING_UNAPPROVED_CO` names what has been billed on unapproved change orders and
-changes no figure. Part 2: a billing request (cumulative percent per listed work area,
-D-26) makes a draft pay application with its schedule of values (kept originals and
-change orders approved on the date, D-36, D-42; no retainage, D-43); the summary deducts
-the job's whole billed to date before the application as QuickBooks has it (answer A);
-the surcharge on the amount due when chosen (D-39); issue freezes the rate, billed before
-and the amount due; void with a reason; the invoice keyed from it is matched by number
-and tied in two parts; the PDF from the same figures. Dev `wip` is at 0012: deploying
-runs 0013, 0014 and 0015.
+_No feature in flight (2026-10-07)._ **F08.3 · Pay application patch from the owner's pass
+is built** (2026-10-07, one commit; no table, no migration, no dependency; the owner's
+answers A and B and the choice of option 3 for question 2 in the brief; **the owner's pass
+on jobcost.dev, tenant `rye-beach`, 6115758, is open, and closes F08.1 with it; ROADMAP
+F08.3 ◐, F08.1 ◐**). The brief, with the Plan, the owner's answers, the build notes and the
+Discovered list, is `docs/briefs/F08.3.md`. What it changed: the pay application PDF is
+landscape Letter with fixed column widths, measured by a test; a billing request never
+yields a negative amount (D-26: `BILLING_NEGATIVE` compares earned amounts whatever the
+source of the previous figure; the work area stays at its previous percent with 0.00
+earned this application and the sentence beside it; the check runs again on every read of
+a draft, and a held line is frozen at the shown percent at issue); the form starts from
+what has been billed (the prefill is the last issued application's percent, else the
+percent the tied invoice lines' billing stands for, half up to two places; on a job's
+first application "earned on previous applications" is the scheduled value at that
+percent, question 2 option 3, delegated by the owner to the design partner; the amount due
+is the same under every option); a draft is reopened with its values and can be discarded
+(`DELETE …/pay-applications/{id}`, `pay_application_discarded`, the number reused); Enter
+never submits the request or void form. F08.1 is as the stub of 2026-10-07 described it
+(`docs/briefs/F08.1.md`). Dev `wip` is at 0012: deploying runs 0013, 0014 and 0015.
 
-Open passes carried: **F08.1 Part 2** (`docs/briefs/F08.1.md`: one application drafted
-on 6115758 and compared to the owner's figures to the cent, at 390 px as well),
-**F07.3** (`docs/briefs/F07.3.md`), **F07.2** (`docs/briefs/F07.2.md`; deploying it
-runs migration 0012), **F07.1** (`docs/briefs/F07.1.md`) and **F07** (the pass job by
-job; 67 Elm Street passed 2026-10-01). D-08 is still open. Retainage is owed as a later
-feature with its own decision before any tenant that holds it (D-43; a Later line in
-ROADMAP).
+Open passes carried: **F08.3 with F08.1 Part 2** (`docs/briefs/F08.3.md`: draft 5
+reopened with its values, the form prefilled #1 to #5 at 100.00, the three requests of
+2026-10-07 compared to the cent, the PDF printed whole, at 390 px as well), **F07.3**
+(`docs/briefs/F07.3.md`), **F07.2** (`docs/briefs/F07.2.md`; deploying it runs migration
+0012), **F07.1** (`docs/briefs/F07.1.md`) and **F07** (the pass job by job; 67 Elm Street
+passed 2026-10-01). D-08 is still open. Retainage is owed as a later feature with its own
+decision before any tenant that holds it (D-43; a Later line in ROADMAP).
 
 Next per ROADMAP: **F09 · Exceptions queue v1**: the exception model, generators for the
 estimate, job, link and billing types in §10 (today they are computed on read in
@@ -41,7 +40,7 @@ for: persisting the review sentences once (the board's Attention column and Home
 them in two reads), `PAYMENT_OTHER_CREDIT` and the pay-application sentences on Home, an
 `EST_UNIT_PRICED` dismissal, the `_sold_on_set_by_person` audit index.
 
-Standing state from F07 to F08.1: the job is the reporting unit; matching is by alias
+Standing state from F07 to F08.3: the job is the reporting unit; matching is by alias
 (`job_alias`), never by name. The original contract, approved change orders, revised
 contract, unapproved change orders, EAC and every billing figure are computed on read
 (`app/domain/jobs/contract.py`, `app/domain/billing/figures.py`, `board.py`,
@@ -49,23 +48,28 @@ contract, unapproved change orders, EAC and every billing figure are computed on
 F08.1 are approvals and withdrawals (`change_order_approval`), assignments and clears
 (`billing_line_work_area`, both append-only), and the pay applications with their
 schedule as it stood at issue and the three figures frozen at issue (`pay_application`,
-`pay_application_line`); nothing in `app/wip/` has been touched. Billed to date is total
-− sales tax − fuel surcharge lines, the deposit invoice counted from its date; per work
-area it is the tied lines and the pay applications (D-45). Collected to date is cash
-(D-41). Review items are pure generators (the F07 ones, `PAYMENT_UNAPPLIED`,
-`DEPOSIT_NOT_IDENTIFIED`, `BILLED_OVER_CONTRACT`, `PAYMENT_OTHER_CREDIT`,
-`CO_APPROVAL_NOT_CARRIED`, `BILLING_UNAPPROVED_CO`, the four D-26 request exceptions and
-the three tie sentences); F09 persists them. Home's `JOB_NEEDS` has the F07 rules, the
-three F08 ones, `BILLING_UNAPPROVED_CO` (ahead of the F07.4 needs, the owner's word),
-then the two F07.4 ones; `REQUIRED_POLICY_KEYS` holds the five keys read today. Roles:
-`client_pm` and `firm_admin` approve and withdraw; a billing request is entered by
-`client_pm` and the roles that manage jobs; issue and void, and assigning invoice lines,
-by the roles that manage jobs. PDFs are reportlab, uncompressed. The owner's reviewed 67
-Elm Street workbook (`estimate_upload_EST6115758_reviewed_10.06.xlsx`; original contract
-465,469.59, twelve change orders 53,704.13) is the job the owner is working; later
-features are accepted against it.
+`pay_application_line`; a draft is edited until issued, or discarded, F08.3); nothing in
+`app/wip/` has been touched. Billed to date is total − sales tax − fuel surcharge lines,
+the deposit invoice counted from its date; per work area it is the tied lines and the pay
+applications (D-45). Collected to date is cash (D-41). Review items are pure generators
+(the F07 ones, `PAYMENT_UNAPPLIED`, `DEPOSIT_NOT_IDENTIFIED`, `BILLED_OVER_CONTRACT`,
+`PAYMENT_OTHER_CREDIT`, `CO_APPROVAL_NOT_CARRIED`, `BILLING_UNAPPROVED_CO`, the four D-26
+request exceptions and the three tie sentences); F09 persists them. Home's `JOB_NEEDS`
+has the F07 rules, the three F08 ones, `BILLING_UNAPPROVED_CO` (ahead of the F07.4 needs,
+the owner's word), then the two F07.4 ones; `REQUIRED_POLICY_KEYS` holds the five keys
+read today. Roles: `client_pm` and `firm_admin` approve and withdraw; a billing request is
+entered, and a draft discarded, by `client_pm` and the roles that manage jobs; issue and
+void, and assigning invoice lines, by the roles that manage jobs. PDFs are reportlab,
+uncompressed; the pay application is landscape. The owner's reviewed 67 Elm Street
+workbook (`estimate_upload_EST6115758_reviewed_10.06.xlsx`; original contract 465,469.59,
+twelve change orders 53,704.13) is the job the owner is working; later features are
+accepted against it.
 
 ## Discovered
+Carried from `docs/briefs/F08.3.md` (copied unchanged 2026-10-07; nothing is dropped):
+
+Carried from the live `current-feature.md` stub of 2026-10-07 (copied unchanged 2026-10-07 from `git show HEAD:current-feature.md`; nothing is dropped):
+
 Carried from `docs/briefs/F08.1.md` (copied unchanged 2026-10-07; nothing is dropped):
 
 Carried from the live `current-feature.md` stub of 2026-10-06 (copied unchanged 2026-10-07 from `git show HEAD:current-feature.md`; nothing is dropped). Closed by this brief when built: "Billing for unapproved change orders is not flagged" (D-45).
@@ -241,3 +245,17 @@ Found while building F08.1 Part 2 (2026-10-07), not fixed here:
 - The billing request form prefills the application date with the browser's today, not the tenant's.
 - A job holds one draft at a time: the next request replaces it (number kept); a draft cannot be deleted, only replaced or voided. A draft's billed before and amount due follow the QuickBooks rows at each read and are frozen only at issue.
 - The pay-application screens were not rendered in a browser by Claude Code; the owner's pass checks them at 390 px (the schedule of values has seven columns in `.table-wrap`).
+
+From the owner's pass of 2026-10-07 (F08.1 Part 2), fixed here: the six items above.
+
+From the owner's pass of 2026-10-07, not fixed here:
+- Issue is offered on a draft whose summary says no invoice is due; whether an application with nothing due should be issued at all is for the owner.
+- `fuel_surcharge_treatment` on `rye-beach` has its items and no rate; the owner sets the rate before the surcharge line is tested.
+- `deposit_identification` on `rye-beach` lists an item QuickBooks shows as deleted and inactive beside the active one.
+
+Found while planning F08.3 (2026-10-07), not fixed here unless the owner says so:
+- The form's schedule is listed for today (`_list`, `board.today`) while the draft's schedule is for the request's application date (D-42): a change order approved after a back-dated application date is offered in the form and refused at save with "not on the schedule of values".
+- The Void form submits on Enter in the reason field, for the same reason as item 5 of this brief.
+- A draft's exceptions are returned on the `POST` response only; a reopened draft shows none (proposed inside item 2, Plan answer 1).
+- The production draft 5 on `rye-beach` holds #2 to #4 at 0.00 with no exception recorded; the read-time check (Plan answer 1) is what keeps it from printing negatives after the deploy until it is re-saved.
+- The carried intermittent setup ERROR in `test_migrations.py::test_0003_data_step…` (F05.1) was seen once more in the full run of 2026-10-07 (935 passed, 1 error); the file passed alone (9 of 9) straight after. Still unreproduced.

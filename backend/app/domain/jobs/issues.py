@@ -87,9 +87,12 @@ SENTENCES: dict[str, str] = {
         'Work area #{order_no} "{name}" is omitted from the estimate; it is left off this '
         "application (D-26)."
     ),
+    # F08.3 (the owner's answer A, 2026-10-07): the comparison is on earned amounts; the
+    # work area stays at its previous percent; the entered percent is in the sentence only.
     "BILLING_NEGATIVE": (
-        'Work area #{order_no} "{name}" was requested at {percent}%, below the {previous}% on '
-        "pay application {number}; it is left off this application (D-26)."
+        'Work area #{order_no} "{name}" was requested at {percent}%, which earns {earns} '
+        "against {previous} already earned on it {where}; it stays at {stays}% on this "
+        "application with 0.00 earned this application (D-26)."
     ),
     # F08.1 Part 2 (D-36, D-39): the tie of the invoice to its pay application
     "PAYAPP_NOT_INVOICED": (

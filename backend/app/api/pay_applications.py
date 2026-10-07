@@ -1,9 +1,9 @@
-"""Pay applications (F08.1 Part 2; D-26, D-36, D-39, D-42, D-43). A billing request is
-entered by ``client_pm``, ``client_admin``, ``firm_staff`` and ``firm_admin``
-(``can_enter_billing_request``); issue and void by the roles that manage jobs
-(``can_issue_pay_applications``); every role reads the list, one application and its
-PDF (``can_view_jobs``). The platform writes nothing to QuickBooks. Money is strings
-with cents (D-22); percents with two places.
+"""Pay applications (F08.1 Part 2, F08.3; D-26, D-36, D-39, D-42, D-43). A billing
+request is entered, and a draft discarded, by ``client_pm``, ``client_admin``,
+``firm_staff`` and ``firm_admin`` (``can_enter_billing_request``); issue and void by the
+roles that manage jobs (``can_issue_pay_applications``); every role reads the list, one
+application and its PDF (``can_view_jobs``). The platform writes nothing to QuickBooks.
+Money is strings with cents (D-22); percents with two places.
 """
 
 from datetime import date
@@ -116,6 +116,7 @@ def _line_out(ln) -> PayApplicationLineOut:
         earned_previous=money(ln.previous),
         earned_this_application=money(ln.this_application),
         balance_to_finish=money(ln.balance),
+        note=ln.issue.message if ln.issue is not None else None,
     )
 
 
@@ -233,7 +234,7 @@ def _list(db: Session, v: service.JobView, board: Board) -> PayApplicationsOut:
         )
     )
     listed = schedule(refs, board.today, paps._approved_on(v)) if fixed else []
-    prev = paps.previous_for(n, rows, board.work_areas[job_id])
+    prev = paps.previous_for(n, rows, board.work_areas[job_id], refs)
     rate, decided = paps.rate_of(db)
     original = v.original
     return PayApplicationsOut(
@@ -317,6 +318,23 @@ def draft(request: Request, r: Requester, db: TenantSession, job_id: UUID, body:
 def get_application(viewer: Viewer, db: TenantSession, job_id: UUID, application_id: UUID):
     v, board = _context(db, viewer, job_id)
     return _out(_view(board, v, application_id))
+
+
+@router.delete("/{application_id}", response_model=PayApplicationsOut)
+def discard(request: Request, r: Requester, db: TenantSession, job_id: UUID, application_id: UUID):
+    """F08.3 (the owner's answer B): a draft is discarded; its lines and row are removed,
+    one audit row is written, the number is used by the next application. An issued or
+    void application is refused in one sentence. Returns the list as it now stands."""
+    v, board = _context(db, r, job_id)
+    _view(board, v, application_id)
+    try:
+        paps.discard_application(
+            db, r.active_tenant_id, job_id, application_id, actor=_actor(r, request)
+        )
+    except service.JobError as exc:
+        _raise(exc)
+    v, board = _fresh(db, r, job_id)
+    return _list(db, v, board)
 
 
 @router.post("/{application_id}/issue", response_model=PayApplicationOut)

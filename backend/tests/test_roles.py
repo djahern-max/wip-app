@@ -307,6 +307,13 @@ def _routes() -> list[Route]:
             body=lambda: {"reason": "matrix"},
             also_ok=frozenset({404}),
         ),
+        # F08.3 (the owner's answer B): a draft is discarded by whoever may enter a request.
+        Route(
+            "DELETE",
+            f"/api/jobs/{_NO_JOB}/pay-applications/{uuid.uuid4()}",
+            frozenset({FA, FS, CA, PM}),
+            also_ok=frozenset({404}),
+        ),
         Route("GET", "/api/admin/users", frozenset({FA})),
         Route(
             "POST",

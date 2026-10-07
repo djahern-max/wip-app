@@ -5,6 +5,7 @@ EST6120638 workbooks with constructed documents (nothing here is a copy of a rea
 invoice). Every figure is computed on read; only the schedule as it stood at issue and
 the three frozen figures are stored."""
 
+import re
 import uuid
 from collections.abc import Callable
 from datetime import date, datetime
@@ -360,11 +361,17 @@ def test_the_turley_instruction_and_the_four_exceptions(t: Tenant, as_role) -> N
     _issue(t, job["id"], half["id"])
     lower = _request(t, job, {3: "40.00"}, on="2026-09-18", surcharge=False)
     assert [i["code"] for i in lower["issues"]] == ["BILLING_NEGATIVE"]
+    # F08.3 (the owner's answer A): the comparison is on amounts, the line stays at its
+    # previous percent with 0.00 this application, the entered percent in the sentence only.
     assert lower["issues"][0]["message"] == (
-        'Work area #3 "TEMP IRRIGATION 6-24-26" was requested at 40.00%, below the 50.00% on '
-        "pay application 1; it is left off this application (D-26)."
+        'Work area #3 "TEMP IRRIGATION 6-24-26" was requested at 40.00%, which earns 604.80 '
+        "against 756.01 already earned on it on pay application 1; it stays at 50.00% on this "
+        "application with 0.00 earned this application (D-26)."
     )
-    assert 3 not in _lines(lower)
+    held = _lines(lower)[3]
+    assert (held["percent_complete"], held["earned_this_application"]) == ("50.00", "0.00")
+    assert held["note"] == lower["issues"][0]["message"]
+    assert t.get(f"{_path(job['id'])}/{lower['id']}")["issues"] == lower["issues"]  # on read too
     # "Apply n% to every listed work area" (D-26) fills the unnamed ones.
     everything = _request(t, job, {}, on="2026-09-18", surcharge=False, apply_all="60.00")
     assert {ln["percent_complete"] for ln in everything["lines"]} == {"60.00"}
@@ -514,9 +521,13 @@ def test_void_needs_a_reason_and_the_next_application_ignores_it(t: Tenant) -> N
             ).scalars()
         ]
     assert after == before and before[0] == (1, D("100.00"))
-    for method in ("PUT", "PATCH", "DELETE"):
+    for method in ("PUT", "PATCH"):
         r = t.client.request(method, f"{_path(job['id'])}/{issued['id']}", json={}, headers=CSRF)
         assert r.status_code == 405, method
+    # F08.3: DELETE discards a draft only; on an issued application it is refused in words.
+    r = t.client.delete(f"{_path(job['id'])}/{issued['id']}", headers=CSRF)
+    assert r.status_code == 409 and "only a draft is discarded" in r.json()["detail"]
+    assert t.get(f"{_path(job['id'])}/{issued['id']}")["status"] == "issued"
     _issue(t, job["id"], issued["id"], status=409)
 
 
@@ -543,8 +554,8 @@ def test_the_pdf_carries_the_screen_figures_and_the_agreed_words(t: Tenant) -> N
         "Draft",
         "Schedule of values",
         "Scheduled value",
-        "Percent complete to date",
-        "Earned on previous applications",
+        "Percent complete",  # the headers wrap inside their column (F08.3, landscape)
+        "Earned on",
         "Balance to finish",
         "Mobilization",
         "132,820.88",
@@ -594,7 +605,9 @@ def test_the_pdf_carries_the_screen_figures_and_the_agreed_words(t: Tenant) -> N
     text = application_pdf(ahead_view, Heading("Tenant", "Job", "Cust", "EST6115758")).decode(
         "latin-1"
     )
-    assert "Billed ahead by 49,275.00" in text and "No invoice is due" in text
+    # F08.3: "Billed ahead by" is a label with its amount in the amount column.
+    assert "(Billed ahead by)" in text and "(49,275.00)" in text and "No invoice is due" in text
+    assert "Billed ahead by 49,275.00" not in text
     assert "Fuel surcharge" not in text and "Invoice EST" not in text
 
 
@@ -638,8 +651,13 @@ def test_the_schedule_repeats_its_header_on_a_second_page() -> None:
         void_reason=None,
     )
     text = application_pdf(view, Heading("Tenant", "Job", None, "EST1")).decode("latin-1")
-    assert "Page 1 of 3" in text and "Page 3 of 3" in text  # 90 rows run to three pages
-    assert text.count("Earned on previous applications") >= 2  # the header on both pages
+    pages = sorted({int(m) for m in re.findall(r"Page \d+ of (\d+)", text)})
+    assert len(pages) == 1 and pages[0] >= 2  # 90 rows run over more than one landscape page
+    assert f"Page 1 of {pages[0]}" in text and f"Page {pages[0]} of {pages[0]}" in text
+    # The header on every page that holds rows (the last page may hold the summary alone).
+    streams = re.findall(r"stream\n(.*?)endstream", text, re.S)
+    with_rows = [st for st in streams if "(Work area 1)" in st or "(Work area 90)" in st]
+    assert len(with_rows) >= 2 and all("(Earned on)" in st for st in with_rows)
 
 
 # --- the owner's two criteria (2026-10-07) on the ledge fixture ------------------------------
@@ -731,3 +749,269 @@ def test_roles_isolation_money_strings_and_no_retainage(
     )
     r = t.client.post(_path(turley["id"]), json={"application_date": "2026-08-21"}, headers=CSRF)
     assert r.status_code == 422 and "fixed-price" in r.json()["detail"]
+
+
+# --- F08.3: the owner's pass of 2026-10-07 (answers A and B; question 2, option 3) ---------------
+
+
+def _ledge_fixture(t: Tenant) -> dict:
+    """The brief's fixture: the reviewed workbook, EST6115758_PMT2 with its four lines
+    assigned to #1 to #4, the two constructed ledge invoices; billed to date 215,569.48."""
+    job = _elm(t)
+    _pmt2(t)
+    _ledge(t)
+    job = t.job(job["id"])
+    _confirm_all(t, job)
+    job = t.job(job["id"])
+    assert job["billing"]["billed_to_date"] == "215569.48"
+    return job
+
+
+def _prefill(t: Tenant, job_id: str) -> dict[int, str]:
+    return {a["order_no"]: a["previous_percent"] for a in t.get(_path(job_id))["schedule"]}
+
+
+def _strings(value, out: list[str]) -> None:
+    if isinstance(value, str):
+        out.append(value)
+    elif isinstance(value, dict):
+        for v in value.values():
+            _strings(v, out)
+    elif isinstance(value, list):
+        for v in value:
+            _strings(v, out)
+
+
+def _no_negative(app: dict) -> None:
+    strings: list[str] = []
+    _strings({"lines": app["lines"], "summary": app["summary"]}, strings)
+    assert not [v for v in strings if v.startswith("-") or v.startswith("(")], strings
+
+
+def _no_negative_in_pdf(text: str) -> None:
+    # words() prints a negative as (x); inside the content stream the parenthesis is escaped.
+    assert not re.search(r"\\\(\d", text), "a negative amount is printed"
+
+
+def _pdf_text(t: Tenant, job_id: str, app_id: str) -> str:
+    return t.client.get(f"{_path(job_id)}/{app_id}/pdf").content.decode("latin-1")
+
+
+def test_f083_the_pdf_fits_the_landscape_page_and_is_measured(t: Tenant) -> None:
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+
+    from app.domain.billing import pay_application_pdf as pdf
+    from app.domain.billing.board import load_board
+    from app.domain.jobs import service
+
+    job = _ledge_fixture(t)
+    app = _request(t, job, {}, on="2026-10-07", surcharge=False)  # as prefilled
+    assert len(app["lines"]) == 16
+    text = _pdf_text(t, job["id"], app["id"])
+    # (a) and (b): the table measured against the frame, cell by cell.
+    assert sum(pdf.COLUMN_WIDTHS) <= pdf.FRAME_WIDTH
+    with tenant_session(t.engine, t.id) as s:
+        view = service.job_detail(s, t.id, uuid.UUID(job["id"]))
+        board = load_board(s, t.id, [view], other=False)
+        shown = next(a for a in board.applications[view.job.id] if a.id == app["id"])
+    table = pdf.schedule_table(shown)
+    width, _height = table.wrap(pdf.FRAME_WIDTH, 10_000)
+    assert width <= pdf.FRAME_WIDTH
+    assert sum(table._colWidths) <= pdf.FRAME_WIDTH
+    rows = pdf.schedule_rows(shown)
+    for row in rows[1:]:
+        for c, cell in enumerate(row):
+            if c in pdf.WRAPPED_COLUMNS:
+                continue  # a Paragraph wraps inside its column
+            room = pdf.COLUMN_WIDTHS[c] - 2 * pdf.CELL_PADDING
+            assert stringWidth(cell, pdf.FONT, pdf.FONT_SIZE) <= room, (cell, c)
+    # (c): every row's label and its balance to finish are in the text; the totals row.
+    for row in rows[1:-1]:
+        assert f"({row[0]})" in text and f"({row[7]})" in text, row
+    assert "(Total)" in text and "(465,469.59)" in text and "Page 1 of 1" in text
+    _no_negative_in_pdf(text)
+
+
+def test_f083_the_form_starts_from_what_has_been_billed(t: Tenant) -> None:
+    job = _ledge_fixture(t)
+    prefill = _prefill(t, job["id"])
+    assert [prefill[n] for n in range(1, 17)] == ["100.00"] * 4 + ["0.00"] * 12
+    app = _request(t, job, {}, on="2026-10-07", surcharge=False)  # submitted as prefilled
+    assert _summary(app) == (FOUR_EARNED, "215569.48", "0.00")
+    lines = _lines(app)
+    for n, price in ((1, "5500.00"), (2, "10830.68"), (3, "17142.92"), (4, "132820.88")):
+        assert (lines[n]["earned_previous"], lines[n]["earned_this_application"]) == (
+            price,
+            "0.00",
+        )
+    s = app["summary"]
+    assert (s["billed_ahead"], s["no_invoice_due"], app["issues"]) == ("49275.00", True, [])
+    _no_negative(app)
+
+
+def test_f083_a_request_never_yields_a_negative_amount(t: Tenant) -> None:
+    job = _ledge_fixture(t)
+    half = _request(t, job, {2: "50.00"}, on="2026-10-07", surcharge=False)
+    assert [i["code"] for i in half["issues"]] == ["BILLING_NEGATIVE"]
+    message = half["issues"][0]["message"]
+    assert message == (
+        'Work area #2 "Erosion Control & Site Prep" was requested at 50.00%, which earns '
+        "5,415.34 against 10,830.68 already earned on it by the invoice lines tied to it; it "
+        "stays at 100.00% on this application with 0.00 earned this application (D-26)."
+    )
+    two = _lines(half)[2]
+    # Answer A: listed at its previous percent, 0.00 this application, the sentence beside it.
+    assert (two["percent_complete"], two["earned_this_application"], two["note"]) == (
+        "100.00",
+        "0.00",
+        message,
+    )
+    assert _summary(half) == (FOUR_EARNED, "215569.48", "0.00")
+    _no_negative(half)
+    _no_negative_in_pdf(_pdf_text(t, job["id"], half["id"]))
+    # Reopened, the draft still carries the sentence (the check runs on read).
+    again = t.get(f"{_path(job['id'])}/{half['id']}")
+    assert again["issues"] == half["issues"] and _lines(again)[2]["note"] == message
+    # The owner's case: #1 at 100.00 and #2 to #4 at 0.00.
+    owner = _request(
+        t, job, {1: "100.00", 2: "0.00", 3: "0.00", 4: "0.00"}, on="2026-10-07", surcharge=False
+    )
+    assert [i["code"] for i in owner["issues"]] == ["BILLING_NEGATIVE"] * 3
+    assert [i["message"][:13] for i in owner["issues"]] == [
+        "Work area #2 ",
+        "Work area #3 ",
+        "Work area #4 ",
+    ]
+    assert all(_lines(owner)[n]["earned_this_application"] == "0.00" for n in (1, 2, 3, 4))
+    assert _summary(owner) == (FOUR_EARNED, "215569.48", "0.00")
+    _no_negative(owner)
+    _no_negative_in_pdf(_pdf_text(t, job["id"], owner["id"]))
+    # A draft saved before F08.3 (a stored percent below what is earned) reads the same way,
+    # and issue holds the line at the shown percent so the frozen lines are what was shown.
+    with tenant_session(t.engine, t.id) as s:
+        for ln in s.execute(
+            select(PayApplicationLine).where(
+                PayApplicationLine.pay_application_id == uuid.UUID(owner["id"])
+            )
+        ).scalars():
+            if ln.order_no == 1:
+                ln.percent_complete = D("0.00")
+    stale = t.get(f"{_path(job['id'])}/{owner['id']}")
+    assert [i["code"] for i in stale["issues"]] == ["BILLING_NEGATIVE"] * 4
+    assert _lines(stale)[1]["percent_complete"] == "100.00"
+    _no_negative(stale)
+    issued = _issue(t, job["id"], owner["id"])
+    assert issued["issues"] == [] and all(ln["note"] is None for ln in issued["lines"])
+    _no_negative(issued)
+    _no_negative_in_pdf(_pdf_text(t, job["id"], owner["id"]))
+    with tenant_session(t.engine, t.id) as s:
+        stored = {
+            ln.order_no: ln.percent_complete
+            for ln in s.execute(
+                select(PayApplicationLine).where(
+                    PayApplicationLine.pay_application_id == uuid.UUID(owner["id"])
+                )
+            ).scalars()
+        }
+    assert [stored[n] for n in (1, 2, 3, 4)] == [D("100.00")] * 4
+
+
+def test_f083_question_2_option_3_on_a_partial_billing(t: Tenant) -> None:
+    """The brief's example: 10,000.00 billed on #6 (35,233.92). The prefill is 28.38 (half
+    up); earned on previous applications is the scheduled value at that percent, 9,999.39;
+    submitted as prefilled earns 0.00 this application; the amount due is the same under
+    every option because billed before is the job's whole billed to date (answer A)."""
+    from app.domain.billing.pay_applications import prefill_percent
+
+    assert prefill_percent(D("35233.92"), D("10000.00")) == D("28.38")
+    assert prefill_percent(D("35233.92"), D("0.00")) == D("0.00")
+    assert prefill_percent(D("0.00"), D("10.00")) == D("0.00")
+    assert prefill_percent(D("100.00"), D("120.00")) == D("100.00")
+    job = _elm(t)
+    partial = document_payload(
+        "5401",
+        customer=ELM_CUSTOMER,
+        date="2026-09-30",
+        doc_number="4001",
+        lines=[sales_line("10000.00", "#6 Drainage Structures & Piping")],
+    )
+    apply_payloads(t.engine, t.id, [("Invoice", partial)])
+    job = t.job(job["id"])
+    assert _prefill(t, job["id"])[6] == "28.38"
+    as_prefilled = _request(t, job, {}, on="2026-10-07", surcharge=False)
+    six = _lines(as_prefilled)[6]
+    assert (six["earned_to_date"], six["earned_previous"], six["earned_this_application"]) == (
+        "9999.39",
+        "9999.39",
+        "0.00",
+    )
+    assert _summary(as_prefilled) == ("9999.39", "10000.00", "0.00")
+    assert as_prefilled["summary"]["billed_ahead"] == "0.61" and as_prefilled["issues"] == []
+    below = _request(t, job, {6: "28.37"}, on="2026-10-07", surcharge=False)
+    assert [i["code"] for i in below["issues"]] == ["BILLING_NEGATIVE"]
+    assert _lines(below)[6]["percent_complete"] == "28.38"
+    above = _request(t, job, {6: "28.39"}, on="2026-10-07", surcharge=False)
+    assert _lines(above)[6]["earned_this_application"] == "3.52" and above["issues"] == []
+    assert _summary(above) == ("10002.91", "10000.00", "2.91")
+
+
+def test_f083_a_draft_is_reopened_edited_and_discarded(t: Tenant, as_role) -> None:
+    job = _ledge_fixture(t)
+    since = t.audit_rows()
+    draft = _request(t, job, {5: "25.00", 6: "10.00"}, on="2026-09-30", surcharge=True)
+    assert draft["number"] == 3
+    # Reopened: the draft's percents, date and surcharge choice, as saved.
+    listing = t.get(_path(job["id"]))
+    held = next(a for a in listing["applications"] if a["status"] == "draft")
+    assert (held["application_date"], held["surcharge_applies"]) == ("2026-09-30", True)
+    assert {ln["order_no"]: ln["percent_complete"] for ln in held["lines"]} == {
+        **{n: "100.00" for n in (1, 2, 3, 4)},
+        5: "25.00",
+        6: "10.00",
+        **{n: "0.00" for n in range(7, 17)},
+    }
+    assert listing["next_number"] == 3
+    # One percent changed and saved: that line only; the number is unchanged.
+    before = {ln["order_no"]: ln for ln in draft["lines"]}
+    edited = _request(
+        t,
+        job,
+        {**{n: before[n]["percent_complete"] for n in before}, 6: "20.00"},
+        on="2026-09-30",
+        surcharge=True,
+    )
+    assert edited["id"] == draft["id"] and edited["number"] == 3
+    after = {ln["order_no"]: ln for ln in edited["lines"]}
+    assert after[6]["percent_complete"] == "20.00"
+    assert {n: ln["percent_complete"] for n, ln in after.items() if n != 6} == {
+        n: ln["percent_complete"] for n, ln in before.items() if n != 6
+    }
+    # Discard (answer B): the row and its lines are removed, one audit row, the number reused.
+    assert _rows(t) == (1, 16)
+    pm = as_role(t, "client_pm", Role.client_pm)
+    r = pm.delete(f"{_path(job['id'])}/{draft['id']}", headers=CSRF)
+    assert r.status_code == 200, r.text
+    assert r.json()["applications"] == [] and r.json()["next_number"] == 3
+    assert _rows(t) == (0, 0)
+    rows = [a for a in t.audit_actions(since) if a.action.startswith("pay_application")]
+    assert [a.action for a in rows] == [
+        "pay_application_drafted",
+        "pay_application_drafted",
+        "pay_application_discarded",
+    ]
+    detail = rows[-1].detail
+    assert detail["before"]["number"] == 3 and len(detail["before"]["lines"]) == 16
+    assert detail["rows"]["pay_application"] == draft["id"]
+    assert t.client.get(f"{_path(job['id'])}/{draft['id']}").status_code == 404
+    assert t.client.delete(f"{_path(job['id'])}/{draft['id']}", headers=CSRF).status_code == 404
+    nxt = _request(t, job, {}, on="2026-10-07", surcharge=False)
+    assert nxt["number"] == 3
+    # Not through any route for an issued or void application; a viewer may not discard.
+    issued = _issue(t, job["id"], nxt["id"])
+    assert t.client.delete(f"{_path(job['id'])}/{issued['id']}", headers=CSRF).status_code == 409
+    _void(t, job["id"], issued["id"], "F08.3 test")
+    assert t.client.delete(f"{_path(job['id'])}/{issued['id']}", headers=CSRF).status_code == 409
+    assert _rows(t) == (1, 16)
+    viewer = as_role(t, "client_viewer", Role.client_viewer)
+    again = _request(t, job, {}, on="2026-10-07", surcharge=False)
+    assert viewer.delete(f"{_path(job['id'])}/{again['id']}", headers=CSRF).status_code == 403

@@ -1,11 +1,15 @@
-"""Pay applications: the reads and the three writes (F08.1 Part 2; D-26, D-36, D-39,
-D-42, D-43). Every function requires ``app.tenant_id`` on the session (RLS). A draft is
-made from a billing request and replaced by the next request until it is issued; issue
-freezes the surcharge rate, billed before and the amount due on the row (the owner's yes
-on Plan answer 5) and void closes it with a reason; an issued application's lines and
-figures are never changed by any route. One audit row per draft, issue and void. Only a
-``fixed_price`` job has pay applications (D-24). The platform writes nothing to
-QuickBooks: the controller keys the invoice from the application and the tie is read.
+"""Pay applications: the reads and the four writes (F08.1 Part 2, F08.3; D-26, D-36,
+D-39, D-42, D-43). Every function requires ``app.tenant_id`` on the session (RLS). A
+draft is made from a billing request and replaced by the next request until it is
+issued, or discarded (F08.3, the owner's answer B: its lines and row are removed and the
+number is used by the next application); issue freezes the surcharge rate, billed before
+and the amount due on the row (the owner's yes on Plan answer 5) and holds a line that
+raises ``BILLING_NEGATIVE`` at its previous percent (answer A: the frozen lines are what
+the draft showed); void closes it with a reason; an issued application's lines and
+figures are never changed by any route. One audit row per draft, issue, void and
+discard. Only a ``fixed_price`` job has pay applications (D-24). The platform writes
+nothing to QuickBooks: the controller keys the invoice from the application and the tie
+is read.
 """
 
 from collections.abc import Sequence
@@ -30,9 +34,11 @@ from app.domain.billing.pay_applications import (
     billed_before,
     draft_lines,
     earned,
+    held_lines,
     line_views,
     match_invoice,
     next_number,
+    prefill_percent,
     schedule,
     summary,
 )
@@ -112,13 +118,17 @@ def previous_for(
     number: int,
     earlier: Sequence[tuple[PayApplication, list[PayApplicationLine]]],
     wa: JobWorkAreas,
+    areas: Sequence[AreaRef],
 ) -> dict[AreaKey, PreviousIn]:
     """Per work area, what the latest earlier issued application says (its percent and
-    earned to date), else what the "#n" and assigned lines billed on it (D-45; a void
-    application says nothing)."""
-    out: dict[AreaKey, PreviousIn] = {
-        key: PreviousIn(None, amount) for key, amount in wa.billed_lines.items()
-    }
+    earned to date), else the percent the "#n" and assigned lines' billing stands for and
+    the scheduled value at that percent (D-45; F08.3 option 3; a void application says
+    nothing)."""
+    price = {a.key: a.price for a in areas}
+    out: dict[AreaKey, PreviousIn] = {}
+    for key, amount in wa.billed_lines.items():
+        pct = prefill_percent(price.get(key, ZERO), amount)
+        out[key] = PreviousIn(pct, earned(price.get(key, ZERO), pct))
     for app, rows in sorted(earlier, key=lambda ar: ar[0].number):
         if app.status != "issued" or app.number >= number:
             continue
@@ -157,8 +167,8 @@ def application_views(
     estimate_numbers = frozenset(numbers.values())
     out: list[ApplicationView] = []
     for app, rows in apps:
-        prev = previous_for(app.number, apps, wa)
-        lines = line_views(_stored_lines(rows, by_key, numbers), prev)
+        prev = previous_for(app.number, apps, wa, areas)
+        lines = line_views(_stored_lines(rows, by_key, numbers), prev, draft=app.status == "draft")
         earned_total = sum((ln.earned_to_date for ln in lines), ZERO)
         undecided = False
         if app.status == "draft":
@@ -191,6 +201,7 @@ def application_views(
             voided_by=users.get(app.voided_by) if app.voided_by else None,
             voided_at=app.voided_at.isoformat() if app.voided_at else None,
             void_reason=app.void_reason,
+            issues=tuple(held_lines(lines)),
         )
         inv = match_invoice(v, figures.documents) if app.status == "issued" else None
         out.append(ApplicationView(**{**v.__dict__, "invoice": inv}))
@@ -254,7 +265,7 @@ def draft_application(
         )
     )
     listed = schedule(areas, request.application_date, _approved_on(view))
-    prev = previous_for(number, apps, wa)
+    prev = previous_for(number, apps, wa, areas)
     try:
         draft = draft_lines(request, listed, areas, prev)
     except NotOnSchedule as exc:
@@ -348,6 +359,7 @@ def issue_application(
     if not view_of.lines:
         raise Invalid("The application lists no work area; enter the billing request first.")
     before = _fields(app)
+    held = _hold_lines(db, app, view_of)
     app.status = "issued"
     app.issued_by = actor.user_id
     app.issued_at = datetime.now(UTC)
@@ -373,10 +385,82 @@ def issue_application(
             if view_of.summary.total_to_invoice is not None
             else None,
             "invoice": view_of.invoice_number,
+            "lines_held": held,
         },
         rows={"pay_application": str(app.id)},
     )
     return app
+
+
+def _hold_lines(db: Session, app: PayApplication, view_of: ApplicationView) -> list[str]:
+    """F08.3 (answer A): a draft line that raises ``BILLING_NEGATIVE`` is shown at its
+    previous percent; at issue the stored percent becomes that one, so the frozen lines
+    are what the draft showed and the issued application reads as stored. Returns the
+    labels held."""
+    shown = {ln.key: ln for ln in view_of.lines}
+    held: list[str] = []
+    for row in db.execute(
+        select(PayApplicationLine).where(PayApplicationLine.pay_application_id == app.id)
+    ).scalars():
+        v = shown.get((str(row.estimate_id), row.order_no))
+        if v is not None and v.issue is not None and row.percent_complete != v.percent:
+            row.percent_complete = v.percent
+            held.append(v.label)
+    if held:
+        db.flush()
+    return held
+
+
+def discard_application(
+    db: Session,
+    tenant_id: UUID,
+    job_id: UUID,
+    application_id: UUID,
+    *,
+    actor: Actor,
+) -> dict:
+    """F08.3 (the owner's answer B): a draft is discarded by whoever may enter a request;
+    its lines and its row are removed in this transaction, one audit row is written, and
+    its number is used by the next application (``next_number`` reads what remains). An
+    issued or void application is never discarded. Returns the audit's ``before``."""
+    _job_view(db, tenant_id, job_id)
+    app = _application(db, job_id, application_id)
+    if app.status != "draft":
+        raise Conflict(
+            f"Pay application {app.number} is {app.status}; only a draft is discarded "
+            "(an issued application is voided with a reason)."
+        )
+    rows = list(
+        db.execute(
+            select(PayApplicationLine).where(PayApplicationLine.pay_application_id == app.id)
+        ).scalars()
+    )
+    before = {
+        **_fields(app),
+        "lines": [
+            {
+                "order_no": r.order_no,
+                "estimate_id": str(r.estimate_id),
+                "percent": str(r.percent_complete),
+            }
+            for r in sorted(rows, key=lambda r: r.order_no)
+        ],
+    }
+    db.execute(delete(PayApplicationLine).where(PayApplicationLine.pay_application_id == app.id))
+    db.delete(app)
+    db.flush()
+    audit(
+        db,
+        tenant_id,
+        TenantEvent.pay_application_discarded,
+        "job",
+        job_id,
+        actor,
+        before=before,
+        after=None,
+        rows={"pay_application": str(application_id)},
+    )
+    return before
 
 
 def void_application(

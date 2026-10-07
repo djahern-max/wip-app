@@ -814,6 +814,9 @@ class PayApplicationLineOut(_Out):
     earned_previous: str
     earned_this_application: str
     balance_to_finish: str
+    # F08.3 (answer A): the BILLING_NEGATIVE sentence beside a draft line held at its
+    # previous percent; None otherwise
+    note: str | None = None
 
 
 class PayApplicationSummaryOut(_Out):
@@ -844,7 +847,9 @@ class PayApplicationOut(_Out):
     invoice_tied: (
         bool | None
     )  # True: held and tying to the cent; False: held, not tying; None: not held
-    issues: list[EstimateIssueOut]  # the request's exceptions, on the draft response
+    # The request's exceptions on the draft response; on every read of a draft, the
+    # BILLING_NEGATIVE sentences of its held lines (F08.3)
+    issues: list[EstimateIssueOut]
     notes: list[str]  # what stops issue today (the surcharge rate, the policy keys), in words
     created_by: str | None
     created_at: str
@@ -864,7 +869,9 @@ class ScheduleAreaOut(_Out):
     order_no: int
     name: str
     price: str
-    previous_percent: str  # the last issued application's, else "0.00"
+    # The percent to prefill (F08.3): the last issued application's, else the percent the
+    # tied invoice lines' billing stands for (half up to the hundredth), else "0.00"
+    previous_percent: str
 
 
 class PayApplicationsOut(_Out):

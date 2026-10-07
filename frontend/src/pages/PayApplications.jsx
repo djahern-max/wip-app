@@ -3,17 +3,23 @@ import { api } from "../api.js";
 import { formatMoney } from "../money.js";
 import {
   applyToAll,
+  blockEnter,
   canEnterBillingRequest,
   canIssuePayApplications,
+  openDraft,
   pendingLabel,
   requestBody,
+  requestForm,
   requestReady,
 } from "../jobs.js";
 
-// Pay applications (F08.1 Part 2; D-26, D-36, D-39): the list, the billing request form
-// (one row per listed work area, cumulative percent complete, a job-level percent), the
-// draft with its exceptions, Issue, Void (with a reason) and the PDF. Mount effects only
-// read (GET). Money is shown as the API gives it; percents are sent as typed.
+// Pay applications (F08.1 Part 2, F08.3; D-26, D-36, D-39): the list, the billing request
+// form (one row per listed work area, cumulative percent complete, a job-level percent),
+// the draft with its exceptions, Issue, Void (with a reason), Discard draft and the PDF.
+// Mount effects only read (GET). Money is shown as the API gives it; percents are sent as
+// typed. F08.3: the form starts from the open draft when there is one, else from the
+// prefill the API gives (what has been billed on each work area); Enter in a field never
+// submits a form (blockEnter); the form reads top to bottom (.request-form).
 
 export default function PayApplications({ jobId, me }) {
   const [data, setData] = useState(null);
@@ -59,9 +65,7 @@ export default function PayApplications({ jobId, me }) {
   }
 
   function startRequest() {
-    const percents = {};
-    for (const a of data.schedule) percents[a.id] = a.previous_percent;
-    setForm({ application_date: new Date().toISOString().slice(0, 10), surcharge_applies: "", percents });
+    setForm(requestForm(data, new Date().toISOString().slice(0, 10)));
     setApplyAll("");
   }
 
@@ -73,6 +77,14 @@ export default function PayApplications({ jobId, me }) {
 
   function issue(id) {
     return run(id, "issue", () => api("POST", `/api/jobs/${jobId}/pay-applications/${id}/issue`));
+  }
+
+  async function discard(id) {
+    const done = await run(id, "discard", () => api("DELETE", `/api/jobs/${jobId}/pay-applications/${id}`));
+    if (done) {
+      setForm(null);
+      if (open === id) setOpen(null);
+    }
   }
 
   async function submitVoid(e) {
@@ -93,6 +105,7 @@ export default function PayApplications({ jobId, me }) {
   }
 
   const shown = data.applications.find((a) => a.id === open) || null;
+  const draft = openDraft(data);
 
   return (
     <>
@@ -143,18 +156,25 @@ export default function PayApplications({ jobId, me }) {
             </div>
           )}
           {canRequest && !form && (
-            <p>
+            <p className="actions">
               <button type="button" className="button" disabled={busy} onClick={startRequest}>
-                New billing request
+                {draft ? "Edit billing request" : "New billing request"}
               </button>
+              {draft && (
+                <button type="button" className="link-button" disabled={busy} onClick={() => discard(draft.id)}>
+                  {pendingLabel("discard", pending, draft.id) || "Discard draft"}
+                </button>
+              )}
             </p>
           )}
           {form && (
-            <form onSubmit={submit} className="inline-form">
+            <form onSubmit={submit} onKeyDown={blockEnter} className="request-form">
               <h4>Billing request for pay application {data.next_number}</h4>
               <p className="hint">
-                Cumulative percent complete to date per work area (D-26). The schedule lists every kept original work
-                area and every change order approved on the application date (D-36).
+                Cumulative percent complete to date per work area (D-26), starting from what has been billed on each.
+                The schedule lists every kept original work area and every change order approved on the application
+                date (D-36). A percent that would earn less than has already been earned on a work area leaves it at
+                its previous percent, with a sentence saying so.
               </p>
               <label className="label">
                 Application date
@@ -166,32 +186,6 @@ export default function PayApplications({ jobId, me }) {
                   disabled={busy}
                 />
               </label>
-              <fieldset>
-                <legend>Fuel surcharge on this application (D-39)</legend>
-                <label>
-                  <input type="radio" name="surcharge" checked={form.surcharge_applies === "yes"} onChange={() => setForm({ ...form, surcharge_applies: "yes" })} disabled={busy} />{" "}
-                  Applies{data.surcharge_percent ? ` (${data.surcharge_percent}%)` : ""}
-                </label>{" "}
-                <label>
-                  <input type="radio" name="surcharge" checked={form.surcharge_applies === "no"} onChange={() => setForm({ ...form, surcharge_applies: "no" })} disabled={busy} />{" "}
-                  Does not apply
-                </label>
-                {!data.surcharge_rate_decided && (
-                  <p className="hint">The fuel surcharge rate is not decided (Configuration, Policy); issue is refused while it applies.</p>
-                )}
-              </fieldset>
-              <label className="label">
-                Apply one percent to every listed work area
-                <input className="input" inputMode="decimal" value={applyAll} onChange={(e) => setApplyAll(e.target.value)} disabled={busy} />
-              </label>
-              <button
-                type="button"
-                className="link-button"
-                disabled={busy || applyAll === ""}
-                onClick={() => setForm({ ...form, percents: applyToAll(form.percents, applyAll) })}
-              >
-                Apply to every work area
-              </button>
               <div className="table-wrap">
                 <table className="table">
                   <thead>
@@ -223,12 +217,47 @@ export default function PayApplications({ jobId, me }) {
                   </tbody>
                 </table>
               </div>
-              <button type="submit" className="button" disabled={busy || !requestReady(form)}>
-                {pendingLabel("draft", pending, "draft") || "Save draft"}
-              </button>{" "}
-              <button type="button" className="link-button" disabled={busy} onClick={() => setForm(null)}>
-                Cancel
-              </button>
+              <fieldset>
+                <legend>Fuel surcharge on this application (D-39)</legend>
+                <label>
+                  <input type="radio" name="surcharge" checked={form.surcharge_applies === "yes"} onChange={() => setForm({ ...form, surcharge_applies: "yes" })} disabled={busy} />{" "}
+                  Applies{data.surcharge_percent ? ` (${data.surcharge_percent}%)` : ""}
+                </label>{" "}
+                <label>
+                  <input type="radio" name="surcharge" checked={form.surcharge_applies === "no"} onChange={() => setForm({ ...form, surcharge_applies: "no" })} disabled={busy} />{" "}
+                  Does not apply
+                </label>
+                {!data.surcharge_rate_decided && (
+                  <p className="hint">The fuel surcharge rate is not decided (Configuration, Policy); issue is refused while it applies.</p>
+                )}
+              </fieldset>
+              <label className="label">
+                Apply one percent to every listed work area
+                <input className="input" inputMode="decimal" value={applyAll} onChange={(e) => setApplyAll(e.target.value)} disabled={busy} />
+              </label>
+              <p>
+                <button
+                  type="button"
+                  className="link-button"
+                  disabled={busy || applyAll === ""}
+                  onClick={() => setForm({ ...form, percents: applyToAll(form.percents, applyAll) })}
+                >
+                  Apply to every work area
+                </button>
+              </p>
+              <p className="actions">
+                <button type="submit" className="button" disabled={busy || !requestReady(form)}>
+                  {pendingLabel("draft", pending, "draft") || "Save draft"}
+                </button>
+                {draft && (
+                  <button type="button" className="link-button" disabled={busy} onClick={() => discard(draft.id)}>
+                    {pendingLabel("discard", pending, draft.id) || "Discard draft"}
+                  </button>
+                )}
+                <button type="button" className="link-button" disabled={busy} onClick={() => setForm(null)}>
+                  Cancel
+                </button>
+              </p>
             </form>
           )}
           {shown && (
@@ -297,6 +326,7 @@ function Application({ app, jobId, busy, pending, canIssue, onIssue, voidReason,
               <tr key={ln.work_area_id}>
                 <td>
                   {ln.label} {ln.name}
+                  {ln.note && <div className="hint">{ln.note}</div>}
                 </td>
                 <td className="num">{formatMoney(ln.scheduled_value)}</td>
                 <td className="num">{ln.percent_complete}%</td>
@@ -360,7 +390,7 @@ function Application({ app, jobId, busy, pending, canIssue, onIssue, voidReason,
         )}
       </p>
       {voidReason && voidReason.id === app.id && (
-        <form onSubmit={onVoid} className="inline-form">
+        <form onSubmit={onVoid} onKeyDown={blockEnter} className="inline-form">
           <label className="label">
             Reason for voiding pay application {app.number}
             <input className="input" value={voidReason.reason} onChange={(e) => setVoidReason({ ...voidReason, reason: e.target.value })} disabled={busy} />

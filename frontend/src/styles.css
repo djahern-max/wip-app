@@ -367,6 +367,34 @@ h2 {
   min-width: 8rem;
 }
 
+/* F08.3 (D-22): the billing request form reads top to bottom: the heading, the date, the
+   table at the left as wide as its three columns (scrolling inside itself at phone width),
+   then the surcharge choice, the one-percent field and the buttons. */
+.request-form {
+  display: block;
+  margin: 0.5rem 0 1rem;
+}
+
+.request-form .label {
+  display: block;
+  margin: 0 0 0.5rem;
+}
+
+.request-form .input {
+  width: auto;
+  min-width: 8rem;
+}
+
+.request-form .table-wrap {
+  width: fit-content;
+  max-width: 100%;
+  margin: 0.5rem 0 0.75rem;
+}
+
+.request-form fieldset {
+  margin: 0 0 0.5rem;
+}
+
 .grid-code {
   font-variant-numeric: tabular-nums;
   font-weight: 600;

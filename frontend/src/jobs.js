@@ -147,6 +147,7 @@ export const PENDING_WORDS = {
   draft: "Saving…", // F08.1 Part 2 (D-36)
   issue: "Issuing…",
   void: "Voiding…",
+  discard: "Discarding…", // F08.3 (the owner's answer B)
 };
 
 export function pendingLabel(action, pending, id) {
@@ -247,4 +248,44 @@ export function applyToAll(percents, value) {
   const out = {};
   for (const id of Object.keys(percents)) out[id] = value;
   return out;
+}
+
+// --- F08.3: the form starts from the draft or the prefill; Enter never submits -------------
+
+// The open draft of a job, if any (a job holds one draft at a time).
+export function openDraft(data) {
+  return (data && data.applications && data.applications.find((a) => a.status === "draft")) || null;
+}
+
+// The billing request form's state: when the job holds a draft, the draft's application
+// date, surcharge choice and percents (a listed work area the draft left off takes the
+// prefill); otherwise today, no choice, and the prefill the API gives per work area (the
+// last issued application's percent, else the percent the tied invoice lines' billing
+// stands for, else 0.00). A held line (BILLING_NEGATIVE) stands at its previous percent;
+// the entered percent is in the sentence only (the owner's answer A).
+export function requestForm(data, today) {
+  const draft = openDraft(data);
+  const byArea = {};
+  if (draft) for (const ln of draft.lines) byArea[ln.work_area_id] = ln.percent_complete;
+  const percents = {};
+  for (const a of data.schedule) percents[a.id] = byArea[a.id] !== undefined ? byArea[a.id] : a.previous_percent;
+  let surcharge = "";
+  if (draft && draft.surcharge_applies === true) surcharge = "yes";
+  if (draft && draft.surcharge_applies === false) surcharge = "no";
+  return {
+    application_date: draft ? draft.application_date : today,
+    surcharge_applies: surcharge,
+    percents,
+  };
+}
+
+// A form is submitted by its button only: Enter in an input (a percent, the date, the
+// one-percent field, a reason) does not submit it. The button still works by keyboard:
+// Enter or Space on the focused button is a click, not an implicit submission.
+export function blockEnter(event) {
+  if (!event || event.key !== "Enter") return false;
+  const tag = event.target && event.target.tagName ? String(event.target.tagName).toLowerCase() : "";
+  if (tag !== "input") return false;
+  event.preventDefault();
+  return true;
 }

@@ -119,6 +119,7 @@ test("the tie-out line reads checking until its own request answers, then the AP
     draft: "Saving…",
     issue: "Issuing…",
     void: "Voiding…",
+    discard: "Discarding…", // F08.3
   });
   assert.equal(pendingLabel("link", null, "201"), null);
   assert.equal(pendingLabel("link", { id: "201", action: "link" }, "201"), "Linking…");
@@ -199,4 +200,60 @@ test("F08.1 Part 2: the request body carries the typed percents and the surcharg
   assert.deepEqual(applyToAll({ a: "1", b: "" }, "50.00"), { a: "50.00", b: "50.00" });
   assert.deepEqual(["firm_admin", "firm_staff", "client_admin", "client_pm", "client_viewer"].map(canEnterBillingRequest), [true, true, true, true, false]);
   assert.deepEqual(["firm_admin", "firm_staff", "client_admin", "client_pm", "client_viewer"].map(canIssuePayApplications), [true, true, true, false, false]);
+});
+
+test("F08.3: the form starts from the draft, else the prefill; the surcharge choice as the draft holds it", async () => {
+  const { requestForm, openDraft } = await import("./jobs.js");
+  const schedule = [
+    { id: "a", previous_percent: "100.00" },
+    { id: "b", previous_percent: "28.38" },
+    { id: "c", previous_percent: "0.00" },
+  ];
+  const fresh = requestForm({ applications: [{ status: "issued", lines: [] }], schedule }, "2026-10-07");
+  assert.equal(openDraft({ applications: [{ status: "issued" }] }), null);
+  assert.deepEqual(fresh, {
+    application_date: "2026-10-07",
+    surcharge_applies: "",
+    percents: { a: "100.00", b: "28.38", c: "0.00" },
+  });
+  const draft = {
+    status: "draft",
+    application_date: "2026-09-30",
+    surcharge_applies: true,
+    lines: [
+      { work_area_id: "a", percent_complete: "100.00" },
+      { work_area_id: "b", percent_complete: "40.00" },
+    ],
+  };
+  const reopened = requestForm({ applications: [{ status: "void", lines: [] }, draft], schedule }, "2026-10-07");
+  assert.deepEqual(reopened, {
+    application_date: "2026-09-30",
+    surcharge_applies: "yes",
+    percents: { a: "100.00", b: "40.00", c: "0.00" }, // c left off the draft takes the prefill
+  });
+  assert.equal(requestForm({ applications: [{ ...draft, surcharge_applies: false }], schedule }, "x").surcharge_applies, "no");
+  assert.equal(requestForm({ applications: [{ ...draft, surcharge_applies: null }], schedule }, "x").surcharge_applies, "");
+});
+
+test("F08.3: Enter in a field sends nothing; the button still submits", async () => {
+  const { blockEnter } = await import("./jobs.js");
+  function event(key, tagName) {
+    const e = { key, target: { tagName }, prevented: false };
+    e.preventDefault = () => {
+      e.prevented = true;
+    };
+    return e;
+  }
+  for (const field of ["INPUT", "input"]) {
+    const e = event("Enter", field); // the percent, date and one-percent fields are inputs
+    assert.equal(blockEnter(e), true);
+    assert.equal(e.prevented, true);
+  }
+  const button = event("Enter", "BUTTON");
+  assert.equal(blockEnter(button), false);
+  assert.equal(button.prevented, false);
+  const tab = event("Tab", "INPUT");
+  assert.equal(blockEnter(tab), false);
+  assert.equal(tab.prevented, false);
+  assert.equal(blockEnter(null), false);
 });

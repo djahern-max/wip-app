@@ -130,6 +130,8 @@ class TenantEvent(enum.StrEnum):
     pay_application_drafted = "pay_application_drafted"
     pay_application_issued = "pay_application_issued"
     pay_application_voided = "pay_application_voided"
+    # F08.3 (the owner's answer B): a draft discarded; its row and lines are removed
+    pay_application_discarded = "pay_application_discarded"
 
 
 @dataclass(frozen=True)

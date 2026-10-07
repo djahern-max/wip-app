@@ -10,13 +10,24 @@ rows and calls this; the API and the PDF are built from the same ``ApplicationVi
   and optionally one percent for every listed work area not named. Exceptions, one
   sentence each, none stopping the other lines: over 100 (``BILLING_OVER_100``), a work
   area priced 0.00 (``BILLING_UNPRICED_CO``), an omitted work area
-  (``BILLING_OMITTED_AREA``), a percent below the previous application's
-  (``BILLING_NEGATIVE``). A work area with an exception is left off the draft.
+  (``BILLING_OMITTED_AREA``), a percent whose earned to date is below what is already
+  earned on the work area (``BILLING_NEGATIVE``; F08.3: the comparison is on amounts,
+  whatever the source of the previous figure, so no application ever shows a negative
+  "earned this application"). A work area with one of the first three is left off the
+  draft; one that raises ``BILLING_NEGATIVE`` stays listed at its previous percent with
+  earned this application 0.00 and the sentence beside it, the entered percent in the
+  sentence only (the owner's answer A, 2026-10-07). The check runs when the draft is
+  saved and again whenever a draft is read (``held_lines``), so a draft saved before
+  F08.3 reads the same way.
 - **Per line**: scheduled value (the price that day); percent complete to date; earned
   to date = scheduled value × percent, ``ROUND_HALF_UP`` to the cent per work area;
   earned on previous applications (the latest earlier issued application that lists the
-  work area, else billed to date per work area from the "#n" and assigned lines, D-45);
-  earned this application; balance to finish.
+  work area; on a job's first application the scheduled value × the percent that the
+  "#n" and assigned lines' billing stands for, half up to the hundredth, D-45 and
+  F08.3 question 2, option 3: the choice the owner delegated to the design partner on
+  2026-10-07; the amount due is unchanged under every option because billed before is
+  the job's whole billed to date); earned this application; balance to finish. That
+  percent is also the form's prefill (``prefill_percent``).
 - **Summary**: total earned to date; less billed to date before this application (the
   job's whole billed to date as QuickBooks has it over every counted document dated on
   or before the application date, the owner's answer A, 2026-10-07, never counting the
@@ -80,6 +91,17 @@ def surcharge_amount(amount_due: Decimal, rate: Decimal) -> Decimal:
     return (amount_due * rate).quantize(CENT, rounding=ROUND_HALF_UP)
 
 
+def prefill_percent(scheduled_value: Decimal, billed: Decimal) -> Decimal:
+    """F08.3 (question 2, option 3): the percent an earlier billing stands for, billed over
+    the scheduled value, ``ROUND_HALF_UP`` to the hundredth, held between 0.00 and 100.00
+    (a credit beyond the billing, or billing above the price, is read as 0.00 or 100.00:
+    the residue sits in the summary's billed before, the job's whole billed to date)."""
+    if scheduled_value <= ZERO or billed <= ZERO:
+        return ZERO
+    pct = (billed / scheduled_value * HUNDRED).quantize(CENT, rounding=ROUND_HALF_UP)
+    return min(pct, HUNDRED)
+
+
 # --- the schedule and the request -----------------------------------------------------------
 
 
@@ -121,17 +143,19 @@ class RequestIn:
 @dataclass(frozen=True)
 class PreviousIn:
     """What the latest earlier issued application says about a work area, or, when none
-    lists it, what the "#n" and assigned lines billed on it (D-45)."""
+    lists it, the percent the "#n" and assigned lines' billing stands for and the
+    scheduled value at that percent (D-45; F08.3 option 3)."""
 
-    percent: Decimal | None  # None: no earlier application lists it
+    percent: Decimal | None  # the previous percent; None only when nothing is known
     earned: Decimal  # earned on previous applications
-    number: int | None = None  # the earlier application
+    number: int | None = None  # the earlier application; None before the first one
 
 
 @dataclass(frozen=True)
 class DraftLine:
     area: AreaRef
-    percent: Decimal
+    percent: Decimal  # the percent the line stands at (the previous one when held)
+    issue: Issue | None = None  # BILLING_NEGATIVE, beside the line (answer A)
 
 
 @dataclass(frozen=True)
@@ -158,6 +182,31 @@ def _exception(code: str, area: AreaRef, **values) -> Issue:
     )
 
 
+def negative_issue(
+    area: AreaRef, percent: Decimal, prev: PreviousIn | None
+) -> tuple[Decimal, Issue | None]:
+    """D-26, F08.3: a percent whose earned to date is below what is already earned on the
+    work area raises ``BILLING_NEGATIVE``; the line then stands at its previous percent
+    (answer A). Returns the percent the line stands at and the sentence, if any."""
+    if prev is None or prev.percent is None or earned(area.price, percent) >= prev.earned:
+        return percent, None
+    stays = prev.percent
+    where = (
+        f"on pay application {prev.number}"
+        if prev.number is not None
+        else "by the invoice lines tied to it"
+    )
+    return stays, _exception(
+        "BILLING_NEGATIVE",
+        area,
+        percent=f"{percent.quantize(CENT)}",
+        earns=words(earned(area.price, percent)),
+        previous=words(prev.earned),
+        where=where,
+        stays=f"{stays.quantize(CENT)}",
+    )
+
+
 def draft_lines(
     request: RequestIn,
     listed: Sequence[AreaRef],
@@ -165,8 +214,10 @@ def draft_lines(
     previous: Mapping[AreaKey, PreviousIn],
 ) -> Draft:
     """The draft's lines from a request: every listed work area with a percent (named,
-    else ``apply_all``, else the previous application's, else 0.00), the D-26 exceptions
-    one sentence each, a work area with one left off."""
+    else ``apply_all``, else the previous percent, else 0.00), the D-26 exceptions one
+    sentence each; a work area over 100.00, priced 0.00 or omitted is left off; one whose
+    earned to date would fall stays at its previous percent with the sentence beside it
+    (answer A); the entered percent is stored so the check can run again on read."""
     by_id = {a.work_area_id: a for a in all_areas}
     on_schedule = {a.key for a in listed}
     named: dict[AreaKey, Decimal] = {}
@@ -202,18 +253,10 @@ def draft_lines(
             if requested:
                 issues.append(_exception("BILLING_UNPRICED_CO", area))
             continue
-        if prev is not None and prev.percent is not None and percent < prev.percent:
-            issues.append(
-                _exception(
-                    "BILLING_NEGATIVE",
-                    area,
-                    percent=f"{percent.quantize(CENT)}",
-                    previous=f"{prev.percent.quantize(CENT)}",
-                    number=prev.number,
-                )
-            )
-            continue
-        lines.append(DraftLine(area, percent.quantize(CENT)))
+        _stays, issue = negative_issue(area, percent, prev)
+        if issue is not None:
+            issues.append(issue)
+        lines.append(DraftLine(area, percent.quantize(CENT), issue))
     return Draft(tuple(lines), tuple(issues))
 
 
@@ -234,6 +277,7 @@ class LineView:
     previous: Decimal
     this_application: Decimal
     balance: Decimal
+    issue: Issue | None = None  # BILLING_NEGATIVE beside a held line (a draft; answer A)
 
     @property
     def key(self) -> AreaKey:
@@ -260,13 +304,34 @@ class StoredLine:
     percent: Decimal
 
 
+def _area_of(ln: StoredLine) -> AreaRef:
+    return AreaRef(
+        estimate_id=ln.estimate_id,
+        estimate_number=ln.estimate_number,
+        role=ln.role,
+        work_area_id=ln.work_area_id,
+        order_no=ln.order_no,
+        name=ln.name,
+        kept=True,
+        price=ln.scheduled_value,
+        kind=None,
+    )
+
+
 def line_views(
-    lines: Sequence[StoredLine], previous: Mapping[AreaKey, PreviousIn]
+    lines: Sequence[StoredLine], previous: Mapping[AreaKey, PreviousIn], *, draft: bool = False
 ) -> list[LineView]:
+    """The lines as shown and printed. For a draft the negative check runs again
+    (``held_lines``), so a line whose stored percent earns less than what is already
+    earned stands at its previous percent with 0.00 this application and its sentence;
+    an issued application's lines were held at issue and are read as stored."""
     out = []
     for ln in lines:
-        to_date = earned(ln.scheduled_value, ln.percent)
         prev = previous.get((ln.estimate_id, ln.order_no))
+        percent, issue = (
+            negative_issue(_area_of(ln), ln.percent, prev) if draft else (ln.percent, None)
+        )
+        to_date = earned(ln.scheduled_value, percent)
         before = prev.earned if prev is not None else ZERO
         out.append(
             LineView(
@@ -277,14 +342,20 @@ def line_views(
                 order_no=ln.order_no,
                 name=ln.name,
                 scheduled_value=ln.scheduled_value,
-                percent=ln.percent,
+                percent=percent,
                 earned_to_date=to_date,
                 previous=before,
                 this_application=to_date - before,
                 balance=ln.scheduled_value - to_date,
+                issue=issue,
             )
         )
     return out
+
+
+def held_lines(views: Sequence[LineView]) -> list[Issue]:
+    """The ``BILLING_NEGATIVE`` sentences of a draft's held lines, in line order."""
+    return [v.issue for v in views if v.issue is not None]
 
 
 @dataclass(frozen=True)
