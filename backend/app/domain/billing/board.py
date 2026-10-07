@@ -36,6 +36,13 @@ from app.domain.billing.models import (
     Payment,
     PaymentApplication,
 )
+from app.domain.billing.pay_application_service import (
+    application_views,
+    load_applications,
+    rate_of,
+)
+from app.domain.billing.pay_applications import ApplicationView
+from app.domain.billing.pay_applications import allocations as application_allocations
 from app.domain.billing.totals import (
     billing_counted,
     billing_sign,
@@ -43,7 +50,13 @@ from app.domain.billing.totals import (
     month_of,
     month_totals,
 )
-from app.domain.billing.work_areas import AreaRef, AssignmentIn, JobWorkAreas, job_work_areas
+from app.domain.billing.work_areas import (
+    AppTie,
+    AreaRef,
+    AssignmentIn,
+    JobWorkAreas,
+    job_work_areas,
+)
 from app.domain.config.policy import (
     DEPOSIT_IDENTIFICATION,
     FUEL_SURCHARGE_TREATMENT,
@@ -52,7 +65,7 @@ from app.domain.config.policy import (
     surcharge_treatment,
 )
 from app.domain.jobs.models import JobAlias
-from app.domain.jobs.service import QBO, JobView, tenant_today
+from app.domain.jobs.service import QBO, JobView, _user_names, tenant_today
 
 ZERO = Decimal("0.00")
 
@@ -65,6 +78,8 @@ class Board:
     today: date
     # F08.1 (D-45): per job, its lines tied to work areas and the figures from them.
     work_areas: dict[UUID, JobWorkAreas] = field(default_factory=dict)
+    # F08.1 Part 2 (D-36): per job, its pay applications as shown and printed.
+    applications: dict[UUID, list[ApplicationView]] = field(default_factory=dict)
 
     @property
     def policy_note(self) -> str | None:
@@ -486,22 +501,53 @@ def load_board(
         UUID(ln.id) for ds in docs.values() for d in ds for ln in d.lines if ln.id is not None
     ]
     assignments = latest_assignments(db, line_ids)
-    work_areas = {
-        v.job.id: job_work_areas(
-            per_job[v.job.id].documents,
-            per_job[v.job.id].billed_to_date,
-            area_refs(v),
-            assignments,
-            surcharge_items=policy.surcharge_items,
+    apps = load_applications(db, [v.job.id for v in views])
+    rate, rate_decided = rate_of(db)
+    users = _user_names(
+        db,
+        {
+            uid
+            for rows in apps.values()
+            for a, _lines in rows
+            for uid in (a.created_by, a.issued_by, a.voided_by)
+        },
+    )
+    work_areas: dict[UUID, JobWorkAreas] = {}
+    applications: dict[UUID, list[ApplicationView]] = {}
+    for v in views:
+        f = per_job[v.job.id]
+        refs = area_refs(v)
+
+        def tie(ties: list[AppTie], f=f, refs=refs) -> JobWorkAreas:
+            return job_work_areas(
+                f.documents,
+                f.billed_to_date,
+                refs,
+                assignments,
+                surcharge_items=policy.surcharge_items,
+                applications=ties,
+            )
+
+        # D-45's order: the lines alone feed "earned on previous applications"; the
+        # issued applications' matched invoices then tie their lines first.
+        lines_only = tie([])
+        app_views = application_views(
+            v, refs, lines_only, apps.get(v.job.id, []), f, rate, rate_decided, users
         )
-        for v in views
-    }
+        applications[v.job.id] = app_views
+        work_areas[v.job.id] = tie(
+            [
+                AppTie(a.billing_id, a.number, a.allocations)
+                for a in application_allocations(app_views)
+            ]
+        )
     return Board(
         per_job=per_job,
         not_on_a_job=other_figures(db, policy, today) if other else None,
         policy=policy,
         today=today,
         work_areas=work_areas,
+        applications=applications,
     )
 
 

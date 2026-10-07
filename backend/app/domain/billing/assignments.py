@@ -49,6 +49,11 @@ def _assignable(t: LineTie) -> None:
             f"{_where(t).capitalize()} begins with #{t.area.order_no} and is tied to work area "
             f"#{t.area.order_no} by its number; an assignment cannot change it."
         )
+    if t.how == "pay_application":
+        raise Invalid(
+            f"{_where(t).capitalize()} is on an invoice keyed from a pay application; its work "
+            "areas are the application's (D-36)."
+        )
 
 
 def _fields(a: AssignmentIn | None, estimate_number: str | None = None) -> dict:
@@ -158,7 +163,7 @@ def clear_line(
     """The line counts in no work area's billed to date again; a ``cleared`` row."""
     view, lines = _job_lines(db, tenant_id, job_id)
     t = _line(lines, billing_line_id)
-    if t.how == "number":
+    if t.how in ("number", "pay_application"):
         _assignable(t)
     if t.assignment is None:
         raise Conflict(f"{_where(t).capitalize()} is not assigned to a work area.")

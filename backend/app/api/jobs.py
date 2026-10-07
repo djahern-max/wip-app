@@ -80,6 +80,7 @@ from app.domain.billing.board import (
 )
 from app.domain.billing.figures import ZERO, JobFigures, Totals, totals
 from app.domain.billing.line_details import EMPTY, line_details
+from app.domain.billing.pay_applications import ApplicationView, tie_issues
 from app.domain.billing.work_areas import AreaRef, JobWorkAreas, LineTie
 from app.domain.config.audit import Actor
 from app.domain.config.models import Division
@@ -355,10 +356,16 @@ def _tenant_name(db: Session, tenant_id: UUID) -> str:
     return row.name if row is not None else ""
 
 
-def _row(v: service.JobView, f: JobFigures, wa: JobWorkAreas | None = None) -> dict:
+def _row(
+    v: service.JobView,
+    f: JobFigures,
+    wa: JobWorkAreas | None = None,
+    apps: list[ApplicationView] | None = None,
+) -> dict:
     job = v.job
     original = v.original
     flag = unapproved_co_billing_issue(job.name, wa) if wa is not None else None
+    ties = tie_issues(job.name, apps or [], f.documents)
     return {
         "id": str(job.id),
         "name": job.name,
@@ -386,7 +393,9 @@ def _row(v: service.JobView, f: JobFigures, wa: JobWorkAreas | None = None) -> d
             else a.external_id
             for a in v.qbo_aliases
         ],
-        "attention": _issues([*v.issues, *billing_issues(job.name, f), *([flag] if flag else [])]),
+        "attention": _issues(
+            [*v.issues, *billing_issues(job.name, f), *([flag] if flag else []), *ties]
+        ),
         "billing": _billing(v, f),
         "original_contract": money(v.contract.original_contract),
         "approved_change_orders": money(v.contract.approved_change_orders),
@@ -509,6 +518,8 @@ def _invoice_lines(db: Session, v: service.JobView, board: Board) -> InvoiceLine
         how_label = t.how_label
         if t.how == "assigned":
             how_label = f"Assigned by {who or 'a user'}"
+        elif t.how == "pay_application":
+            how_label = f"Pay application {wa.application_of.get(t.doc.doc.id, '')}"
         return InvoiceLineOut(
             billing_line_id=t.line.id or "",
             billing_id=t.doc.doc.id,
@@ -631,7 +642,7 @@ def _detail(db: Session, tenant_id: UUID, v: service.JobView) -> JobDetailOut:
         for w in a.view.work_areas or ()
     ]
     return JobDetailOut(
-        **_row(v, f, wa),
+        **_row(v, f, wa, board.applications.get(v.job.id)),
         invoice_lines=_invoice_lines(db, v, board),
         work_area_totals=_work_area_totals(work_areas),
         change_order_totals=_work_area_totals(change_order_areas),
@@ -740,7 +751,12 @@ class _BoardPage:
         return self.board.per_job[v.job.id]
 
     def row(self, v: service.JobView) -> dict:
-        return _row(v, self.figures(v), self.board.work_areas.get(v.job.id))
+        return _row(
+            v,
+            self.figures(v),
+            self.board.work_areas.get(v.job.id),
+            self.board.applications.get(v.job.id),
+        )
 
     @property
     def totals(self) -> Totals:

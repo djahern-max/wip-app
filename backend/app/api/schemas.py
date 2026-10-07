@@ -800,6 +800,84 @@ class JobDetailOut(JobRowOut):
     change_order_totals: WorkAreaTotalsOut
 
 
+class PayApplicationLineOut(_Out):
+    """F08.1 Part 2 (D-36): one line of the schedule of values, money as strings."""
+
+    work_area_id: str
+    estimate_external_id: str
+    order_no: int
+    label: str  # "#18", or "#1 of EST6120638"
+    name: str
+    scheduled_value: str
+    percent_complete: str  # "100.00"
+    earned_to_date: str
+    earned_previous: str
+    earned_this_application: str
+    balance_to_finish: str
+
+
+class PayApplicationSummaryOut(_Out):
+    earned_to_date: str
+    billed_before: str
+    amount_due: str  # never below 0.00
+    billed_ahead: str | None  # "Billed ahead by x" when set; no invoice is due
+    surcharge_applies: bool | None
+    surcharge_percent: str | None  # "5.00" while the surcharge applies and the rate is decided
+    surcharge_label: str | None  # "Fuel surcharge (5.00%)"
+    surcharge: str | None
+    total_to_invoice: str | None  # None when no invoice is due
+    no_invoice_due: bool
+
+
+class PayApplicationOut(_Out):
+    id: str
+    number: int
+    application_date: str
+    status: str  # draft | issued | void
+    status_label: str
+    status_words: str  # "Draft", "Issued on 2026-10-07", "Void. Voided on …: reason"
+    surcharge_applies: bool | None
+    lines: list[PayApplicationLineOut]
+    summary: PayApplicationSummaryOut
+    invoice_number: str | None  # the document number the controller keys; None when none is due
+    invoice_held: str | None  # the matched invoice's number when QuickBooks holds it
+    invoice_tied: (
+        bool | None
+    )  # True: held and tying to the cent; False: held, not tying; None: not held
+    issues: list[EstimateIssueOut]  # the request's exceptions, on the draft response
+    notes: list[str]  # what stops issue today (the surcharge rate, the policy keys), in words
+    created_by: str | None
+    created_at: str
+    issued_by: str | None
+    issued_at: str | None
+    voided_by: str | None
+    voided_at: str | None
+    void_reason: str | None
+
+
+class ScheduleAreaOut(_Out):
+    """F08.1 Part 2: a work area the next application lists, with the percent to prefill."""
+
+    id: str
+    label: str
+    estimate_external_id: str
+    order_no: int
+    name: str
+    price: str
+    previous_percent: str  # the last issued application's, else "0.00"
+
+
+class PayApplicationsOut(_Out):
+    job_id: str
+    fixed_price: bool  # only a fixed-price job has pay applications (D-24)
+    applications: list[PayApplicationOut]  # newest first
+    schedule: list[ScheduleAreaOut]  # the next application's work areas, today
+    next_number: int
+    surcharge_percent: str | None  # the tenant's rate as "5.00"; None when undecided
+    surcharge_rate_decided: bool
+    note: str | None
+
+
 class UnapprovedChangeOrderOut(_Out):
     """F07.4: one unapproved change-order work area on an open job."""
 

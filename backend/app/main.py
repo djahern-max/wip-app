@@ -18,6 +18,7 @@ from app.api.home import router as home_router
 from app.api.imports import router as imports_router
 from app.api.jobs import customers_router
 from app.api.jobs import router as jobs_router
+from app.api.pay_applications import router as pay_applications_router
 from app.api.qbo import install_access_log_filter
 from app.api.qbo import router as qbo_router
 from app.api.session import router as session_router
@@ -123,6 +124,7 @@ def create_app() -> FastAPI:
         audit_router,
         imports_router,
         change_orders_router,
+        pay_applications_router,
         config_router,
         qbo_router,
         estimates_router,

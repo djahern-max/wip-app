@@ -58,6 +58,9 @@ EXPECTED_TABLES = {
     "change_order_approval",
     # F08.1 (0014): a person's assignment of an invoice line to a work area (D-45), append-only
     "billing_line_work_area",
+    # F08.1 Part 2 (0015): the pay application and its schedule of values (D-36)
+    "pay_application",
+    "pay_application_line",
 }
 F06_TABLES = {"estimate", "estimate_version", "estimate_work_area", "estimate_cost"}
 F07_TABLES = {"job", "job_estimate", "job_alias"}
@@ -65,6 +68,7 @@ F07_WORK_AREA_COLUMNS = {"kind", "kind_confirmed_by", "kind_confirmed_at"}
 F07_2_CUSTOMER_COLUMNS = {"tracked_at", "tracked_by"}  # 0012 (D-37)
 F07_4_TABLES = {"change_order_approval"}  # 0013 (D-42)
 F08_1_TABLES = {"billing_line_work_area"}  # 0014 (D-45)
+F08_1_PART_2_TABLES = {"pay_application", "pay_application_line"}  # 0015 (D-36)
 F03_TABLES = {"connection", "sync_run", "import_batch", "raw_record", "task"}
 F05_TABLES = {"customer", "billing", "billing_line", "payment", "payment_application"}
 F04_TABLES = {
@@ -189,6 +193,17 @@ def test_upgrade_head_then_downgrade_base(scratch_db_url: str) -> None:
         "CREATE UNIQUE INDEX uq_job_estimate_one_original ON public.job_estimate "
         "USING btree (tenant_id, job_id) WHERE ((role)::text = 'original'::text)"
     }
+    # 0015 alone is reversible (F08.1 Part 2): the two pay-application tables, with their
+    # RLS policies, come and go; nothing else is touched.
+    assert F08_1_PART_2_TABLES <= _public_tables(scratch_db_url)
+    assert {
+        "ck_pay_application_status",
+        "ck_pay_application_issued",
+        "ck_pay_application_void",
+    } <= _constraints(scratch_db_url, "pay_application")
+    assert "ck_pay_application_line_percent" in _constraints(scratch_db_url, "pay_application_line")
+    command.downgrade(cfg, "0014")
+    assert F08_1_PART_2_TABLES.isdisjoint(_public_tables(scratch_db_url))
     # 0014 alone is reversible (F08.1): the assignment history table, with its RLS policy
     # and its append-only triggers, comes and goes; nothing else is touched.
     assert F08_1_TABLES <= _public_tables(scratch_db_url)

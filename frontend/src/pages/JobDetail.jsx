@@ -18,6 +18,7 @@ import {
 } from "../jobs.js";
 import { KindActions } from "../kindActions.js";
 import Attention from "./JobAttention.jsx";
+import PayApplications from "./PayApplications.jsx";
 
 // Job detail (F07): the job's header (edited in place by the roles that manage jobs),
 // its estimates with their roles, the work areas of its original estimate with their
@@ -920,6 +921,8 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
           </table>
         </div>
       )}
+
+      <PayApplications jobId={jobId} me={me} />
 
       <h3>QuickBooks</h3>
       {qboLinks.length === 0 ? (

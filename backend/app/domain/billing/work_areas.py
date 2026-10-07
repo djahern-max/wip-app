@@ -24,7 +24,7 @@ an applying approval (D-42), above 0.00, with their numbers; the sentence is in
 
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 
@@ -35,6 +35,17 @@ from app.domain.estimates.versions import same_name
 # "#n " at the start of a description (D-26); "#n" alone counts too.
 HASH = re.compile(r"^\s*#(\d+)(?:\s|$)")
 AreaKey = tuple[str, int]  # (estimate id, order number)
+
+
+@dataclass(frozen=True)
+class AppTie:
+    """Part 2: a document keyed from an issued pay application (matched by number) and
+    what the application billed per work area; its lines are tied by the application."""
+
+    billing_id: str
+    number: int
+    allocations: Mapping[AreaKey, Decimal]
+
 
 HOW_LABELS = {
     "pay_application": "Pay application",
@@ -176,10 +187,11 @@ def tie_line(
     *,
     surcharge_items: frozenset[str] | None,
     estimate_numbers: Mapping[str, str],
-    application_area: AreaRef | None = None,
+    application: AppTie | None = None,
 ) -> LineTie:
-    """One line's tie in D-45's order. ``application_area``: Part 2's slot (always None
-    in Part 1). ``estimate_numbers``: id → number of the estimates attached to the job."""
+    """One line's tie in D-45's order. ``application``: the issued pay application the
+    line's document was keyed from (Part 2), which ties every line of the document.
+    ``estimate_numbers``: id → number of the estimates attached to the job."""
     amount = doc.sign * line.amount if doc.counted else ZERO
     can, why = offered(doc, line, surcharge_items)
     by_key = {a.key: a for a in areas}
@@ -200,8 +212,8 @@ def tie_line(
 
     if not can:
         return tie(None, "none", None, False)
-    if application_area is not None:
-        return tie(application_area, "pay_application", None, False)
+    if application is not None:
+        return tie(None, "pay_application", None, False)
     n = hash_number(line.description)
     if n is not None:
         area, note = resolve_hash(n, areas)
@@ -245,11 +257,13 @@ def _assigned(tie, assignment: AssignmentIn, by_key: dict[AreaKey, AreaRef], num
 @dataclass(frozen=True)
 class JobWorkAreas:
     lines: tuple[LineTie, ...]
-    billed: dict[AreaKey, Decimal]  # per work area, over its tied lines; 0.00 when none
+    billed: dict[AreaKey, Decimal]  # per work area: its tied lines and the pay applications
     not_assigned: Decimal | None  # the job's billed to date less Σ tied; None while undecided
     unapproved_billed: Decimal  # Σ billed on kept change orders without an approval
     unapproved_labels: tuple[str, ...]  # their labels, in estimate and number order
     suggested: int  # offered, untied lines with a suggestion
+    billed_lines: dict[AreaKey, Decimal] = field(default_factory=dict)  # the lines alone
+    application_of: dict[str, int] = field(default_factory=dict)  # document id → application
 
     def billed_on(self, area: AreaRef) -> Decimal:
         return self.billed.get(area.key, ZERO)
@@ -269,10 +283,14 @@ def job_work_areas(
     assignments: Mapping[str, AssignmentIn],
     *,
     surcharge_items: frozenset[str] | None,
+    applications: Sequence[AppTie] = (),
 ) -> JobWorkAreas:
     """``documents``: the job's documents, each with its lines; ``assignments``: the latest
-    ``assigned`` row per line id. Every figure is computed here and nowhere stored."""
+    ``assigned`` row per line id; ``applications``: the documents keyed from issued pay
+    applications (Part 2), first in D-45's order. Every figure is computed here and
+    nowhere stored."""
     numbers = {a.estimate_id: a.estimate_number for a in areas}
+    by_doc = {app.billing_id: app for app in applications}
     lines: list[LineTie] = []
     for d in sorted(documents, key=lambda f: (f.doc.txn_date, f.doc.external_id)):
         for ln in d.doc.lines:
@@ -284,14 +302,20 @@ def job_work_areas(
                     assignments.get(ln.id or ""),
                     surcharge_items=surcharge_items,
                     estimate_numbers=numbers,
+                    application=by_doc.get(d.doc.id),
                 )
             )
-    billed: dict[AreaKey, Decimal] = {a.key: ZERO for a in areas}
+    billed_lines: dict[AreaKey, Decimal] = {a.key: ZERO for a in areas}
     tied = ZERO
     for t in lines:
         if t.area is not None:
-            billed[t.area.key] = billed.get(t.area.key, ZERO) + t.amount
+            billed_lines[t.area.key] = billed_lines.get(t.area.key, ZERO) + t.amount
             tied += t.amount
+    billed = dict(billed_lines)
+    for app in applications:
+        for key, amount in app.allocations.items():
+            billed[key] = billed.get(key, ZERO) + amount
+            tied += amount
     unapproved = [a for a in areas if a.change_order and not a.approved and billed[a.key] > ZERO]
     unapproved.sort(key=lambda a: (a.role != "original", a.estimate_number, a.order_no))
     return JobWorkAreas(
@@ -301,4 +325,6 @@ def job_work_areas(
         unapproved_billed=sum((billed[a.key] for a in unapproved), ZERO),
         unapproved_labels=tuple(a.label for a in unapproved),
         suggested=sum(1 for t in lines if t.offered and t.area is None and t.suggested),
+        billed_lines=billed_lines,
+        application_of={app.billing_id: app.number for app in applications},
     )

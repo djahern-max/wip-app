@@ -73,6 +73,37 @@ SENTENCES: dict[str, str] = {
         '{amount} has been billed on job "{name}" on {count} that {verb} not approved: '
         "{labels} (D-45)."
     ),
+    # F08.1 Part 2 (D-26): the billing request's exceptions, one sentence each, none
+    # stopping the other lines; the work area is left off the draft
+    "BILLING_OVER_100": (
+        'Work area #{order_no} "{name}" was requested at {percent}%, above 100.00%; it is left '
+        "off this application (D-26)."
+    ),
+    "BILLING_UNPRICED_CO": (
+        'Work area #{order_no} "{name}" is priced 0.00 and cannot be billed by percent; it is '
+        "left off this application (D-26)."
+    ),
+    "BILLING_OMITTED_AREA": (
+        'Work area #{order_no} "{name}" is omitted from the estimate; it is left off this '
+        "application (D-26)."
+    ),
+    "BILLING_NEGATIVE": (
+        'Work area #{order_no} "{name}" was requested at {percent}%, below the {previous}% on '
+        "pay application {number}; it is left off this application (D-26)."
+    ),
+    # F08.1 Part 2 (D-36, D-39): the tie of the invoice to its pay application
+    "PAYAPP_NOT_INVOICED": (
+        'Pay application {number} on job "{name}", issued for {date}, is due {amount} and no '
+        "invoice {invoice} is in QuickBooks; key it from the application (D-36)."
+    ),
+    "INVOICE_NO_PAYAPP": (
+        'Invoice {invoice} on job "{name}", dated {date}, is not keyed from a pay application; '
+        "this job bills by pay application since {first} (D-36)."
+    ),
+    "PAYAPP_INVOICE_MISMATCH": (
+        'Invoice {invoice} on job "{name}" does not tie to pay application {number}: {detail} '
+        "(D-39)."
+    ),
     # §10 BILLED_OVER_CONTRACT
     "BILLED_OVER_CONTRACT": (
         'Job "{name}" is billed {over} over its revised contract ({billed} billed against '

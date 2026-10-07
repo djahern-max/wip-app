@@ -116,6 +116,9 @@ test("the tie-out line reads checking until its own request answers, then the AP
     assign: "Assigning…",
     clear: "Clearing…",
     assign_all: "Assigning…",
+    draft: "Saving…",
+    issue: "Issuing…",
+    void: "Voiding…",
   });
   assert.equal(pendingLabel("link", null, "201"), null);
   assert.equal(pendingLabel("link", { id: "201", action: "link" }, "201"), "Linking…");
@@ -176,4 +179,24 @@ test("F08.1: suggested pairs are ids of offered, untied lines; a pick beats the 
   assert.equal(lineAction(lines[1]), null);
   assert.equal(lineAction(lines[3]), null);
   assert.deepEqual(lineAction(lines[4]), { action: "clear", label: "Clear" });
+});
+
+test("F08.1 Part 2: the request body carries the typed percents and the surcharge choice as answered", async () => {
+  const { requestBody, requestReady, applyToAll, canEnterBillingRequest, canIssuePayApplications } = await import("./jobs.js");
+  const form = { application_date: "2026-10-07", surcharge_applies: "", percents: { a: "100.00", b: "", c: "12.5" } };
+  assert.deepEqual(requestBody(form), {
+    application_date: "2026-10-07",
+    surcharge_applies: null,
+    percents: [
+      { estimate_work_area_id: "a", percent: "100.00" },
+      { estimate_work_area_id: "c", percent: "12.5" },
+    ],
+  });
+  assert.equal(requestBody({ ...form, surcharge_applies: "yes" }).surcharge_applies, true);
+  assert.equal(requestBody({ ...form, surcharge_applies: "no" }).surcharge_applies, false);
+  assert.equal(requestReady(form), true);
+  assert.equal(requestReady({ ...form, application_date: "" }), false);
+  assert.deepEqual(applyToAll({ a: "1", b: "" }, "50.00"), { a: "50.00", b: "50.00" });
+  assert.deepEqual(["firm_admin", "firm_staff", "client_admin", "client_pm", "client_viewer"].map(canEnterBillingRequest), [true, true, true, true, false]);
+  assert.deepEqual(["firm_admin", "firm_staff", "client_admin", "client_pm", "client_viewer"].map(canIssuePayApplications), [true, true, true, false, false]);
 });

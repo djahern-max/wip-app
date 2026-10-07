@@ -29,6 +29,12 @@ normalizing a document fills the applications that named it.
   ``(estimate_id, order_no)`` and follows the number through later versions, as a "#n"
   line does (owner's answer 5, 2026-10-07); the name and the row pressed are the record.
   Billed to date per work area is computed on read (``work_areas.py``), never stored.
+- ``pay_application`` and ``pay_application_line`` (F08.1 Part 2, D-36, D-39; migration
+  0015): the customer's statement of earned to date by work area and the amount due.
+  A line stores the scheduled value (the price that day) and the cumulative percent as
+  they stood at issue; the application stores the surcharge choice and, frozen at issue
+  (the owner's yes, 2026-10-07), the rate, ``billed_before`` and ``amount_due``. Every
+  other figure is computed on read (``pay_applications.py``). No retainage (D-43).
 """
 
 import uuid
@@ -61,6 +67,18 @@ BILLING_TOTAL_CHECK_SQL = "subtotal - discount_total + tax_total = total"
 PAYMENT_KINDS: tuple[str, ...] = ("payment", "sales_receipt")
 PAYMENT_KIND_CHECK = "ck_payment_kind"
 PAYMENT_KIND_CHECK_SQL = "kind IN ('payment','sales_receipt')"
+APPLICATION_STATUSES: tuple[str, ...] = ("draft", "issued", "void")
+APPLICATION_STATUS_LABELS: dict[str, str] = {"draft": "Draft", "issued": "Issued", "void": "Void"}
+APPLICATION_STATUS_CHECK_SQL = "status IN ('draft','issued','void')"
+APPLICATION_ISSUED_CHECK_SQL = (
+    "status = 'draft' OR (issued_by IS NOT NULL AND issued_at IS NOT NULL "
+    "AND billed_before IS NOT NULL AND amount_due IS NOT NULL)"
+)
+APPLICATION_VOID_CHECK_SQL = (
+    "(status = 'void') = (voided_by IS NOT NULL AND voided_at IS NOT NULL "
+    "AND void_reason IS NOT NULL AND btrim(void_reason) <> '')"
+)
+PERCENT_CHECK_SQL = "percent_complete >= 0 AND percent_complete <= 100"
 ASSIGNMENT_ACTIONS: tuple[str, ...] = ("assigned", "cleared")
 ASSIGNMENT_ACTION_CHECK_SQL = "action IN ('assigned','cleared')"
 # The four work-area columns are all set for an assignment and all NULL for a clear.
@@ -283,3 +301,75 @@ class BillingLineWorkArea(Base):
         UUID(as_uuid=True), ForeignKey("user.id", ondelete="RESTRICT"), nullable=False
     )
     recorded_at: Mapped[datetime] = _created_at()
+
+
+class PayApplication(Base):
+    __tablename__ = "pay_application"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "job_id", "number", name="uq_pay_application_number"),
+        Index("ix_pay_application_tenant_id_job_id", "tenant_id", "job_id", "number"),
+        CheckConstraint(APPLICATION_STATUS_CHECK_SQL, name="ck_pay_application_status"),
+        CheckConstraint(APPLICATION_ISSUED_CHECK_SQL, name="ck_pay_application_issued"),
+        CheckConstraint(APPLICATION_VOID_CHECK_SQL, name="ck_pay_application_void"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = _tenant_id()
+    job_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("job.id", ondelete="RESTRICT"), nullable=False
+    )
+    number: Mapped[int] = mapped_column(Integer, nullable=False)
+    application_date: Mapped[date] = mapped_column(Date, nullable=False)
+    status: Mapped[str] = mapped_column(String(10), nullable=False, default="draft")
+    # D-39: the person's choice; None until answered (issue is refused in words).
+    surcharge_applies: Mapped[bool | None] = mapped_column(Boolean)
+    # Frozen at issue (the owner's yes on Plan answer 5): the rate that day when the
+    # surcharge applies, the job's billed to date before this application as QuickBooks
+    # had it (owner's answer A), and the amount due.
+    surcharge_rate: Mapped[Decimal | None] = mapped_column(Numeric(6, 4))
+    billed_before: Mapped[Decimal | None] = mapped_column(MONEY)
+    amount_due: Mapped[Decimal | None] = mapped_column(MONEY)
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("user.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = _created_at()
+    issued_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("user.id", ondelete="RESTRICT")
+    )
+    issued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    voided_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("user.id", ondelete="RESTRICT")
+    )
+    voided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    void_reason: Mapped[str | None] = mapped_column(String(2000))
+
+
+class PayApplicationLine(Base):
+    __tablename__ = "pay_application_line"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "pay_application_id",
+            "estimate_id",
+            "order_no",
+            name="uq_pay_application_line_area",
+        ),
+        Index("ix_pay_application_line_tenant_id_application", "tenant_id", "pay_application_id"),
+        CheckConstraint(PERCENT_CHECK_SQL, name="ck_pay_application_line_percent"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = _tenant_id()
+    pay_application_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("pay_application.id", ondelete="RESTRICT"), nullable=False
+    )
+    estimate_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("estimate.id", ondelete="RESTRICT"), nullable=False
+    )
+    order_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    work_area_name: Mapped[str] = mapped_column(String(500), nullable=False)
+    estimate_work_area_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("estimate_work_area.id", ondelete="RESTRICT"), nullable=False
+    )
+    scheduled_value: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    percent_complete: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)

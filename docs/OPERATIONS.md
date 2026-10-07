@@ -1010,6 +1010,57 @@ values written from Decimal (no float artifacts) with the cents format, a totals
 the not-on-a-job row, the legend (§8.7) and the Tie-out tab; the PDF carries the same
 rows and totals (D-40). Every role that reads jobs can export.
 
+### Pay applications (F08.1 Part 2, D-26, D-36, D-39, D-43)
+For a fixed-price job (D-24), operations says how far along each work area is and the
+platform says what to bill and gives the customer the document.
+- **Entering the request** (`client_pm`, `client_admin`, `firm_staff`, `firm_admin`): on
+  the job, **Pay applications → New billing request**: the application date; whether the
+  fuel surcharge applies to this application (no default, D-39); one percent for every
+  listed work area, or a cumulative percent complete to date per work area (D-26),
+  prefilled from the last issued application. The schedule lists every kept original
+  work area and every change order approved on the application date (D-42); an
+  unapproved change order is not listed and cannot be billed by percent. **Save draft**
+  makes pay application n (one more than the highest `_PMT` number on the job's
+  invoices, then continuing); the next request replaces the open draft.
+- **Reading the exceptions**: one sentence each on the draft, none stopping the other
+  lines; the work area is left off this application: over 100.00%
+  (`BILLING_OVER_100`), priced 0.00 (`BILLING_UNPRICED_CO`), omitted from the estimate
+  (`BILLING_OMITTED_AREA`), below the previous application's percent
+  (`BILLING_NEGATIVE`). Enter the request again with the corrected percents.
+- **The application**: per line the scheduled value, percent complete to date, earned to
+  date, earned on previous applications (the last issued application, or, before the
+  first one, what the "#n" and assigned invoice lines billed on the work area, D-45),
+  earned this application, balance to finish; the summary: total earned to date, less
+  billed to date before this application (the job's whole billed to date as QuickBooks
+  has it on or before the application date, the owner's answer A: the deposit, earlier
+  applications and any other invoice alike), the amount due, never below 0.00; when
+  billed exceeds earned, "Billed ahead by x" and no invoice is due. With the surcharge:
+  "Fuel surcharge (5.00%)" on the amount due and the total to invoice.
+- **Issuing** (`client_admin`, `firm_staff`, `firm_admin`): **Issue** freezes the rate,
+  billed before and the amount due on the application and writes
+  `pay_application_issued`. It is refused in words while the surcharge choice is
+  unanswered, while the surcharge applies and the rate is undecided (Configuration,
+  Policy), or while the board's policy keys are undecided. An issued application is
+  never edited: a correction is **Void** (the reason is required, `pay_application_voided`)
+  and a new request.
+- **Keying the invoice in QuickBooks**: on the job's project, document number
+  `<estimate number>_PMT<n>`, one line "Pay application n" for the amount due and, when
+  it applies, one line for the surcharge on a fuel surcharge item (D-39); the application
+  screen shows the three things to copy. The platform writes nothing to QuickBooks. Once
+  the invoice is held, its lines read "Pay application n" under Invoice lines and each
+  work area is billed what the application earned this application.
+- **PDF**: the customer's copy, from the same figures as the screen: the company, "Pay
+  application n", the customer, the job, the estimate, the application date, the status,
+  the schedule of values, the summary, the surcharge line when it applies, "Invoice
+  <number>", "Page n of m". No legend; no product name.
+- **What each tie sentence means**: `PAYAPP_NOT_INVOICED`, an issued application with an
+  amount due and no invoice of that number in QuickBooks (key it); `INVOICE_NO_PAYAPP`,
+  an invoice on the job dated on or after the job's first issued application that is not
+  an application's and not the deposit (the format changes job by job, D-36: enter a
+  request, or correct the number); `PAYAPP_INVOICE_MISMATCH`, the invoice less its fuel
+  surcharge lines differs from the amount due, or its fuel surcharge lines differ from the
+  printed surcharge (the sentence names the difference; correct the invoice).
+
 ### What each message means
 | Code (in the API; never shown alone) | The sentence says | What to do |
 |---|---|---|
@@ -1024,6 +1075,10 @@ rows and totals (D-40). Every role that reads jobs can export.
 | `DEPOSIT_NOT_IDENTIFIED` | A `_DEP` invoice is not on a deposit item, or a deposit item is on a document that is not `<estimate number>_DEP` (F08). It still counts in billed to date. | Fix the item or the document number in QuickBooks; the next poll clears it. |
 | `BILLED_OVER_CONTRACT` | Billed to date exceeds the revised contract (F08; §10). | Likely a change order not yet approved: attach or approve it; or correct the invoice. |
 | `BILLING_UNAPPROVED_CO` | Billed to date on kept change orders that are not approved is above 0.00 (D-45; F08.1): the amount and the work areas, from the lines tied to them. No figure changes. | Approve the change orders (the project manager, D-42), move the work to a time-and-materials job (D-24), or correct the assignment; the flag clears on read. |
+| `BILLING_OVER_100`, `BILLING_UNPRICED_CO`, `BILLING_OMITTED_AREA`, `BILLING_NEGATIVE` | A billing request named a work area above 100.00%, priced 0.00, omitted, or below the previous application's percent (D-26; F08.1); the work area is left off the draft, the other lines stand. | Enter the request again with the corrected percent, or leave the work area off. |
+| `PAYAPP_NOT_INVOICED` | An issued pay application with an amount due and no invoice of its number in QuickBooks (D-36; F08.1). | Key the invoice from the application ("Pay applications" above). |
+| `INVOICE_NO_PAYAPP` | An invoice on the job dated on or after the job's first issued pay application that is not an application's and not the deposit (D-36; F08.1). | Enter the billing request it belongs to, or correct its number. |
+| `PAYAPP_INVOICE_MISMATCH` | The invoice does not tie to its pay application: the amount less fuel surcharge lines, or the fuel surcharge lines themselves, differ from the application (D-39; F08.1); the sentence names the difference. | Correct the invoice in QuickBooks; the next poll clears it. |
 
 The review items are computed when read (`app/domain/jobs/issues.py`); F09 persists them.
 Home lists the three F08 needs after the F07 ones, first rule that applies.

@@ -88,6 +88,10 @@ can_track_customers = require_roles(*FIRM_AND_CLIENT_ADMIN)
 # F07.4 (D-42; the owner's answer A): the project manager approves a change order and
 # withdraws an approval, under their own login; firm_admin as well; no other role.
 can_approve_change_orders = require_roles(Role.firm_admin, Role.client_pm)
+# F08.1 Part 2 (the owner's answer C): a billing request is entered by client_pm as well;
+# issuing and voiding a pay application follow the roles that manage jobs.
+can_enter_billing_request = require_roles(*FIRM_AND_CLIENT_ADMIN, Role.client_pm)
+can_issue_pay_applications = require_roles(*FIRM_AND_CLIENT_ADMIN)
 # Firm-level (no active tenant needed)
 can_manage_users = require_firm_role(Role.firm_admin)
 can_manage_memberships = require_firm_role(Role.firm_admin)
@@ -127,6 +131,16 @@ CAPABILITIES: dict[str, tuple[Guard, frozenset[Role], str]] = {
     "approve_change_orders": (
         can_approve_change_orders,
         frozenset({Role.firm_admin, Role.client_pm}),
+        "tenant",
+    ),
+    "enter_billing_request": (
+        can_enter_billing_request,
+        frozenset((*FIRM_AND_CLIENT_ADMIN, Role.client_pm)),
+        "tenant",
+    ),
+    "issue_pay_applications": (
+        can_issue_pay_applications,
+        frozenset(FIRM_AND_CLIENT_ADMIN),
         "tenant",
     ),
     "manage_users": (can_manage_users, frozenset({Role.firm_admin}), "firm"),

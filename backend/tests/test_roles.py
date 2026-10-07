@@ -272,6 +272,41 @@ def _routes() -> list[Route]:
             body=lambda: {"assignments": []},
             also_ok=frozenset({404}),
         ),
+        # F08.1 Part 2 (the owner's answer C): a billing request by client_pm as well; issue
+        # and void by the roles that manage jobs; every role reads the list, one and the PDF.
+        Route("GET", f"/api/jobs/{_NO_JOB}/pay-applications", ALL, also_ok=frozenset({404})),
+        Route(
+            "POST",
+            f"/api/jobs/{_NO_JOB}/pay-applications",
+            frozenset({FA, FS, CA, PM}),
+            body=lambda: {"application_date": "2026-10-07", "surcharge_applies": False},
+            also_ok=frozenset({404}),
+        ),
+        Route(
+            "GET",
+            f"/api/jobs/{_NO_JOB}/pay-applications/{uuid.uuid4()}",
+            ALL,
+            also_ok=frozenset({404}),
+        ),
+        Route(
+            "GET",
+            f"/api/jobs/{_NO_JOB}/pay-applications/{uuid.uuid4()}/pdf",
+            ALL,
+            also_ok=frozenset({404}),
+        ),
+        Route(
+            "POST",
+            f"/api/jobs/{_NO_JOB}/pay-applications/{uuid.uuid4()}/issue",
+            frozenset({FA, FS, CA}),
+            also_ok=frozenset({404}),
+        ),
+        Route(
+            "POST",
+            f"/api/jobs/{_NO_JOB}/pay-applications/{uuid.uuid4()}/void",
+            frozenset({FA, FS, CA}),
+            body=lambda: {"reason": "matrix"},
+            also_ok=frozenset({404}),
+        ),
         Route("GET", "/api/admin/users", frozenset({FA})),
         Route(
             "POST",

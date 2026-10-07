@@ -144,6 +144,9 @@ export const PENDING_WORDS = {
   assign: "Assigning…", // F08.1 (D-45)
   clear: "Clearing…",
   assign_all: "Assigning…",
+  draft: "Saving…", // F08.1 Part 2 (D-36)
+  issue: "Issuing…",
+  void: "Voiding…",
 };
 
 export function pendingLabel(action, pending, id) {
@@ -204,4 +207,44 @@ export function lineAction(line) {
   if (line.how === "assigned") return { action: "clear", label: "Clear" };
   if (!line.work_area_id) return { action: "assign", label: "Assign" };
   return null;
+}
+
+// --- F08.1 Part 2 (D-36): the billing request and the pay application -------------------------
+
+// The owner's answer C: a billing request is entered by client_pm as well; issue and void
+// follow the roles that manage jobs. The server enforces both; this decides what is shown.
+export const REQUEST_ROLES = ["firm_admin", "firm_staff", "client_admin", "client_pm"];
+export const ISSUE_ROLES = ["firm_admin", "firm_staff", "client_admin"];
+
+export function canEnterBillingRequest(role) {
+  return REQUEST_ROLES.includes(role);
+}
+
+export function canIssuePayApplications(role) {
+  return ISSUE_ROLES.includes(role);
+}
+
+// The request form is ready with a date; the surcharge choice may stay unanswered on a
+// draft (issue refuses it in words), so it does not gate the draft.
+export function requestReady(form) {
+  return Boolean(form && form.application_date);
+}
+
+// The request body: percents as the person typed them (strings, never parsed here);
+// "" for the surcharge is "not answered" (null), nothing is assumed (D-39).
+export function requestBody(form) {
+  return {
+    application_date: form.application_date,
+    surcharge_applies: form.surcharge_applies === "" ? null : form.surcharge_applies === "yes",
+    percents: Object.entries(form.percents)
+      .filter(([, p]) => p !== "")
+      .map(([id, p]) => ({ estimate_work_area_id: id, percent: p })),
+  };
+}
+
+// "Apply n% to every listed work area" (D-26): the same text in every row.
+export function applyToAll(percents, value) {
+  const out = {};
+  for (const id of Object.keys(percents)) out[id] = value;
+  return out;
 }

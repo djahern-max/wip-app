@@ -14,6 +14,8 @@ from app.domain.billing.models import (
     BillingLine,
     BillingLineWorkArea,
     Customer,
+    PayApplication,
+    PayApplicationLine,
     Payment,
     PaymentApplication,
 )
@@ -49,7 +51,11 @@ F05_TABLES = ("customer", "billing", "billing_line", "payment", "payment_applica
 F06_TABLES = ("estimate", "estimate_version", "estimate_work_area", "estimate_cost")
 F07_TABLES = ("job", "job_estimate", "job_alias")
 F07_4_TABLES = ("change_order_approval",)  # F07.4 (D-42), 0013
-F08_1_TABLES = ("billing_line_work_area",)  # F08.1 (D-45), 0014
+F08_1_TABLES = (
+    "billing_line_work_area",  # F08.1 Part 1 (D-45), 0014
+    "pay_application",  # F08.1 Part 2 (D-36), 0015
+    "pay_application_line",
+)
 F04_TABLES = (
     "division",
     "cost_category",
@@ -578,6 +584,29 @@ def _seed_f08_1_rows(
                 recorded_by=user_id,
             )
         )
+        job = s.execute(select(Job).where(Job.name == marker)).scalar_one()
+        app = PayApplication(
+            tenant_id=tenant_id,
+            job_id=job.id,
+            number=1,
+            application_date=date(2026, 10, 7),
+            status="draft",
+            created_by=user_id,
+        )
+        s.add(app)
+        s.flush()
+        s.add(
+            PayApplicationLine(
+                tenant_id=tenant_id,
+                pay_application_id=app.id,
+                estimate_id=approval.estimate_id,
+                order_no=approval.order_no,
+                work_area_name=approval.work_area_name,
+                estimate_work_area_id=approval.estimate_work_area_id,
+                scheduled_value=Decimal("1.00"),
+                percent_complete=Decimal("50.00"),
+            )
+        )
 
 
 @pytest.mark.parametrize("table", F08_1_TABLES)
@@ -586,8 +615,13 @@ def test_f08_1_tables_read_zero_rows_of_another_tenant(
 ) -> None:
     marker = f"f081-{uuid.uuid4().hex[:8]}"
     _seed_f08_1_rows(owner_engine, seed.tenant_b, marker, seed.users["firm_admin"].id)
+    models = {
+        "billing_line_work_area": BillingLineWorkArea,
+        "pay_application": PayApplication,
+        "pay_application_line": PayApplicationLine,
+    }
     with tenant_session(rw_engine, seed.tenant_a) as s:
-        orm_tenants = {r.tenant_id for r in s.execute(select(BillingLineWorkArea)).scalars()}
+        orm_tenants = {r.tenant_id for r in s.execute(select(models[table])).scalars()}
         other = s.execute(
             text(f'SELECT count(*) FROM "{table}" WHERE tenant_id = :b'), {"b": seed.tenant_b}
         ).scalar_one()

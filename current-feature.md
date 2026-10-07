@@ -1,270 +1,73 @@
 # current-feature.md
 
-## F08.1 · Pay applications (billing requests)
-**Roadmap phase**: B · **Blueprint refs**: §5, §7, §8.2 (column 10 and the memo columns), §9 (a new customer document), §10, §11 (roles, audit), §14 · **Decisions**: D-01, D-02, D-22, D-24, D-26, D-36, D-39, D-40, D-42, D-43, D-44 referenced; **D-45 already in `docs/DECISIONS.md`** (appended 2026-10-06, uncommitted; it is committed with this feature)
-**Status**: drafted 2026-10-07 by the owner's design partner. Not started. Three owner answers are needed before the Plan is final ("For the owner", below); two migrations wait for the owner's yes in the Plan. Open passes carried: F07 (job by job), F07.1, F07.2, F07.3. **Plan filled 2026-10-07 by Claude Code; waiting for the go-ahead (Part 1 first, its own commit).**
+_No feature in flight (2026-10-07)._ **F08.1 · Pay applications (billing requests) is built**
+(2026-10-07, two commits plus the Part 1 check: migration 0014 `billing_line_work_area`
+and 0015 `pay_application`, `pay_application_line`; D-45 committed with Part 1; the
+owner's answers A, B and C and the Part 2 go-ahead in the brief; the owner's check of
+Part 1 on jobcost.dev, tenant `rye-beach`, 6115758, passed 2026-10-07; **the owner's pass
+on Part 2 is open; ROADMAP ◐**). The brief, with the Plan, the owner's answers, the
+build notes for both parts and the Discovered list, is `docs/briefs/F08.1.md`. Part 1: a
+line of an invoice, credit memo or sales receipt is tied to a work area by its pay
+application, by "#n" (when n is on the original estimate and on no other attached
+estimate), or by a person's assignment made by id, which follows the work-area number
+through later versions; billed to date per work area is Σ of the tied lines, computed on
+read; `BILLING_UNAPPROVED_CO` names what has been billed on unapproved change orders and
+changes no figure. Part 2: a billing request (cumulative percent per listed work area,
+D-26) makes a draft pay application with its schedule of values (kept originals and
+change orders approved on the date, D-36, D-42; no retainage, D-43); the summary deducts
+the job's whole billed to date before the application as QuickBooks has it (answer A);
+the surcharge on the amount due when chosen (D-39); issue freezes the rate, billed before
+and the amount due; void with a reason; the invoice keyed from it is matched by number
+and tied in two parts; the PDF from the same figures. Dev `wip` is at 0012: deploying
+runs 0013, 0014 and 0015.
 
-### Goal
-Operations says how far along each work area is; the platform says what to bill and gives the customer a document that shows where they stand. For a fixed-price job a person enters the billing request (cumulative percent complete per work area, D-26) and the platform produces the pay application with its schedule of values (D-36), on screen and as PDF, with the fuel surcharge choice (D-39). The controller keys one invoice in QuickBooks from it; the platform ties the two by document number and writes nothing to QuickBooks.
+Open passes carried: **F08.1 Part 2** (`docs/briefs/F08.1.md`: one application drafted
+on 6115758 and compared to the owner's figures to the cent, at 390 px as well),
+**F07.3** (`docs/briefs/F07.3.md`), **F07.2** (`docs/briefs/F07.2.md`; deploying it
+runs migration 0012), **F07.1** (`docs/briefs/F07.1.md`) and **F07** (the pass job by
+job; 67 Elm Street passed 2026-10-01). D-08 is still open. Retainage is owed as a later
+feature with its own decision before any tenant that holds it (D-43; a Later line in
+ROADMAP).
 
-Rye Beach's invoices to date carry no "#n", so nothing today says which work area an earlier invoice line billed. This feature therefore also builds D-45: a person assigns earlier invoice lines to work areas, billed to date per work area is computed from that, and billing on an unapproved change order is flagged without changing any figure.
+Next per ROADMAP: **F09 · Exceptions queue v1**: the exception model, generators for the
+estimate, job, link and billing types in §10 (today they are computed on read in
+`app/domain/estimates/exceptions.py`, `app/domain/jobs/issues.py` and
+`app/domain/billing/pay_applications.py`, and Home composes the pages' functions),
+assignment, resolution notes, dismissal with a note, counts on the firm console; accept:
+resolving an exception's underlying cause clears it on the next run; dismissing requires
+a note. Not started; the owner supplies the brief. Copy it here, expand it, and restate
+the acceptance criteria before coding. The carried Discovered items that F09 is named
+for: persisting the review sentences once (the board's Attention column and Home compute
+them in two reads), `PAYMENT_OTHER_CREDIT` and the pay-application sentences on Home, an
+`EST_UNIT_PRICED` dismissal, the `_sold_on_set_by_person` audit index.
 
-### Decision with this brief
-- **D-45** is already appended after D-44, uncommitted. Confirm it appears exactly once and leave its text alone. Read it as written: "#n" ties a line to a work area by itself (D-26); the description and the line's position on the invoice are suggestions only and never set the tie.
-- D-43 outranks the ROADMAP block where they differ: the application carries **no retainage line** and `job` gains **no `retainage_pct` column**. The block's "`job.retainage_pct` (migration), default 0.00" and "retainage at 0.00 prints as 0.00" are struck in this change.
+Standing state from F07 to F08.1: the job is the reporting unit; matching is by alias
+(`job_alias`), never by name. The original contract, approved change orders, revised
+contract, unapproved change orders, EAC and every billing figure are computed on read
+(`app/domain/jobs/contract.py`, `app/domain/billing/figures.py`, `board.py`,
+`work_areas.py`, `pay_applications.py`), never stored; the rows written by F07.4 and
+F08.1 are approvals and withdrawals (`change_order_approval`), assignments and clears
+(`billing_line_work_area`, both append-only), and the pay applications with their
+schedule as it stood at issue and the three figures frozen at issue (`pay_application`,
+`pay_application_line`); nothing in `app/wip/` has been touched. Billed to date is total
+− sales tax − fuel surcharge lines, the deposit invoice counted from its date; per work
+area it is the tied lines and the pay applications (D-45). Collected to date is cash
+(D-41). Review items are pure generators (the F07 ones, `PAYMENT_UNAPPLIED`,
+`DEPOSIT_NOT_IDENTIFIED`, `BILLED_OVER_CONTRACT`, `PAYMENT_OTHER_CREDIT`,
+`CO_APPROVAL_NOT_CARRIED`, `BILLING_UNAPPROVED_CO`, the four D-26 request exceptions and
+the three tie sentences); F09 persists them. Home's `JOB_NEEDS` has the F07 rules, the
+three F08 ones, `BILLING_UNAPPROVED_CO` (ahead of the F07.4 needs, the owner's word),
+then the two F07.4 ones; `REQUIRED_POLICY_KEYS` holds the five keys read today. Roles:
+`client_pm` and `firm_admin` approve and withdraw; a billing request is entered by
+`client_pm` and the roles that manage jobs; issue and void, and assigning invoice lines,
+by the roles that manage jobs. PDFs are reportlab, uncompressed. The owner's reviewed 67
+Elm Street workbook (`estimate_upload_EST6115758_reviewed_10.06.xlsx`; original contract
+465,469.59, twelve change orders 53,704.13) is the job the owner is working; later
+features are accepted against it.
 
-### In scope
+## Discovered
+Carried from `docs/briefs/F08.1.md` (copied unchanged 2026-10-07; nothing is dropped):
 
-**Part 1 · Earlier invoice lines and the flag (D-45). Build and commit first.**
-
-*Table* (new, tenant-scoped: `tenant_id NOT NULL`, leading index, `enable_tenant_rls`, RLS enumeration test extended; reversible migration; **waits for a yes**)
-- `billing_line_work_area`: the billing line, the work area, who, when, a note. One current assignment per billing line. Changes are history (Plan question 2 says how); one audit row per line assigned, reassigned or cleared.
-
-*Rules*
-- A line is tied to a work area, in this order: by its pay application (Part 2); by "#n " at the start of its description, where n is a work-area number on the job's attached estimates; by a person's assignment. A person's assignment is picked by id.
-- Suggestions, shown and never applied by rule: a work area whose name equals the line's description under `same_name` (trimmed, whitespace collapsed, case-folded); a line with no name match shows no suggestion (the owner, 2026-10-07: no suggestion by line position, struck from this brief everywhere). "Confirm all as suggested" assigns each suggested line and writes one audit row per line.
-- One line goes to one work area for its whole amount. A line that covers several work areas stays unassigned.
-- Fuel surcharge lines (D-39) and deposit invoices (D-02) are not offered for assignment.
-- Billed to date per work area = Σ of the tied lines, credit memo lines negative. A line with no tie counts in the job's billed to date and in no work area's (D-45). Computed on read; nothing stored.
-- `BILLING_UNAPPROVED_CO`: raised on a job when billed to date on a kept change-order work area that is not approved (D-42) is above 0.00. One sentence per job naming the amount and the work-area numbers, for example "49,275.00 has been billed on 9 change orders that are not approved: #a, #b, …". It appears in the board's Attention column, on the job page and in Home's job needs, computed on read like the other billing sentences; F09 persists it later. It changes no figure and does not mention payment or propose approval.
-
-*Screens (D-22)*
-- Job page, new section "Invoice lines": one row per invoice and credit-memo line on the job (document number, date, line position, description, quantity, rate, amount, work area, how it was tied: pay application / #n / assigned by <display name> / not assigned). Quantity, rate and service date are read from the raw payload for display; `billing_line` is not changed. `.table-wrap`, first column held, `.num` money with cents, usable at 390 px. Each unassigned line has a work-area pick-list with the suggestion preselected and marked "suggested"; buttons show a busy label.
-- Job page work-area table gains "Billed to date" and "Left to bill" per work area (price less billed to date; blank for an unapproved change order), with a totals row and one line under it: "Not assigned to a work area: x".
-
-*API*
-- `GET /api/jobs/{job_id}/invoice-lines`; `PUT` and `DELETE /api/jobs/{job_id}/invoice-lines/{billing_line_id}/work-area`; `POST /api/jobs/{job_id}/invoice-lines/assign-suggested`. Money as strings with cents. Refusals are one plain sentence. Roles: assign by `firm_admin`, `firm_staff`, `client_admin`; read by every role; the role matrix test extended.
-
-**Part 2 · Billing request and pay application (D-26, D-36, D-39, D-42, D-43)**
-
-*Tables* (new, tenant-scoped as above; reversible migration; **waits for a yes**)
-- `pay_application`: job, number n, application date, status (`draft`, `issued`, `void`), surcharge applies (yes / no, required, no default), the rate read at issue, created by, issued by and at, voided by and at with a reason.
-- `pay_application_line`: application, work area, scheduled value and percent complete to date as they stood at issue.
-- An issued application is never edited: a correction is void (with a reason) and a new application. Issue and void write one audit row each.
-
-*Billing request*
-- A form on the job page: one row per kept work area, cumulative percent complete to date (0.00 to 100.00), prefilled from the last issued application; and a job-level instruction ("apply n% to every listed work area", D-26). Pasted text in the operations manager's format is Plan question 6, not assumed.
-- Only `fixed_price` jobs have pay applications (D-24).
-
-*Schedule of values and summary* (computed from the stored percents and scheduled values; no derived money is stored unless the Plan says why)
-- Lines: every kept original work area and every kept change-order work area approved on the application date (D-42). Unapproved change orders and omitted work areas are not listed.
-- Per line: scheduled value; percent complete to date; earned to date = scheduled value × percent, `ROUND_HALF_UP` to the cent per work area; earned on previous applications; earned this application; balance to finish.
-- Earned on previous applications: from earlier issued applications; on a job's first application, from billed to date per work area (Part 1).
-- Summary: total earned to date; less billed to date before this application; **amount due this application**, never below 0.00; when billed exceeds earned, "Billed ahead by x" and no invoice is due. What "billed to date before this application" contains is owner question A.
-- Fuel surcharge (D-39): when the person says it applies, the line "Fuel surcharge (5.00%)" = amount due × the tenant's rate, `ROUND_HALF_UP` to the cent, printed below the amount due, then the total to invoice. The rate comes from `fuel_surcharge_treatment` (`policy.surcharge_treatment`); issue is refused in words while the rate is undecided.
-- Exceptions on the request, each one sentence, none stopping the other lines (D-26, D-36): over 100% (`BILLING_OVER_100`), a work area priced 0.00 (`BILLING_UNPRICED_CO`), an omitted work area (`BILLING_OMITTED_AREA`), a percent lower than the previous application's (`BILLING_NEGATIVE`). A work area with an exception is left off the draft and named.
-
-*Numbering and the tie*
-- The invoice the controller keys: document number `<estimate number>_PMT<n>`, description "Pay application n", amounts as D-39 states. The application screen shows these three things to copy.
-- n continues the job's existing numbers (owner question B).
-- The platform matches an invoice to its application by document number and ties them to the cent in the two parts D-39 names. Review sentences, computed on read: `PAYAPP_NOT_INVOICED`, `INVOICE_NO_PAYAPP`, `PAYAPP_INVOICE_MISMATCH`. `INVOICE_NO_PAYAPP` is raised only for invoices dated on or after the job's first issued application (D-36: the format changes job by job).
-
-*Screens and PDF (D-22, D-40)*
-- Job page section "Pay applications": the list (number, date, status, amount due, invoice tied or not), "New billing request", the draft with its exceptions, "Issue", "Void" (asks for the reason), "PDF".
-- The PDF is built with reportlab from the same Decimal figures as the screen: the tenant's name, the job, the application number and date, the schedule of values with repeating headers, the summary, the surcharge line when it applies. No customer-facing wording beyond the D-36 and D-39 labels without the owner's yes (Plan question 7).
-
-*API*
-- `POST /api/jobs/{job_id}/pay-applications` (draft from a request), `GET` list and one, `POST …/issue`, `POST …/void`, `GET …/pdf`. Money as strings with cents. Roles per owner question C.
-
-**Docs**
-- `docs/DECISIONS.md`: D-45 confirmed present once, after D-44 (the decisions test extended to D-45).
-- BLUEPRINT: §5 the three tables; §7 the billing request, the pay application and the assignment in the job's life; §8.2 billed to date per work area and its three sources, in D-45's order; §9 the pay application as a customer document; §10 `BILLING_UNAPPROVED_CO`, the four request exceptions and the three tie sentences; §11 who may assign, request, issue and void; §14 a row for D-45, and D-26 and D-36 marked amended by D-45.
-- CLAUDE.md Vocabulary: nothing added (D-45). "Billed to date" gains "per work area: pay applications, then #n lines, then a person's assignment".
-- OPERATIONS.md: "The Sold Jobs Board" gains what `BILLING_UNAPPROVED_CO` asks for and how to assign earlier invoice lines; a new "Pay applications" section: entering a request, reading the exceptions, issuing, keying the invoice in QuickBooks, voiding, what each tie sentence means.
-- ROADMAP: F08.1 status; the block gains "earlier invoice lines assigned to work areas and `BILLING_UNAPPROVED_CO` (D-45)" and loses the two retainage phrases (D-43). Position unchanged; nothing else moves.
-
-**Dependencies**: none new (reportlab is in, D-40). Anything else: stop and ask.
-
-### Out of scope
-Any write to QuickBooks. Retainage in any form (D-43). Changing billed to date, remaining to bill, the revised contract, EAC or over / (under) billed for billing on unapproved change orders (D-45: flag only). Approving a change order because its invoice was paid (D-45). Splitting one invoice line across work areas. Adding quantity, rate or service date to `billing_line`. Pay applications for `time_and_materials` jobs, and moving the 6115758 ledge removal days to one (the owner's, with the project manager; D-24). The exceptions queue, assignment and dismissal (F09). Sending the application to the customer, signatures, a customer login. Period ends (F14). Cost per work area.
-
-### Acceptance criteria
-Fixtures: `estimate_upload_EST6115758_reviewed_10.06.xlsx` (67 Elm Street) and `estimate_upload_EST6120638_reviewed_10.06.xlsx`; invoices constructed in the tests on those jobs, as listed. No real invoice is copied into the repo.
-
-Part 1
-- [x] `docs/DECISIONS.md` holds D-45 once, after D-44 (the decisions test).
-- [x] 67 Elm Street with a constructed invoice `EST6115758_PMT2` dated 2026-08-21, four lines with no "#n" and one item: "Mobilization" 5,500.00, "Erosion Control & Site Prep" 10,830.68, "Demo Existing Wall" 17,142.92, "New Retaining Wall" 132,820.88 (total 166,294.48). Before any assignment: billed to date per work area is 0.00 on every work area and "Not assigned to a work area" reads 166,294.48. Each line shows a suggestion; no line is tied.
-- [x] After "Confirm all as suggested": work areas 1 to 4 read billed to date 5,500.00, 10,830.68, 17,142.92 and 132,820.88, left to bill 0.00 each; four audit rows; the job's billed to date is unchanged to the cent.
-- [x] The same invoice with a line's description changed to begin "#3 ": that line is tied to work area 3 with no assignment and no audit row; reordering the lines changes no tie.
-- [x] Two further constructed invoices of 38,325.00 (seven lines of 5,475.00) and 10,950.00 (two lines of 5,475.00), no "#n"; every line reads "Ledge Removal", quantity 1, rate 5,475.00 (the owner's export, 2026-10-07). These nine lines show no suggestion, and "Confirm all as suggested" assigns none of them. Before assignment no `BILLING_UNAPPROVED_CO` is raised. After a person assigns the nine lines to the nine unapproved ledge removal change-order work areas, the job raises one sentence naming 49,275.00 and the nine work-area numbers, on the board, the job page and Home.
-- [x] Before and after those assignments, revised contract 465,469.59, EAC 327,929.93, billed to date, collected to date, open A/R and remaining to bill are identical to the cent.
-- [x] Approving one of the nine (5,475.00) changes the sentence to 43,800.00 on eight work areas; withdrawing the approval restores 49,275.00 on nine. The sentence never mentions payment.
-- [x] A fuel surcharge line and a `_DEP` invoice are not offered for assignment. A `client_pm` can read the section and cannot assign (role matrix).
-- [x] No name decides a tie: a static test shows the suggestion function's result reaches only the response, never a write.
-
-Part 2
-- [ ] 67 Elm Street holding only its deposit invoice `EST6115758_DEP` of 149,800.00: a request for work areas 1 to 4 at 100.00% dated 2026-08-21 gives earned to date 166,294.48, less billed before this application 149,800.00, amount due 16,494.48.
-- [ ] With the surcharge chosen at 0.0500: "Fuel surcharge (5.00%)" 824.72, total to invoice 17,319.20. With the choice unanswered, issue is refused in words; with the rate undecided, issue is refused in words.
-- [ ] Issued, then the same request entered again: every line reads earned this application 0.00 and the amount due is 0.00.
-- [ ] A change-order work area appears on the schedule of values only when approved on the application date; approving #18 (5,475.00) adds one line with scheduled value 5,475.00 to the next application, and withdrawing removes it from the one after.
-- [ ] EST6120638, the instruction of 2026-09-17: the draft lists work areas 3, 5, 9, 25, 31 and 32 and raises `BILLING_UNPRICED_CO` for 26 (priced 0.00) without stopping the others. A request over 100.00%, one naming an omitted work area and one below the previous percent each raise their sentence.
-- [ ] A constructed invoice numbered `EST6115758_PMT<n>` for the issued application's amounts ties; a different amount raises `PAYAPP_INVOICE_MISMATCH` naming the difference; no invoice raises `PAYAPP_NOT_INVOICED`; an invoice with no application dated after the first issued application raises `INVOICE_NO_PAYAPP`, and one dated before it does not.
-- [ ] Void asks for a reason, writes one audit row, and the next application's "previous" figures ignore the void one. An issued application cannot be edited through any route.
-- [ ] The PDF's figures equal the screen's to the cent (a test reads both from the same function); the schedule of values repeats its header on a second page.
-- [ ] Both new migrations upgrade and downgrade; the RLS enumeration test covers the three tables; every money value in the new responses is a string.
-- [ ] No page has a retainage line and `job` has no `retainage_pct` column (D-43).
-- [ ] **Owner's pass on jobcost.dev, tenant `rye-beach`, on 6115758** (the owner ticks this, never Claude Code): the real invoice lines assigned, the flag reading 49,275.00 on nine change orders with every board figure unchanged, and one pay application drafted and compared to the owner's figures to the cent, at 390 px as well.
-
-### Plan (Claude Code fills in before coding)
-Restate the acceptance criteria, then answer:
-1. Two commits or one? The brief asks for Part 1 first so the owner can use the flag on 6115758 while Part 2 is built. Say what Part 2 needs from Part 1.
-2. `billing_line_work_area`: how a reassignment and a cleared assignment are kept as history (rows closed and never updated, or the audit log alone), and what happens to an assignment when a later estimate version omits or renames the work area.
-3. Which order numbers in the 67 Elm Street fixture are the nine ledge removal change orders, read from the fixture, and what document numbers the constructed ledge invoices take.
-4. How the application's "billed to date before this application" is read for a given application date, so that the invoice keyed from the application is not counted against itself.
-5. Whether any derived money is stored on `pay_application_line`, and if so why computing on read is not enough once an estimate version changes a price after issue.
-6. The operations manager's pasted format: is there a sample in the repo? If not, build the form only and say so.
-7. The PDF's layout and every word on it that D-36 and D-39 do not supply, for the owner's yes.
-8. The two migrations, table by table, for the owner's yes.
-
-_Filled in by Claude Code 2026-10-07, before coding; waiting for the go-ahead. Owner's answer A is not decided, so **Part 1 is planned in full and Part 2 only as far as it does not depend on A** (what waits on A is named under answers 1, 4 and 5). Migration 0014 (Part 1, one table) waits for the owner's yes; migration 0015 (Part 2, two tables) is listed for the yes but is not built before Part 1 is committed. No dependency is added._
-
-**Housekeeping done first (2026-10-07)**
-- The brief had landed at `docs/current-feature.md` while the root `current-feature.md` was still the stub of 2026-10-06 (`git status`: `?? docs/current-feature.md`, root unchanged from HEAD). The live file is the root one (CLAUDE.md; `tests/test_decisions.py` reads `REPO / "current-feature.md"`), so the root file is rewritten as this brief; `docs/current-feature.md` is left as it was, untouched, for the owner to delete (no file other than the live one is changed in this step).
-- D-45 is in `docs/DECISIONS.md` exactly once, last, directly after D-44 (line 379); the uncommitted diff of the file is that one block and nothing else; its text is not touched. It is read as written: "#n" ties a line to a work area by itself; the description and the line's position are suggestions only and never set the tie.
-- The Discovered list of the live stub (`git show HEAD:current-feature.md`, 151 lines under "## Discovered") is carried below, unchanged; the brief's new items follow it.
-- The fixture re-read (`estimate_upload_EST6115758_reviewed_10.06.xlsx`, "Work areas" sheet): 29 rows, 28 kept (#17 omitted); twelve "CO:" rows #18 to #29 (53,704.13; #20 at 0.00); the nine "CO: Ledge Removal per Day" rows are **#18, #22, #23, #24, #25, #26, #27, #28, #29**, each 5,475.00, together 49,275.00 (answer 3). Work areas #1 to #4 are Mobilization 5,500.00, Erosion Control & Site Prep 10,830.68, Demo Existing Wall 17,142.92, New Retaining Wall 132,820.88 (166,294.48), the criteria's four lines. EST6120638's kept change orders are #24 to #32 (#26 to #30 at 0.00), as the F07.4 brief recorded.
-
-**Owner's answers (2026-10-07)**: **A.** Not decided: Part 1 is planned in full; in Part 2 the summary's "less billed to date before this application", the amount due, the surcharge line (it multiplies the amount due), the two-part tie and `PAYAPP_INVOICE_MISMATCH` wait on it (answers 1, 4, 5). **B.** Yes: a job's first application takes one more than the highest `_PMT` number on its invoices. **C.** Yes: a billing request may be entered by `client_pm`, `client_admin`, `firm_staff` and `firm_admin`; issue and void by `client_admin`, `firm_staff` and `firm_admin`.
-
-**Accounting check**: Part 1 changes no figure: billed to date, collected to date, open A/R, remaining to bill, the revised contract and EAC are computed as before, from the same rows; nothing in `app/wip/`, `contract.py` or `figures.py`'s job-level sums changes. The one new figure is billed to date **per work area**, computed on read from the tied lines, and its complement "Not assigned to a work area" (the job's billed to date less Σ tied lines, so the identity holds by construction: a discount line, sales tax and surcharge lines are never tied, and the deposit invoice's lines are not offered, so the deposit sits in that complement until Part 2 nets it at the job level, D-02). `BILLING_UNAPPROVED_CO` is a sentence and nothing else (D-45). Four points found while reading are put to the owner under "Questions for the owner, with the go-ahead"; building Part 1 does not wait on them unless the owner says so.
-
-**Acceptance criteria, restated**
-
-Part 1 (built and committed first; tests first)
-1. `docs/DECISIONS.md` holds D-45 once, directly after D-44; `tests/test_decisions.py` gains the check (position, count, and that the entry names `BILLING_UNAPPROVED_CO`).
-2. 67 Elm Street (the reviewed workbook, "Confirm all as suggested", linked to a project row) with a constructed invoice `EST6115758_PMT2` dated 2026-08-21: four lines, no "#n", one item, "Mobilization" 5,500.00, "Erosion Control & Site Prep" 10,830.68, "Demo Existing Wall" 17,142.92, "New Retaining Wall" 132,820.88 (166,294.48). Before any assignment: every work area's billed to date 0.00; "Not assigned to a work area" 166,294.48; each of the four lines carries a suggestion (by name); no line is tied; no row in the new table.
-3. After "Confirm all as suggested": #1 to #4 read billed to date 5,500.00, 10,830.68, 17,142.92, 132,820.88 and left to bill 0.00 each; four `billing_line_assigned` audit rows and four table rows; the job's billed to date 166,294.48 before and after.
-4. The same invoice with the third line's description "#3 Demo Existing Wall": that line is tied to #3 with no table row and no audit row; the same four lines in another order change no tie (a "#n" line follows its number; a line's position decides nothing, not even a suggestion).
-5. Two further constructed invoices on the same project row, no "#n", one item: 10,950.00 (two lines of 5,475.00, dated 2026-07-31) and 38,325.00 (seven lines of 5,475.00, dated 2026-09-30); every line "Ledge Removal", quantity 1, rate 5,475.00, one service date per line (the owner's export, 2026-10-07). The nine lines show no suggestion and "Confirm all as suggested" assigns none of them (owner's change b). Before assignment: no `BILLING_UNAPPROVED_CO`. After a person assigns the nine lines to #18, #22 to #29: one sentence on the job naming 49,275.00 and the nine numbers, in the board row's Attention column, on the job page and on Home's line for the job.
-6. Before and after those assignments: revised contract 465,469.59, EAC 327,929.93, billed to date 215,569.48, collected to date, open A/R and remaining to bill 249,900.11 identical to the cent (the F08 figures of the constructed documents; the test asserts equality before and after, and the two contract figures by value).
-7. Approving #18 (5,475.00, as `client_pm`): the sentence reads 43,800.00 on eight work areas (#22 to #29); withdrawing it with a reason: 49,275.00 on nine. The sentence never contains "paid", "payment" or "collected" (asserted).
-8. A line on a fuel surcharge item, the lines of a `_DEP` invoice on a deposit item, a discount line and the lines of a voided document are listed, marked, and not offered (no pick-list; a PUT on one is refused in one sentence and writes nothing). A `client_pm` and a `client_viewer` read the section; the three writes are 403 for them (the role matrix); a second tenant reads none of the first's rows.
-9. No name decides a tie: a static test shows the suggestion function is called only from the read path that builds the response (its result reaches only `InvoiceLineOut.suggested_work_area_id`), never from the write service; the writes take ids and compare no description or name (the same shape as `test_crosswalk_write_actions_take_ids_and_compare_no_customer_name`).
-10. Migration 0014 upgrades and downgrades in the round trip; the new table has `tenant_id`, an index leading with it, RLS enabled and forced, append-only triggers, and is in the RLS enumeration set and `APPEND_ONLY_TABLES`; every money value in the changed responses is a string with two decimals (the response-wide scan runs unchanged).
-
-Part 2 (after A; its own commit; the criteria as the brief lists them, numbered on here)
-11. 67 Elm Street holding only `EST6115758_DEP` 149,800.00: a request for #1 to #4 at 100.00% dated 2026-08-21 gives earned to date 166,294.48, less billed before 149,800.00, amount due 16,494.48 (the deposit alone is the same under either reading of A).
-12. Surcharge at 0.0500: "Fuel surcharge (5.00%)" 824.72, total to invoice 17,319.20; the choice unanswered, or the rate undecided: issue refused in words.
-13. Issued, then the same request again: every line earned this application 0.00, amount due 0.00.
-14. A change-order work area is on the schedule of values only when approved on the application date: approving #18 adds a 5,475.00 line to the next application; withdrawing removes it from the one after.
-15. EST6120638, the instruction of 2026-09-17: the draft lists #3, #5, #9, #25, #31, #32 and raises `BILLING_UNPRICED_CO` for #26 without stopping the others; over 100.00%, an omitted work area and a percent below the previous each raise their sentence.
-16. `EST6115758_PMT<n>` for the issued amounts ties; a different amount raises `PAYAPP_INVOICE_MISMATCH` naming the difference; no invoice raises `PAYAPP_NOT_INVOICED`; an invoice with no application dated after the first issued application raises `INVOICE_NO_PAYAPP`, one dated before it does not (n per B).
-17. Void asks for a reason, writes one audit row, and the next application's "previous" figures ignore the void one; an issued application cannot be edited through any route.
-18. The PDF's figures equal the screen's to the cent (one function feeds both); the schedule of values repeats its header on a second page.
-19. Migration 0015 upgrades and downgrades; the RLS enumeration set covers all three new tables; every money value a string.
-20. No retainage line anywhere; `job` has no `retainage_pct` column (D-43; `grep retainage app/` is empty today and stays so).
-21. Owner's pass on jobcost.dev, tenant `rye-beach`, on 6115758: never ticked by Claude Code.
-
-**Files expected to touch (Part 1)**
-- Migration (waits for the yes): `backend/alembic/versions/0014_billing_line_work_area.py` (new; one table, answer 8; `enable_tenant_rls`, `make_append_only`; reversible: drop the table; the guard refuses `wip`). `app/tenancy/rls.py` (`APPEND_ONLY_TABLES` gains the table, D-13).
-- Backend, domain: `app/domain/billing/models.py` (`BillingLineWorkArea`); new `app/domain/billing/work_areas.py` (pure, `Decimal`, no DB: the tie of one line in D-45's order, `billed_per_work_area`, the unassigned complement, `suggest_work_area`, the `BILLING_UNAPPROVED_CO` inputs); `app/domain/billing/figures.py` (`LineIn` gains `id`, `line_no` and `external_line_id`; nothing else moves); `app/domain/billing/board.py` (one more read per request: the latest assignment row per line of the listed jobs' documents; `Board` carries the per-job work-area figures); new `app/domain/billing/invoice_lines.py` (the job page's rows: the lines with quantity, rate and service date read from the document's raw payload by the line's QuickBooks id, the tie and its words, the suggestion; the three writes `assign_line`, `clear_line`, `assign_pairs`, each by id, each with its audit row); `app/domain/jobs/issues.py` (`BILLING_UNAPPROVED_CO`, one sentence, one generator); `app/domain/home/checklist.py` (`JobFacts` gains the amount and the numbers; one rule, answer "Questions" 3); `app/domain/home/service.py` (fills it); `app/core/audit.py` (`billing_line_assigned`, `billing_line_reassigned`, `billing_line_cleared`); `app/core/authz.py` (no new capability: the writes are `can_manage_jobs`, the read `can_view_jobs`, as the brief's role list is exactly `FIRM_AND_CLIENT_ADMIN`).
-- Backend, API: `app/api/jobs.py` (`GET /{job_id}/invoice-lines`, `PUT` and `DELETE /{job_id}/invoice-lines/{billing_line_id}/work-area`, `POST /{job_id}/invoice-lines/assign-suggested`, each write returning the job detail; `_work_area_out` gains billed to date and left to bill; `_detail` gains `invoice_lines` and `not_assigned_to_work_area`); `app/api/schemas.py` (`InvoiceLineOut`, `WorkAreaChoiceOut`, `WorkAreaAssignIn`, `AssignPairsIn`; `JobWorkAreaOut` and `JobDetailOut` extended).
-- Backend, tests: new `tests/test_invoice_lines.py` (criteria 2 to 9 through the API on the reviewed workbook with payloads from `tests/billing_helpers.py`: `line()` gains `description` already and `line_id`; a `sales_line(amount, description, qty, rate)` helper for the raw-detail read), new `tests/test_billing_work_areas.py` (the pure tie, sums and suggestion), `tests/test_rls.py` (`F08_1_TABLES`, a zero-rows probe), `tests/test_migrations.py` (0014 in the round trip), `tests/test_roles.py` (four routes), `tests/test_decisions.py` (D-45), `tests/test_delete_tenant.py` (one assignment row on the scratch tenant), `tests/test_home.py` (the new rule's place, answer "Questions" 3); `tests/test_append_only.py` follows the register with no edit; the static test for criterion 9 beside the crosswalk one in `tests/test_hygiene.py`.
-- Frontend: `src/pages/JobDetail.jsx` (the "Billed to date" and "Left to bill" columns, the totals row and the "Not assigned to a work area: x" line under the work-area table; the new section "Invoice lines" in `.table-wrap`, first column held, with the pick-list per unassigned line, "Assign", "Clear" and "Confirm all as suggested (n)", busy labels "Assigning…", "Clearing…"); `src/jobs.js` + `jobs.test.js` (`tieWords`, `leftToBill`, `PENDING_WORDS` gains the two words; no apostrophe in JSX text, Discovered). `src/pages/Jobs.jsx` and `Home.jsx` render the new sentence with no change.
-- Docs at the Part 1 commit: `CHANGELOG.md` (one entry, "Part 1"), this brief (criteria 1 to 10 ticked, build notes); BLUEPRINT §5, §7, §8.2, §10, §14, CLAUDE.md Vocabulary, OPERATIONS and ROADMAP take Part 1's share in the same commit (the Part 2 share and the close-out follow Part 2).
-- **One migration (0014), waiting for the yes. No new dependency. No new external call. Nothing in `app/wip/`.**
-
-**Answers to the eight questions**
-
-1. **Two commits.** Part 1 is its own commit so the owner can assign 6115758's real lines and read the flag while Part 2 is built; Part 2 is the second commit, after A. What Part 2 needs from Part 1, all built in Part 1: (a) the tie of a line in D-45's order as one pure function with the pay-application slot first; in Part 1 that slot is always empty, in Part 2 it is filled by matching the document number to an issued application; (b) billed to date per work area from the tied lines, which is "earned on previous applications" on a job's first application (D-36: before the first application the per-work-area figure comes from the "#n" lines, now also from assignments); (c) the job page's work-area columns "Billed to date" and "Left to bill" and the "Not assigned" line, which Part 2 reads on the application screen; (d) the Invoice lines section's "How tied" words, whose first value "pay application n" is written by Part 2; (e) the constructed-invoice helpers and the 67 Elm Street states (criteria 2 and 5), which the Part 2 criteria reuse. What Part 2 does not get from Part 1 and A decides: how "billed to date before this application" treats invoices that are neither `_DEP` nor `_PMT` (the ledge invoices), hence the amount due, the surcharge amount and the tie. Part 2's lines, the exceptions, numbering (B), roles (C), the PDF frame and the three tie sentences other than the mismatch amount do not wait on A.
-
-2. **`billing_line_work_area` as history.** One row per event, never edited: `action` is `assigned` or `cleared`; the latest row for a `billing_line_id` is the current state; a reassignment is a new `assigned` row (audit action `billing_line_reassigned`, before and after); a clear is a `cleared` row with the work-area columns NULL (`billing_line_cleared`); a first assignment is `billing_line_assigned`. The table is append-only (`make_append_only`, `APPEND_ONLY_TABLES`) as `change_order_approval` is, so the history is the table and the audit log both; nothing is updated or deleted in any code path and the triggers refuse one anyway. **Key**: the person presses a work-area row; the request carries `estimate_work_area_id`; the service resolves it to the estimate, the order number and the name and stores all three with the row id (the record, never the key), exactly as F07.4 does. The tie applies by `(estimate_id, order_no)`. **A later version**: D-26 makes the order number the work area's identity and a "#n" line follows its number through every version with no name guard; a person's assignment is proposed to follow the same rule, so a line assigned to #22 stays on #22 when version 2 renames it (the row shows the current name), and stays on it when version 2 omits it (the work-area table shows the omitted row with its billed to date and a blank "Left to bill"; the sentence counts it only while the row is a kept change order, so an omitted one drops out of `BILLING_UNAPPROVED_CO` and nothing else moves). When the latest version has **no row** at that number, or the estimate is detached from the job, the line reads "assigned to #22 "<stored name>", which is not on the latest version of estimate 6115758" and counts as not assigned (its amount is back in the complement) until a person reassigns or clears it; nothing is written by the platform. The alternative, the F07.4 name-and-price guard, would end an assignment on a rename, which contradicts how the "#n" line beside it behaves; see "Questions" 4 for the owner's word.
-
-3. **The nine ledge removal change orders** are work areas **#18, #22, #23, #24, #25, #26, #27, #28, #29** of EST6115758 (names "CO: Ledge Removal per Day (mm/dd/26)"; #18 is 07/07, #22 is 07/17, #23 is 08/04, #24 to #29 are 09/16 to 09/23), each 5,475.00. The constructed ledge invoices are on the job's linked project row, so they belong to the job through the customer row and need no estimate number: **"3107"** dated 2026-07-31, two lines of 5,475.00 (each "Ledge Removal", quantity 1, rate 5,475.00, service dates 2026-07-07 and 2026-07-17, no "#n", item `WORK_ITEM`), 10,950.00, assigned to #18 and #22; **"3142"** dated 2026-09-30, seven such lines (service dates 08/04 to 09/23), 38,325.00, assigned to #23 to #29. No line matches a work-area name, so none carries a suggestion (change b). Neither number ends in `_DEP` or carries `_PMT`, so neither is a deposit nor an application, and B's rule (highest `_PMT` is 2, the first application is `_PMT3`) is unaffected. The two July days as one invoice and the seven later days as the other follows the owner's note (two invoices of 10,950.00 and 38,325.00); the real numbers and dates are not in the repo (the fixture is a construction, never a copy).
-
-4. **"Billed to date before this application" for an application dated D (Part 2; the mechanism, with A open).** Σ billed (sign × (total − tax − surcharge lines), the F08 figure per document) over the job's counted documents dated on or before D, **excluding** the invoice numbered `<estimate number>_PMT<n>` where n is this application's own number and any `_PMT<m>` with m ≥ n, so the invoice keyed from the application is never counted against itself, whatever date the controller gives it; the deposit invoice (D-02) and the invoices of earlier issued applications (`_PMT<m>`, m < n) are in; a credit memo dated on or before D is in with its sign. What A decides is whether documents that are neither (the ledge invoices, a sales receipt, an invoice numbered another way) are in the sum, or are shown as their own line outside it. The figure is read at issue and frozen on the application (answer 5), so a document that arrives later with an earlier date changes the next application, not an issued one.
-
-5. **Derived money on `pay_application_line`: none.** Each line stores two inputs as they stood at issue, `scheduled_value` (the work area's price that day) and `percent_complete`; earned to date, earned on previous applications, earned this application and balance to finish are computed from the stored lines of this and the earlier issued applications, and the same inputs give the same cents forever, so a later version that changes a price changes nothing issued and only the next draft. **On `pay_application` two derived figures are proposed stored at issue, `billed_before` and `amount_due`** (with `surcharge_rate`, an input): "billed before" is read from QuickBooks rows, which can change after the fact (a void, a back-dated credit memo, a document that arrives with an earlier date), and an issued customer document must not drift, nor the tie (`PAYAPP_INVOICE_MISMATCH` compares the invoice to what was issued, not to what the rows say today). Computing on read is enough for everything else. This is the one place the brief's "no derived money is stored unless the Plan says why" is used; it goes to the owner with the 0015 yes.
-
-6. **The operations manager's pasted format: no sample in the repo.** The phrases "job complete, bill 100%" and "50% job start" appear only in D-26 and the briefs; `tests/fixtures/` holds no billing request and `docs/templates/` holds the estimate template only. Part 2 builds the form (one row per kept work area with the cumulative percent, prefilled from the last issued application, and the job-level instruction) and no paste; pasted text is a later patch when the owner supplies a sample.
-
-7. **The PDF (Part 2), for the owner's yes.** Letter, portrait, reportlab, the same Decimal rows as the screen (one function feeds both, criterion 18); numbers right-aligned, cents, negatives in parentheses, percents with two places and a sign ("100.00%"). Top of page 1: the tenant's name; "Pay application n" (D-36); the application date; the job's name and the estimate number. Then the table headed "Schedule of values" (D-36) with the columns "#", "Work area", "Scheduled value", "Percent complete to date", "Earned to date", "Earned on previous applications", "Earned this application", "Balance to finish" (D-36 supplies the six money and percent words), one row per listed work area in order, a totals row, the header repeated on every page. Then the summary: "Total earned to date", "Less billed to date before this application", "Amount due this application" (D-36), and when it applies "Fuel surcharge (5.00%)" and "Total to invoice" (D-39); when billed exceeds earned, "Billed ahead by x" and "No invoice is due" (D-36's meaning, wording to confirm). **Every word on the page that D-36 and D-39 do not supply**, for the yes: "#"; "Work area"; "Application date"; "Application" (as the label before n, if the owner prefers "Application no. n" to "Pay application n"); "Job"; "Estimate"; "Total" (the totals row); "Billed ahead by" and "No invoice is due" (the wording); "Page n of m"; "Draft" (printed on a draft's PDF; a draft can be printed to check it); "Void" with "Voided on <date>: <reason>" (printed on a void application's PDF); "Issued on <date>"; and, if the owner wants them, "Customer" (the brief lists no customer name on the page; the job's QuickBooks customer name is at hand) and "Invoice <number>" (the document number the controller keys, printed so the customer can match the two). Not proposed: the §8.7 legend (it is for reports, and this is the customer's document; say if it should print), any product name (D-33), any signature or approval block (out of scope).
-
-8. **The two migrations, table by table, for the owner's yes.** Dev `wip` is at 0012 and the test database at 0013; deploying Part 1 runs 0013 (if not yet) and 0014.
-
-   **0014 (Part 1)** · `billing_line_work_area` · append-only history of a person's assignments (D-45)
-   | Column | Type | Meaning |
-   |---|---|---|
-   | `id` | uuid PK | |
-   | `tenant_id` | uuid NOT NULL, FK `tenant` | RLS, forced |
-   | `billing_line_id` | uuid NOT NULL, FK `billing_line` | the invoice or credit-memo line |
-   | `action` | varchar(20) NOT NULL, CHECK `assigned` or `cleared` | |
-   | `estimate_id` | uuid, FK `estimate` | assigned: NOT NULL; cleared: NULL |
-   | `order_no` | integer | assigned: the work area's "#n"; cleared: NULL |
-   | `work_area_name` | varchar(500) | assigned: the name on the version pressed; cleared: NULL |
-   | `estimate_work_area_id` | uuid, FK `estimate_work_area` | assigned: the row pressed (the record, not the key); cleared: NULL |
-   | `note` | varchar(2000) | optional, either action |
-   | `recorded_by` | uuid NOT NULL, FK `user` | under their own login |
-   | `recorded_at` | timestamptz NOT NULL, default now() | |
-   One CHECK keeps the four work-area columns all set for `assigned` and all NULL for `cleared`. Index `ix_billing_line_work_area_tenant_id_line` on `(tenant_id, billing_line_id, recorded_at)` (the latest-per-line read). `enable_tenant_rls`, `make_append_only`, listed in `APPEND_ONLY_TABLES`. No `job_id`: a line belongs to a job through its document's customer row, and the read is by the job's line ids, so an assignment follows the line if a row is re-linked. Reversible: the downgrade drops the table (assignments are people's decisions, each with its audit row; the guard refuses `wip`).
-
-   **0015 (Part 2; after A; not built before the Part 1 commit)**
-   `pay_application` · one row per application
-   | Column | Type | Meaning |
-   |---|---|---|
-   | `id` | uuid PK | |
-   | `tenant_id` | uuid NOT NULL, FK `tenant` | RLS, forced |
-   | `job_id` | uuid NOT NULL, FK `job` | a `fixed_price` job (service-enforced, D-24) |
-   | `number` | integer NOT NULL | n; UNIQUE `(tenant_id, job_id, number)`; the first is highest `_PMT` + 1 (B); a void one keeps its number |
-   | `application_date` | date NOT NULL | |
-   | `status` | varchar(10) NOT NULL, CHECK `draft`, `issued`, `void` | |
-   | `surcharge_applies` | boolean NOT NULL | the person's choice (D-39: nothing assumed; required on the request) |
-   | `surcharge_rate` | numeric(6,4) | issued with the surcharge: the tenant's rate that day; else NULL |
-   | `billed_before` | numeric(14,2) | at issue (answer 5); NULL on a draft |
-   | `amount_due` | numeric(14,2) | at issue (answer 5); NULL on a draft |
-   | `created_by`, `created_at` | uuid FK `user` NOT NULL, timestamptz NOT NULL | the request's entry (C: four roles) |
-   | `issued_by`, `issued_at` | uuid FK `user`, timestamptz | issue (C: three roles) |
-   | `voided_by`, `voided_at`, `void_reason` | uuid FK `user`, timestamptz, varchar(2000) | void with a reason |
-   CHECKs keep the issue and void columns with their status. Index `(tenant_id, job_id, number)`. `enable_tenant_rls`. Not append-only: a draft is edited until issued and the two transitions (issue, void) are updates of the one row; an issued row's lines and figures are never changed by any route (criterion 17, service-enforced and tested); one audit row per issue and per void.
-   `pay_application_line` · the schedule of values as it stood at issue
-   | Column | Type | Meaning |
-   |---|---|---|
-   | `id` | uuid PK | |
-   | `tenant_id` | uuid NOT NULL, FK `tenant` | RLS, forced |
-   | `pay_application_id` | uuid NOT NULL, FK `pay_application` | |
-   | `estimate_id` | uuid NOT NULL, FK `estimate` | |
-   | `order_no` | integer NOT NULL | the work area's "#n" |
-   | `work_area_name` | varchar(500) NOT NULL | the name on the version listed |
-   | `estimate_work_area_id` | uuid NOT NULL, FK `estimate_work_area` | the row listed |
-   | `scheduled_value` | numeric(14,2) NOT NULL | the price that day |
-   | `percent_complete` | numeric(5,2) NOT NULL, CHECK 0.00 to 100.00 | cumulative, as operations states it |
-   UNIQUE `(tenant_id, pay_application_id, estimate_id, order_no)`. `enable_tenant_rls`. No earned, previous, this-application or balance column (answer 5). Both tables reversible: the downgrade drops them.
-
-**Questions for the owner, with the go-ahead** (Part 1 is built as proposed unless the owner says otherwise on 1 to 4; 5 and 6 are Part 2)
-1. **"#n" when more than one attached estimate carries that number.** A job can hold an original and an estimate attached as a change order (F07.4 answer B: EST6120638 on the 67 Elm Street job), and both have a #1. D-26 names "the work area's order number in the estimate" for one estimate. Proposed: a "#n" line resolves against the job's **original** estimate; when the job's attached estimates (`ignored` aside) carry that number more than once the line is **not tied by "#n"**, is offered for assignment, and its row says why. A person's assignment is by id and has no such ambiguity.
-2. **Sales receipt lines.** The brief lists invoice and credit-memo lines; a sales receipt counts in billed to date (§8.2 column 10), so its lines would always sit in "Not assigned to a work area". Proposed: sales receipt lines are listed and offered like invoice lines. (None of the criteria has one; the constructed cases do not change.)
-3. **Where the sentence sits on Home.** `JOB_NEEDS` shows the first rule that applies; the F07.4 rule "n change orders, 53,704.13, not approved" applies to 6115758 and would hide `BILLING_UNAPPROVED_CO` if the new rule were appended last, and the brief says Home shows the sentence. Proposed: the new rule goes after `_over_contract` (with the F08 billing needs) and before `_approval_ended`; no existing Home assertion changes (no test job has an assignment). The board's Attention column and the job page list every sentence, so they need no order.
-4. **"Confirm all as suggested" takes the suggested pairs as ids.** Criterion 9 forbids the suggestion's result in a write path, and the button must know which pairs to write. Proposed: `POST …/invoice-lines/assign-suggested` carries the pairs the screen shows as suggested (`billing_line_id`, `estimate_work_area_id`), the service assigns by id and compares no name, and the read path alone computes suggestions. The same for a reassignment after a rename (answer 2: the number is the identity; say if the F07.4 name guard is wanted instead).
-5. **Part 2, with the 0015 yes**: `billed_before` and `amount_due` frozen on the application at issue (answer 5).
-6. **Part 2**: the PDF words (answer 7), and whether the customer's name, the invoice number and the §8.7 legend print.
-
-**Owner's go-ahead (2026-10-07)**: Part 1 only; yes to migration 0014 as listed (one table, `billing_line_work_area`, append-only, one line to one work area); 0015 and Part 2 are not built. **1.** "#n" on a job with more than one attached estimate: as proposed; tied only when the number is on the original estimate and on no other attached estimate, otherwise the line is offered for assignment. **2.** Sales receipt lines: listed and offered like invoice lines. **3.** Home: the sentence must show on a job that also has unapproved change orders; placed ahead of the F07.4 "n change orders, not approved" need (the proposed place, after `_over_contract`, does that). **4.** "Confirm all as suggested": the request carries line ids and work-area ids; the server compares no name. **5.** A later estimate version: an assignment follows the work-area number, as "#n" does; the existing renumbered sentence (`EST_WORK_AREA_RENUMBERED`) is shown beside an assigned line whose work area's name changed. **6.** The figures frozen on an issued application are Part 2 and wait for the yes on 0015. **Change a**: the suggestion by line position is removed everywhere; the only suggestion is a work area whose name equals the description under `same_name`; a line with no name match shows no suggestion. **Change b**: the constructed ledge invoices read "Ledge Removal", quantity 1, rate 5,475.00 on every line; the nine lines show no suggestion and "Confirm all as suggested" assigns none of them; the Discovered note on one line with a quantity is replaced. `docs/current-feature.md` deleted. Part 1 is built with tests as its own commit; no push.
-
-**Found while reading (for the owner; not blocking)**
-- The ROADMAP F08.1 block still carries "`job.retainage_pct` (migration), default 0.00", "less retainage held to date" and "retainage at 0.00 prints as 0.00"; the brief strikes them (D-43 outranks) and the ROADMAP edit is in the Docs list. D-36's own text keeps its retainage sentences (DECISIONS is append-only); BLUEPRINT §14's D-36 row is marked amended by D-43 and D-45 at close-out.
-- The owner's pass asks for "the real invoice lines assigned" on 6115758 so the flag reads 49,275.00 on nine. Settled by the owner's export of 2026-10-07: the 38,325.00 invoice is one line per day; the 10,950.00 invoice has not been checked (Discovered, below).
-- Not verified from the repo: whether Rye Beach's lines carry `ServiceDate` (the sandbox lines carry `Qty` and `UnitPrice` under `SalesItemLineDetail` and no `ServiceDate`); the column reads "" when absent. Raw payloads come back from JSONB through the one codec with `parse_float=Decimal`, so quantity and rate reach the screen with no float.
-- OPERATIONS records that the owner decides with the project manager before any ledge day is approved (D-24); criteria 7 and 14 approve #18 in tests only, and the owner's pass approves nothing.
-- `docs/current-feature.md` is an untracked copy of this brief without the Plan; delete it (`rm docs/current-feature.md`) so one live file exists.
-
-**For the owner (before the go-ahead)**
-- **A. What the application deducts.** D-36 says "less billed to date before this application (the deposit, D-02, and earlier applications)". A job can also hold invoices that are neither, such as the two ledge invoices. Either the summary deducts the job's whole billed to date, so billing on unapproved change orders lowers the amount due on contract work; or it deducts only the deposit, earlier applications and lines tied to listed work areas, and shows the rest as its own line. Nothing is built for the summary until this is answered.
-- **B. Numbering.** 6115758 already has an invoice numbered `_PMT2`. Proposed: a job's first application takes one more than the highest `_PMT` number on its invoices. Yes, or a different rule.
-- **C. Roles.** Proposed: a billing request may be entered by `client_pm`, `client_admin`, `firm_staff` and `firm_admin`; issue and void by `client_admin`, `firm_staff` and `firm_admin`. Yes, or a different split.
-
-**Owner's answers (2026-10-07)**: **A.** Not decided yet: Part 1 only is planned; what in Part 2 waits on it is under the Plan (answers 1, 4 and 5). **B.** Yes: a job's first pay application takes one more than the highest `_PMT` number on its invoices. **C.** Yes: a billing request may be entered by `client_pm`, `client_admin`, `firm_staff` and `firm_admin`; issue and void by `client_admin`, `firm_staff` and `firm_admin`.
-
-### Build notes (2026-10-07, Part 1)
-- **One migration, 0014**, as the owner's yes listed it: `billing_line_work_area` (`app/domain/billing/models.py`, `BillingLineWorkArea`), append-only, in `APPEND_ONLY_TABLES`; the test database runs it in every session; dev `wip` stays at 0012 until the owner runs 0013 and 0014 (OPERATIONS, Migrations).
-- **Pure**: `app/domain/billing/work_areas.py` (the tie in D-45's order with Part 2's pay-application slot empty, `resolve_hash` per the owner's answer 1, `suggest_work_area` by name only per change a, `job_work_areas` with the per-area sums, the complement and the flag's inputs; `tests/test_billing_work_areas.py`). The sentence `BILLING_UNAPPROVED_CO` lives in `app/domain/jobs/issues.py` with the others (`unapproved_co_billing_issue`); Home's rule `_billing_unapproved_co` sits after `_over_contract` and before `_approval_ended` (answer 3; `tests/test_home.py` proves the order).
-- **Reads**: `board.py` reads the latest assignment row per line of the listed jobs' documents in one query (`latest_assignments`) and carries `Board.work_areas`; `line_details.py` reads quantity, rate and service date from the documents' raw payloads (one query, the job page only; the codec gives `Decimal`, never a float; a rate is shown with cents). **Writes**: `app/domain/billing/assignments.py` (`assign_line`, `clear_line`, `assign_pairs`), by id, one row and one audit row each; a line tied by "#n" can be neither assigned nor cleared; a line not offered is refused in one sentence; "Confirm all as suggested" refuses the whole request on a bad pair and writes nothing.
-- **API**: `GET /api/jobs/{job_id}/invoice-lines` (every role), `PUT` and `DELETE …/invoice-lines/{billing_line_id}/work-area` and `POST …/invoice-lines/assign-suggested` with `{"assignments": [{"billing_line_id", "estimate_work_area_id"}]}` (the roles that manage jobs; answer 4); the job detail carries `invoice_lines`, `work_area_totals`, `change_order_totals`, and each work-area row `billed_to_date` and `left_to_bill`. Sales receipt lines are offered (answer 2). "#n" is tied only when the original alone carries n; with EST6120638 attached as a change order every number is on both estimates, so no "#n" ties on that job (answer 1; tested).
-- **Screens**: the two work-area tables gain the two columns and a totals row; "Invoice lines" below them with "Not assigned to a work area", "Confirm all as suggested (n)", a pick-list per offered untied line with the suggestion preselected and marked "(suggested)", Assign and Clear with "Assigning…" and "Clearing…"; the renumbered sentence and the dropped-work-area sentence under the line (answer 5). Not rendered in a browser by Claude Code (the owner's pass checks 390 px; the table has eleven columns in `.table-wrap`).
-- **Tests first**: the figures of criterion 6 as the tests hold them: billed to date 215,569.48 with the three constructed invoices, remaining to bill 249,900.11. Backend 901 passed (872 before; +29), frontend 72 (71 before), on 2026-10-07; `ruff check` and `ruff format` clean; the Vite build clean.
-- **The owner's pass** (open): on `rye-beach`, 6115758: assign the nine "Ledge Removal" lines (none is suggested) to #18 and #22 to #29 on the job page; the flag should read 49,275.00 on nine with every board figure unchanged; "Confirm all as suggested" offers a `_PMT2` line only if its description equals a work-area name.
-- **Owner's check of Part 1, 2026-10-07**: all 13 invoice lines assigned; Not assigned to a work area 0.00; BILLING_UNAPPROVED_CO reads 49,275.00 on nine change orders (#18, #22 to #29) on the Jobs board, the job page and Home; revised contract 465,469.59, EAC 327,929.93, billed to date 288,618.87, collected to date 250,293.87, open A/R 38,325.00 and remaining to bill 176,850.72 unchanged to the cent. Phone width usable; screen polish deferred by the owner. The feature's owner's-pass criterion stays unticked: it waits for Part 2.
-
-### Discovered
 Carried from the live `current-feature.md` stub of 2026-10-06 (copied unchanged 2026-10-07 from `git show HEAD:current-feature.md`; nothing is dropped). Closed by this brief when built: "Billing for unapproved change orders is not flagged" (D-45).
 
 Carried from `docs/briefs/F07.4.md` (copied unchanged 2026-10-06; nothing is dropped):
@@ -430,5 +233,11 @@ From the owner's check of 2026-10-07 (F08.1 Part 1), not fixed here:
 - On the Jobs board, BILLING_UNAPPROVED_CO names the job inside the job's own row, where it is redundant; Home's sentence does not name it.
 - Screen polish for the Invoice lines and work-area tables at 390 px is deferred until the feature works end to end (owner, 2026-10-07).
 
-### Close-out
-Tick the criteria except the owner's pass; copy this brief to `docs/briefs/F08.1.md`; append the CHANGELOG entry (what, why, migrations, tests, decisions referenced and made: D-45 committed here); set F08.1 to ◐ in ROADMAP; rewrite the live `current-feature.md` as the stub pointing at F09, keeping the open passes and the Discovered list. The owner pushes.
+Found while building F08.1 Part 2 (2026-10-07), not fixed here:
+- An issued application's per-line "earned on previous applications" and "earned this application" are computed on read from the earlier issued applications and Part 1's tied lines; reassigning a Part 1 line after issue moves that split on the issued application, never its earned to date, billed before, amount due or total (frozen). Storing the split would be derived money on the line (Plan answer 5) and needs the owner's word.
+- The three tie sentences (`PAYAPP_NOT_INVOICED`, `INVOICE_NO_PAYAPP`, `PAYAPP_INVOICE_MISMATCH`) are on the board's Attention column and the job page, and the four request exceptions on the draft response; none is on Home (`JOB_NEEDS` unchanged). F09 or a Home patch decides.
+- `INVOICE_NO_PAYAPP` reads invoices only; a sales receipt or credit memo keyed around the process raises nothing.
+- The PDF prints "Customer" as the job holds it: the parent customer of the linked project (D-35), the company the invoice goes to; a job with no QuickBooks link prints an empty customer line.
+- The billing request form prefills the application date with the browser's today, not the tenant's.
+- A job holds one draft at a time: the next request replaces it (number kept); a draft cannot be deleted, only replaced or voided. A draft's billed before and amount due follow the QuickBooks rows at each read and are frozen only at issue.
+- The pay-application screens were not rendered in a browser by Claude Code; the owner's pass checks them at 390 px (the schedule of values has seven columns in `.table-wrap`).

@@ -18,7 +18,12 @@ from app.audit.models import AuditLog
 from app.core.config import get_settings
 from app.core.db import tenant_session, untenanted_session
 from app.core.storage import LocalObjectStore
-from app.domain.billing.models import BillingLine, BillingLineWorkArea
+from app.domain.billing.models import (
+    BillingLine,
+    BillingLineWorkArea,
+    PayApplication,
+    PayApplicationLine,
+)
 from app.domain.config import burden, policy
 from app.domain.config.audit import Actor
 from app.domain.config.service import create_division
@@ -132,6 +137,31 @@ def _fill_every_tenant_table(
                 work_area_name=approval.work_area_name,
                 estimate_work_area_id=approval.estimate_work_area_id,
                 recorded_by=seed.users[ADMIN].id,
+            )
+        )
+    # F08.1 Part 2: one pay application with one line (pay_application, pay_application_line).
+    with tenant_session(owner_engine, tenant_id) as db:
+        approval = db.execute(select(ChangeOrderApproval)).scalars().first()
+        app = PayApplication(
+            tenant_id=tenant_id,
+            job_id=approval.job_id,
+            number=1,
+            application_date=date(2026, 10, 7),
+            status="draft",
+            created_by=seed.users[ADMIN].id,
+        )
+        db.add(app)
+        db.flush()
+        db.add(
+            PayApplicationLine(
+                tenant_id=tenant_id,
+                pay_application_id=app.id,
+                estimate_id=approval.estimate_id,
+                order_no=approval.order_no,
+                work_area_name=approval.work_area_name,
+                estimate_work_area_id=approval.estimate_work_area_id,
+                scheduled_value=approval.price,
+                percent_complete=Decimal("50.00"),
             )
         )
     with tenant_session(owner_engine, tenant_id) as db:
