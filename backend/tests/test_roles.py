@@ -249,6 +249,29 @@ def _routes() -> list[Route]:
             also_ok=frozenset({404, 409}),
         ),
         Route("GET", "/api/change-orders/unapproved", ALL),
+        # F08.1 (D-45): every role reads a job's invoice lines; assigning, reassigning and
+        # clearing a line follow the roles that manage jobs.
+        Route("GET", f"/api/jobs/{_NO_JOB}/invoice-lines", ALL, also_ok=frozenset({404})),
+        Route(
+            "PUT",
+            f"/api/jobs/{_NO_JOB}/invoice-lines/{uuid.uuid4()}/work-area",
+            frozenset({FA, FS, CA}),
+            body=lambda: {"estimate_work_area_id": str(uuid.uuid4())},
+            also_ok=frozenset({404}),
+        ),
+        Route(
+            "DELETE",
+            f"/api/jobs/{_NO_JOB}/invoice-lines/{uuid.uuid4()}/work-area",
+            frozenset({FA, FS, CA}),
+            also_ok=frozenset({404}),
+        ),
+        Route(
+            "POST",
+            f"/api/jobs/{_NO_JOB}/invoice-lines/assign-suggested",
+            frozenset({FA, FS, CA}),
+            body=lambda: {"assignments": []},
+            also_ok=frozenset({404}),
+        ),
         Route("GET", "/api/admin/users", frozenset({FA})),
         Route(
             "POST",

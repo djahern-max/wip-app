@@ -56,12 +56,15 @@ EXPECTED_TABLES = {
     "job_alias",
     # F07.4 (0013): approval history (D-42), append-only
     "change_order_approval",
+    # F08.1 (0014): a person's assignment of an invoice line to a work area (D-45), append-only
+    "billing_line_work_area",
 }
 F06_TABLES = {"estimate", "estimate_version", "estimate_work_area", "estimate_cost"}
 F07_TABLES = {"job", "job_estimate", "job_alias"}
 F07_WORK_AREA_COLUMNS = {"kind", "kind_confirmed_by", "kind_confirmed_at"}
 F07_2_CUSTOMER_COLUMNS = {"tracked_at", "tracked_by"}  # 0012 (D-37)
 F07_4_TABLES = {"change_order_approval"}  # 0013 (D-42)
+F08_1_TABLES = {"billing_line_work_area"}  # 0014 (D-45)
 F03_TABLES = {"connection", "sync_run", "import_batch", "raw_record", "task"}
 F05_TABLES = {"customer", "billing", "billing_line", "payment", "payment_application"}
 F04_TABLES = {
@@ -186,6 +189,17 @@ def test_upgrade_head_then_downgrade_base(scratch_db_url: str) -> None:
         "CREATE UNIQUE INDEX uq_job_estimate_one_original ON public.job_estimate "
         "USING btree (tenant_id, job_id) WHERE ((role)::text = 'original'::text)"
     }
+    # 0014 alone is reversible (F08.1): the assignment history table, with its RLS policy
+    # and its append-only triggers, comes and goes; nothing else is touched.
+    assert F08_1_TABLES <= _public_tables(scratch_db_url)
+    assert {
+        "ck_billing_line_work_area_action",
+        "ck_billing_line_work_area_columns",
+    } <= _constraints(scratch_db_url, "billing_line_work_area")
+    command.downgrade(cfg, "0013")
+    assert F08_1_TABLES.isdisjoint(_public_tables(scratch_db_url))
+    assert F07_4_TABLES <= _public_tables(scratch_db_url)
+    assert APPEND_ONLY_FUNCTION in _functions(scratch_db_url)
     # 0013 alone is reversible (F07.4): the approval history table, with its RLS policy
     # and its append-only triggers, comes and goes; nothing else is touched.
     assert F07_4_TABLES <= _public_tables(scratch_db_url)

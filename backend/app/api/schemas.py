@@ -557,6 +557,10 @@ class JobWorkAreaOut(_Out):
     approval_label: str | None = None
     approval_id: str | None = None  # the applying (or ended) approval's row
     approval_note: str | None = None  # the CO_APPROVAL_NOT_CARRIED sentence, when one applies
+    # F08.1 (D-45): billed to date on this work area from its tied lines, and price less
+    # that; left to bill is None for an omitted row and for an unapproved change order.
+    billed_to_date: str | None = None
+    left_to_bill: str | None = None
 
 
 class ApprovalEventOut(_Out):
@@ -660,6 +664,65 @@ class PaymentHistoryOut(_Out):
     state_label: str  # "", "Deleted"
 
 
+class WorkAreaChoiceOut(_Out):
+    """F08.1: a kept work area a line may be assigned to, picked by id."""
+
+    id: str
+    label: str  # "#18 CO: Ledge Removal per Day (07/07/26)" (+ " (EST6120638)" off the original)
+    estimate_external_id: str
+    order_no: int
+    name: str
+    price: str
+
+
+class InvoiceLineOut(_Out):
+    """F08.1 (D-45): one line of an invoice, credit memo or sales receipt on the job, how
+    it is tied to a work area, and the suggestion by name (never applied by rule)."""
+
+    billing_line_id: str
+    billing_id: str
+    doc_number: str | None
+    external_id: str
+    txn_date: str
+    kind: str
+    kind_label: str
+    state_label: str  # "", "Voided", "Deleted"
+    line_no: int
+    description: str | None
+    quantity: str | None  # from the raw payload, for display
+    rate: str | None  # from the raw payload, cents
+    service_date: str | None
+    amount: str  # signed: a credit memo's line is negative; 0.00 when not counted
+    offered: bool  # a person may assign it
+    not_offered: str | None
+    work_area_id: str | None  # the tied work area's row on the latest version
+    work_area_label: str | None
+    how: str  # pay_application | number | assigned | none
+    how_label: str  # "By its number (#n)", "Assigned by <name>", "Not assigned"
+    assigned_by: str | None
+    assigned_at: str | None
+    note: str | None  # the renumbered sentence, a dropped work area, an ambiguous "#n"
+    suggested_work_area_id: str | None
+    suggested_label: str | None
+
+
+class InvoiceLinesOut(_Out):
+    job_id: str
+    lines: list[InvoiceLineOut]  # oldest document first, then line order
+    work_areas: list[WorkAreaChoiceOut]  # the pick-list
+    not_assigned_to_work_area: str | None  # the job's billed to date less every tied line
+    suggested: int  # offered, untied lines with a suggestion
+    policy_note: str | None
+
+
+class WorkAreaTotalsOut(_Out):
+    """F08.1: the totals row of a work-area table, over its kept rows."""
+
+    price: str
+    billed_to_date: str | None
+    left_to_bill: str | None
+
+
 class JobRowOut(_Out):
     id: str
     name: str
@@ -731,6 +794,10 @@ class JobDetailOut(JobRowOut):
     # their role), and the approval history, newest first.
     change_order_work_areas: list[JobWorkAreaOut]
     approval_history: list[ApprovalEventOut]
+    # F08.1 (D-45): the invoice lines and their ties; the totals of the two work-area tables.
+    invoice_lines: InvoiceLinesOut
+    work_area_totals: WorkAreaTotalsOut
+    change_order_totals: WorkAreaTotalsOut
 
 
 class UnapprovedChangeOrderOut(_Out):
@@ -754,6 +821,13 @@ class UnapprovedChangeOrdersOut(_Out):
     rows: list[UnapprovedChangeOrderOut]
     total: str
     count: int
+
+
+class AssignSuggestedOut(JobDetailOut):
+    """F08.1: the job detail after "Confirm all as suggested" on the invoice lines."""
+
+    assigned: int
+    message: str
 
 
 class ConfirmSuggestedOut(JobDetailOut):

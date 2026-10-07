@@ -231,6 +231,49 @@ def test_what_a_job_needs_next_in_order_and_which_jobs_are_listed() -> None:
     assert [line.job.id for line in listed] == ["a", "d"]
 
 
+def test_billing_on_unapproved_change_orders_shows_ahead_of_the_f07_4_needs() -> None:
+    """F08.1 (D-45; the owner, 2026-10-07): a job that also has unapproved change orders
+    says what has been billed on them before the plain count; the F08 billing needs still
+    come first, and 0.00 raises nothing."""
+    job = _job(
+        qbo_linked=True,
+        status="in_progress",
+        unapproved_change_orders="53704.13",
+        unapproved_count=12,
+        billing_unapproved_co="49275.00",
+        billing_unapproved_labels=tuple(f"#{n}" for n in (18, *range(22, 30))),
+    )
+    need = next_need(job)
+    assert (need.code, need.message, need.link, need.count) == (
+        "billing_unapproved_co",
+        "49,275.00 billed on 9 change orders that are not approved: #18, #22, #23, #24, #25, "
+        "#26, #27, #28, #29 (D-45).",
+        Link("jobs", job_id="j"),
+        9,
+    )
+    one = _job(
+        qbo_linked=True,
+        status="in_progress",
+        billing_unapproved_co="5475.00",
+        billing_unapproved_labels=("#1 of EST6120638",),
+    )
+    assert next_need(one).message == (
+        "5,475.00 billed on 1 change order that is not approved: #1 of EST6120638 (D-45)."
+    )
+    ahead = _job(
+        qbo_linked=True,
+        status="in_progress",
+        billed_over_contract="10.00",
+        billing_unapproved_co="5475.00",
+        billing_unapproved_labels=("#18",),
+    )
+    assert next_need(ahead).code == "billed_over_contract"
+    quiet = _job(
+        qbo_linked=True, status="in_progress", unapproved_count=12, unapproved_change_orders="1.00"
+    )
+    assert next_need(quiet).code == "change_orders_unapproved"
+
+
 def test_the_review_item_and_the_tracked_rows_link_only_for_roles_that_can_open_them() -> None:
     assert review_item(0, 0, can_review=True, can_import=True) == Item(
         "no_estimates", "Upload an estimate.", Link("imports"), 0

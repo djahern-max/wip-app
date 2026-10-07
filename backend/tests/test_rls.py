@@ -9,7 +9,14 @@ from sqlalchemy import Engine, select, text
 from sqlalchemy.exc import ProgrammingError
 
 from app.core.db import set_user_context, tenant_session, untenanted_session
-from app.domain.billing.models import Billing, BillingLine, Customer, Payment, PaymentApplication
+from app.domain.billing.models import (
+    Billing,
+    BillingLine,
+    BillingLineWorkArea,
+    Customer,
+    Payment,
+    PaymentApplication,
+)
 from app.domain.config.models import (
     AccountMap,
     AccountSuggestRule,
@@ -42,6 +49,7 @@ F05_TABLES = ("customer", "billing", "billing_line", "payment", "payment_applica
 F06_TABLES = ("estimate", "estimate_version", "estimate_work_area", "estimate_cost")
 F07_TABLES = ("job", "job_estimate", "job_alias")
 F07_4_TABLES = ("change_order_approval",)  # F07.4 (D-42), 0013
+F08_1_TABLES = ("billing_line_work_area",)  # F08.1 (D-45), 0014
 F04_TABLES = (
     "division",
     "cost_category",
@@ -65,6 +73,7 @@ def test_every_tenant_table_is_enumerated(migrated_db: None, owner_engine: Engin
         *F06_TABLES,
         *F07_TABLES,
         *F07_4_TABLES,
+        *F08_1_TABLES,
     }
 
 
@@ -518,6 +527,79 @@ def _seed_f07_4_rows(
                 agreed_on=date(2026, 9, 14),
                 recorded_by=user_id,
             )
+        )
+
+
+def _seed_f08_1_rows(
+    owner_engine: Engine, tenant_id: uuid.UUID, marker: str, user_id: uuid.UUID
+) -> None:
+    """One assignment row in ``tenant_id``: the F07.4 rows (a job, its estimate and a work
+    area) and one billing line on a document of the tenant."""
+    _seed_f07_4_rows(owner_engine, tenant_id, marker, user_id)
+    with tenant_session(owner_engine, tenant_id) as s:
+        approval = s.execute(select(ChangeOrderApproval)).scalars().first()
+        raw = s.execute(select(RawRecord.id)).scalars().first()
+        billing = Billing(
+            tenant_id=tenant_id,
+            kind="invoice",
+            source="qbo",
+            external_id=f"f081-{marker}"[:80],
+            txn_date=date(2026, 8, 21),
+            customer_external_id="none",
+            subtotal=Decimal("1.00"),
+            discount_total=Decimal("0.00"),
+            tax_total=Decimal("0.00"),
+            total=Decimal("1.00"),
+            balance=Decimal("1.00"),
+            voided=False,
+            raw_record_id=raw,
+        )
+        s.add(billing)
+        s.flush()
+        ln = BillingLine(
+            tenant_id=tenant_id,
+            billing_id=billing.id,
+            line_no=1,
+            line_kind="SalesItemLineDetail",
+            description=marker,
+            amount=Decimal("1.00"),
+        )
+        s.add(ln)
+        s.flush()
+        s.add(
+            BillingLineWorkArea(
+                tenant_id=tenant_id,
+                billing_line_id=ln.id,
+                action="assigned",
+                estimate_id=approval.estimate_id,
+                order_no=approval.order_no,
+                work_area_name=approval.work_area_name,
+                estimate_work_area_id=approval.estimate_work_area_id,
+                recorded_by=user_id,
+            )
+        )
+
+
+@pytest.mark.parametrize("table", F08_1_TABLES)
+def test_f08_1_tables_read_zero_rows_of_another_tenant(
+    seed: Seed, rw_engine: Engine, owner_engine: Engine, table: str
+) -> None:
+    marker = f"f081-{uuid.uuid4().hex[:8]}"
+    _seed_f08_1_rows(owner_engine, seed.tenant_b, marker, seed.users["firm_admin"].id)
+    with tenant_session(rw_engine, seed.tenant_a) as s:
+        orm_tenants = {r.tenant_id for r in s.execute(select(BillingLineWorkArea)).scalars()}
+        other = s.execute(
+            text(f'SELECT count(*) FROM "{table}" WHERE tenant_id = :b'), {"b": seed.tenant_b}
+        ).scalar_one()
+    assert orm_tenants <= {seed.tenant_a} and other == 0
+    with tenant_session(rw_engine, seed.tenant_b) as s:
+        assert (
+            s.execute(
+                select(BillingLineWorkArea).where(BillingLineWorkArea.work_area_name.is_not(None))
+            )
+            .scalars()
+            .first()
+            is not None
         )
 
 

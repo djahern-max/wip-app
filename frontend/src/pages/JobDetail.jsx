@@ -9,9 +9,12 @@ import {
   canApproveChangeOrders,
   daysWords,
   figureOr,
+  lineAction,
   offersInProgress,
   pendingLabel,
+  pickedWorkArea,
   reasonText,
+  suggestedPairs,
 } from "../jobs.js";
 import { KindActions } from "../kindActions.js";
 import Attention from "./JobAttention.jsx";
@@ -27,7 +30,10 @@ import Attention from "./JobAttention.jsx";
 // corrected. F07.4 (D-42): a confirmed change order reads approved or not; client_pm and
 // firm_admin approve it (a small form in the row: the date the customer agreed, who, a
 // reference, a note) or withdraw an approval with a reason; the approval history is below
-// the table; the figures follow on read.
+// the table; the figures follow on read. F08.1 (D-45): the work-area tables show billed
+// to date and left to bill per work area from the tied invoice lines; the "Invoice lines"
+// section lists every line with how it is tied ("#n", or a person's assignment, by id);
+// the suggestion by name is shown and never applied until a person presses.
 
 export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate }) {
   const [job, setJob] = useState(null);
@@ -43,6 +49,8 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
   // F07.4: the open approval or withdrawal form, {id, action, agreed_on, agreed_by, evidence_ref, note, reason}
   const [approval, setApproval] = useState(null);
   const [evidence, setEvidence] = useState(null); // the policy key's value, read once: "none" | "reference" | null
+  const [picks, setPicks] = useState({}); // F08.1: billing line id → the work area picked in its row
+  const [lineNotice, setLineNotice] = useState(null); // what "Confirm all as suggested" did on the lines
 
   useEffect(() => {
     api("GET", `/api/jobs/${jobId}`)
@@ -154,6 +162,43 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
   }
 
   // F07.4 (D-42): Approve opens the small form in the row; Withdraw approval asks for the reason.
+  async function assignLine(ln) {
+    const areaId = pickedWorkArea(ln, picks);
+    if (!areaId) return;
+    setPending({ id: ln.billing_line_id, action: "assign" });
+    try {
+      await run(() =>
+        api("PUT", `/api/jobs/${jobId}/invoice-lines/${ln.billing_line_id}/work-area`, { estimate_work_area_id: areaId }),
+      );
+    } finally {
+      setPending(null);
+    }
+  }
+
+  async function clearLine(ln) {
+    setPending({ id: ln.billing_line_id, action: "clear" });
+    try {
+      await run(() => api("DELETE", `/api/jobs/${jobId}/invoice-lines/${ln.billing_line_id}/work-area`));
+    } finally {
+      setPending(null);
+    }
+  }
+
+  async function assignSuggested() {
+    const pairs = suggestedPairs(job.invoice_lines.lines);
+    setPending({ id: "all", action: "assign_all" });
+    setLineNotice(null);
+    try {
+      await run(async () => {
+        const d = await api("POST", `/api/jobs/${jobId}/invoice-lines/assign-suggested`, { assignments: pairs });
+        setLineNotice(d.message);
+        return d;
+      });
+    } finally {
+      setPending(null);
+    }
+  }
+
   function openApproval(areaId, action) {
     setApproval({ id: areaId, action, agreed_on: "", agreed_by: "", evidence_ref: "", note: "", reason: "" });
   }
@@ -187,7 +232,7 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
     const approving = approval.action === "approve";
     return (
       <tr key={`${w.id}-form`}>
-        <td colSpan={canManage || canApprove ? 7 : 6}>
+        <td colSpan={canManage || canApprove ? 9 : 8}>
           <form onSubmit={submitApproval}>
             {approving ? (
               <>
@@ -258,6 +303,31 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
     );
   }
 
+  function billedCells(w) {
+    // F08.1: billed to date on the work area from its tied lines; left to bill is blank for
+    // an omitted row and for a change order that is not approved (outside the contract).
+    return [
+      <td key="billed" className="num">
+        {figureOr(w.billed_to_date, null, "Not decided")}
+      </td>,
+      <td key="left" className="num">
+        {w.left_to_bill === null || w.left_to_bill === undefined ? "" : formatMoney(w.left_to_bill)}
+      </td>,
+    ];
+  }
+
+  function totalsRow(totals, trailing) {
+    return (
+      <tr className="totals">
+        <td colSpan={3}>Total of the kept work areas</td>
+        <td className="num">{formatMoney(totals.price)}</td>
+        <td className="num">{figureOr(totals.billed_to_date, null, "Not decided")}</td>
+        <td className="num">{figureOr(totals.left_to_bill, null, "Not decided")}</td>
+        <td colSpan={trailing}></td>
+      </tr>
+    );
+  }
+
   function workAreaRows(areas) {
     return areas.map((w) => [
       <tr key={w.id}>
@@ -265,6 +335,7 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
         <td>{w.name}</td>
         <td>{w.kept_label}</td>
         <td className="num">{formatMoney(w.price)}</td>
+        {billedCells(w)}
         <td>{w.kind_label}</td>
         <td>
           {w.approval_label || ""}
@@ -285,6 +356,45 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
       </tr>,
       approvalForm(w),
     ]);
+  }
+
+  function workAreaCell(ln) {
+    if (ln.work_area_label) return ln.work_area_label;
+    if (!ln.offered || !canManage) return ln.suggested_label ? `${ln.suggested_label} (suggested)` : "";
+    const doc = ln.doc_number || `QuickBooks id ${ln.external_id}`;
+    return (
+      <select
+        className="input"
+        aria-label={`Work area for line ${ln.line_no} of ${doc}`}
+        value={pickedWorkArea(ln, picks)}
+        disabled={busy}
+        onChange={(e) => setPicks({ ...picks, [ln.billing_line_id]: e.target.value })}
+      >
+        <option value="">Choose a work area</option>
+        {job.invoice_lines.work_areas.map((w) => (
+          <option key={w.id} value={w.id}>
+            {w.label}
+            {w.id === ln.suggested_work_area_id ? " (suggested)" : ""}
+          </option>
+        ))}
+      </select>
+    );
+  }
+
+  function lineActionCell(ln) {
+    const a = lineAction(ln);
+    if (!a) return null;
+    const ready = a.action === "clear" || Boolean(pickedWorkArea(ln, picks));
+    return (
+      <button
+        type="button"
+        className="link-button"
+        disabled={busy || !ready}
+        onClick={() => (a.action === "clear" ? clearLine(ln) : assignLine(ln))}
+      >
+        {pendingLabel(a.action, pending, ln.billing_line_id) || a.label}
+      </button>
+    );
   }
 
   if (!job) {
@@ -628,12 +738,17 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
                     <th>Name</th>
                     <th>Kept</th>
                     <th className="num">Price</th>
+                    <th className="num">Billed to date</th>
+                    <th className="num">Left to bill</th>
                     <th>Kind</th>
                     <th>Approval</th>
                     {(canManage || canApprove) && <th>Action</th>}
                   </tr>
                 </thead>
-                <tbody>{workAreaRows(job.work_areas)}</tbody>
+                <tbody>
+                  {workAreaRows(job.work_areas)}
+                  {totalsRow(job.work_area_totals, canManage || canApprove ? 3 : 2)}
+                </tbody>
               </table>
             </div>
             </>
@@ -656,6 +771,8 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
                   <th>Name</th>
                   <th>Kept</th>
                   <th className="num">Price</th>
+                  <th className="num">Billed to date</th>
+                  <th className="num">Left to bill</th>
                   <th>Estimate</th>
                   <th>Approval</th>
                   {(canManage || canApprove) && <th>Action</th>}
@@ -668,6 +785,7 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
                     <td>{w.name}</td>
                     <td>{w.kept_label}</td>
                     <td className="num">{formatMoney(w.price)}</td>
+                    {billedCells(w)}
                     <td>{w.estimate_external_id}</td>
                     <td>
                       {w.approval_label || ""}
@@ -677,6 +795,7 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
                   </tr>,
                   approvalForm(w),
                 ])}
+                {totalsRow(job.change_order_totals, canManage || canApprove ? 3 : 2)}
               </tbody>
             </table>
           </div>
@@ -728,6 +847,78 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
             </table>
           </div>
         </>
+      )}
+
+      <h3>Invoice lines</h3>
+      <p className="hint">
+        One row per line of the invoices, credit memos and sales receipts on the QuickBooks rows of this job, and
+        the work area each line is billed on: by its pay application, by the number at the start of its description
+        (#n), or as a person assigned it (D-45). A suggestion by name is shown and never applied until it is
+        confirmed. Billed to date is unchanged by any of this.
+      </p>
+      <p>
+        Not assigned to a work area:{" "}
+        <span className="num">{figureOr(job.invoice_lines.not_assigned_to_work_area, null, "Not decided")}</span>
+      </p>
+      {job.invoice_lines.policy_note && <p className="hint">{job.invoice_lines.policy_note}</p>}
+      {canManage && job.invoice_lines.suggested > 0 && (
+        <p>
+          <button type="button" className="button" disabled={busy} onClick={assignSuggested}>
+            {pendingLabel("assign_all", pending, "all") || `Confirm all as suggested (${job.invoice_lines.suggested})`}
+          </button>
+        </p>
+      )}
+      {lineNotice && <p className="hint">{lineNotice}</p>}
+      {job.invoice_lines.lines.length === 0 ? (
+        <p className="hint">No invoice, credit memo or sales receipt line on the QuickBooks rows of this job.</p>
+      ) : (
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Document</th>
+                <th>Date</th>
+                <th>Kind</th>
+                <th className="num">Line</th>
+                <th>Description</th>
+                <th className="num">Quantity</th>
+                <th className="num">Rate</th>
+                <th className="num">Amount</th>
+                <th>Work area</th>
+                <th>How it is tied</th>
+                {canManage && <th>Action</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {job.invoice_lines.lines.map((ln) => (
+                <tr key={ln.billing_line_id}>
+                  <td>
+                    {ln.doc_number || `QuickBooks id ${ln.external_id}`}
+                    {ln.state_label ? ` (${ln.state_label})` : ""}
+                  </td>
+                  <td>
+                    {ln.txn_date}
+                    {ln.service_date && <div className="hint">Service date {ln.service_date}</div>}
+                  </td>
+                  <td>{ln.kind_label}</td>
+                  <td className="num">{ln.line_no}</td>
+                  <td>{ln.description || ""}</td>
+                  <td className="num">{ln.quantity || ""}</td>
+                  <td className="num">{ln.rate ? formatMoney(ln.rate) : ""}</td>
+                  <td className="num">{formatMoney(ln.amount)}</td>
+                  <td>{workAreaCell(ln)}</td>
+                  <td>
+                    {ln.how_label}
+                    {ln.assigned_at && <div className="hint">{new Date(ln.assigned_at).toLocaleDateString()}</div>}
+                    {ln.not_offered && <div className="hint">{ln.not_offered}</div>}
+                    {ln.note && <div className="hint">{ln.note}</div>}
+                  </td>
+                  {canManage && <td>{lineActionCell(ln)}</td>}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       <h3>QuickBooks</h3>

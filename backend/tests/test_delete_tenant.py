@@ -18,9 +18,11 @@ from app.audit.models import AuditLog
 from app.core.config import get_settings
 from app.core.db import tenant_session, untenanted_session
 from app.core.storage import LocalObjectStore
+from app.domain.billing.models import BillingLine, BillingLineWorkArea
 from app.domain.config import burden, policy
 from app.domain.config.audit import Actor
 from app.domain.config.service import create_division
+from app.domain.jobs.models import ChangeOrderApproval
 from app.tenancy import catalog
 from app.tenancy.models import RlsProbe, Tenant, UserSession
 from scripts import delete_tenant
@@ -116,6 +118,22 @@ def _fill_every_tenant_table(
         headers=CSRF,
     )
     assert r.status_code == 200, r.text
+    # F08.1: one assignment row (billing_line_work_area): a backfilled line to #18 (D-45).
+    with tenant_session(owner_engine, tenant_id) as db:
+        approval = db.execute(select(ChangeOrderApproval)).scalars().first()
+        line_id = db.execute(select(BillingLine.id)).scalars().first()
+        db.add(
+            BillingLineWorkArea(
+                tenant_id=tenant_id,
+                billing_line_id=line_id,
+                action="assigned",
+                estimate_id=approval.estimate_id,
+                order_no=approval.order_no,
+                work_area_name=approval.work_area_name,
+                estimate_work_area_id=approval.estimate_work_area_id,
+                recorded_by=seed.users[ADMIN].id,
+            )
+        )
     with tenant_session(owner_engine, tenant_id) as db:
         db.add(RlsProbe(tenant_id=tenant_id, label="to-delete"))
     return fake, _slug(rw_engine, tenant_id)

@@ -22,6 +22,13 @@ normalizer run is idempotent: the same latest raw version produces the same row.
 ``customer_id`` and ``billing_id`` are nullable and filled in whichever order the
 records arrive: normalizing a customer fills the documents that named it, and
 normalizing a document fills the applications that named it.
+
+- ``billing_line_work_area`` (F08.1 Part 1, D-45; migration 0014): a person's assignment
+  of a line to a work area, one row per event (``assigned`` or ``cleared``), never
+  edited (append-only, D-13); the latest row for a line is its state. The tie applies by
+  ``(estimate_id, order_no)`` and follows the number through later versions, as a "#n"
+  line does (owner's answer 5, 2026-10-07); the name and the row pressed are the record.
+  Billed to date per work area is computed on read (``work_areas.py``), never stored.
 """
 
 import uuid
@@ -54,6 +61,15 @@ BILLING_TOTAL_CHECK_SQL = "subtotal - discount_total + tax_total = total"
 PAYMENT_KINDS: tuple[str, ...] = ("payment", "sales_receipt")
 PAYMENT_KIND_CHECK = "ck_payment_kind"
 PAYMENT_KIND_CHECK_SQL = "kind IN ('payment','sales_receipt')"
+ASSIGNMENT_ACTIONS: tuple[str, ...] = ("assigned", "cleared")
+ASSIGNMENT_ACTION_CHECK_SQL = "action IN ('assigned','cleared')"
+# The four work-area columns are all set for an assignment and all NULL for a clear.
+ASSIGNMENT_COLUMNS_CHECK_SQL = (
+    "(action = 'assigned' AND estimate_id IS NOT NULL AND order_no IS NOT NULL "
+    "AND work_area_name IS NOT NULL AND estimate_work_area_id IS NOT NULL) "
+    "OR (action = 'cleared' AND estimate_id IS NULL AND order_no IS NULL "
+    "AND work_area_name IS NULL AND estimate_work_area_id IS NULL)"
+)
 
 # QuickBooks entity → billing kind, and the LinkedTxn type a payment names.
 BILLING_KIND_BY_ENTITY: dict[str, str] = {
@@ -232,3 +248,38 @@ class PaymentApplication(Base):
         UUID(as_uuid=True), ForeignKey("billing.id", ondelete="RESTRICT")
     )
     amount: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+
+
+class BillingLineWorkArea(Base):
+    __tablename__ = "billing_line_work_area"
+    __table_args__ = (
+        Index(
+            "ix_billing_line_work_area_tenant_id_line",
+            "tenant_id",
+            "billing_line_id",
+            "recorded_at",
+        ),
+        CheckConstraint(ASSIGNMENT_ACTION_CHECK_SQL, name="ck_billing_line_work_area_action"),
+        CheckConstraint(ASSIGNMENT_COLUMNS_CHECK_SQL, name="ck_billing_line_work_area_columns"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = _tenant_id()
+    billing_line_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("billing_line.id", ondelete="RESTRICT"), nullable=False
+    )
+    action: Mapped[str] = mapped_column(String(20), nullable=False)
+    estimate_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("estimate.id", ondelete="RESTRICT")
+    )
+    order_no: Mapped[int | None] = mapped_column(Integer)
+    work_area_name: Mapped[str | None] = mapped_column(String(500))
+    # The row the person pressed: the record, never the key (a new version has new rows).
+    estimate_work_area_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("estimate_work_area.id", ondelete="RESTRICT")
+    )
+    note: Mapped[str | None] = mapped_column(String(2000))
+    recorded_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("user.id", ondelete="RESTRICT"), nullable=False
+    )
+    recorded_at: Mapped[datetime] = _created_at()

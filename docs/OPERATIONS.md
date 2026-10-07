@@ -981,6 +981,31 @@ tenant `load-test` (refusing a protected slug and any database not named `wip` o
 months; `--counts` above says how many rows the real tenant holds.
 
 **Exports.** "Export XLSX" and "Export PDF" take the filters as shown. The XLSX holds
+
+**Invoice lines and work areas (F08.1 Part 1, D-45).** The job page's work-area tables
+show billed to date and left to bill per work area, with a totals row, and the section
+"Invoice lines" lists every line of the invoices, credit memos and sales receipts on the
+job's QuickBooks rows with its quantity, rate and service date (read from QuickBooks for
+display) and how it is tied to a work area: by its pay application (Part 2), by "#n" at
+the start of its description (D-26; only when n is a work area of the original estimate
+and of no other estimate attached to the job), or as a person assigned it. "Not assigned
+to a work area" is the job's billed to date less every tied line; it holds the deposit
+invoice, sales tax and fuel surcharge lines, which are never tied, so billed to date is
+unchanged by anything here. To assign a line (`firm_admin`, `firm_staff`,
+`client_admin`): pick the work area in the row and press **Assign**; a line whose
+description equals a work area's name shows that work area as "(suggested)", and
+**Confirm all as suggested (n)** assigns every suggested line in one press, one audit row
+each (`billing_line_assigned`; a change is `billing_line_reassigned`, **Clear** is
+`billing_line_cleared`; every event is a row of `billing_line_work_area`, never edited).
+A line is tied whole: one that covers several work areas stays unassigned. A later
+version of the estimate: the assignment follows the work-area number, as "#n" does; a
+renamed work area shows the renumbered sentence beside the line, and a work area the
+latest version no longer carries leaves the line "Not assigned" with a sentence until it
+is assigned again or cleared. When billed to date on change orders no one has approved
+is above 0.00 the job says so (`BILLING_UNAPPROVED_CO`, below), on the board, the job
+page and Home; it changes no figure. On 6115758 the nine ledge removal days (#18, #22 to
+#29) billed on two invoices are the case; the owner decides with the project manager
+whether they are approved or moved to a time-and-materials job (D-24).
 values written from Decimal (no float artifacts) with the cents format, a totals row,
 the not-on-a-job row, the legend (§8.7) and the Tie-out tab; the PDF carries the same
 rows and totals (D-40). Every role that reads jobs can export.
@@ -998,6 +1023,7 @@ rows and totals (D-40). Every role that reads jobs can export.
 | `PAYMENT_OTHER_CREDIT` | An invoice on the job was settled through a payment by something other than cash, a journal entry or a deposit (D-41; F08.2); the amount is "Other credits applied", outside collected to date. One sentence per payment, with the amount and the date. | Nothing in QuickBooks unless the entry was wrong; the figure is there so collected to date stays cash. |
 | `DEPOSIT_NOT_IDENTIFIED` | A `_DEP` invoice is not on a deposit item, or a deposit item is on a document that is not `<estimate number>_DEP` (F08). It still counts in billed to date. | Fix the item or the document number in QuickBooks; the next poll clears it. |
 | `BILLED_OVER_CONTRACT` | Billed to date exceeds the revised contract (F08; §10). | Likely a change order not yet approved: attach or approve it; or correct the invoice. |
+| `BILLING_UNAPPROVED_CO` | Billed to date on kept change orders that are not approved is above 0.00 (D-45; F08.1): the amount and the work areas, from the lines tied to them. No figure changes. | Approve the change orders (the project manager, D-42), move the work to a time-and-materials job (D-24), or correct the assignment; the flag clears on read. |
 
 The review items are computed when read (`app/domain/jobs/issues.py`); F09 persists them.
 Home lists the three F08 needs after the F07 ones, first rule that applies.

@@ -122,6 +122,10 @@ class TenantEvent(enum.StrEnum):
     # F07.4 (D-42): a project manager records that the customer agreed, or withdraws it
     change_order_approved = "change_order_approved"
     change_order_approval_withdrawn = "change_order_approval_withdrawn"
+    # F08.1 (D-45): a person ties an earlier invoice line to a work area, or clears it
+    billing_line_assigned = "billing_line_assigned"
+    billing_line_reassigned = "billing_line_reassigned"
+    billing_line_cleared = "billing_line_cleared"
 
 
 @dataclass(frozen=True)

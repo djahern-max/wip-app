@@ -10,6 +10,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from app.domain.billing.figures import JobFigures, words
+from app.domain.billing.work_areas import JobWorkAreas
 from app.domain.estimates.exceptions import Issue
 from app.domain.jobs.models import JOB_STATUS_LABELS, LINK_REQUIRED_STATUSES
 
@@ -65,6 +66,12 @@ SENTENCES: dict[str, str] = {
         'Work area #{order_no} "{name}" on estimate {estimate} was approved on {agreed_on} '
         "at {approved} by {who}, and {ended}, so it is unapproved until it is approved "
         "again (D-42)."
+    ),
+    # F08.1 (D-45): billing on change orders no one has approved; a flag, never an
+    # adjustment, and it never mentions payment
+    "BILLING_UNAPPROVED_CO": (
+        '{amount} has been billed on job "{name}" on {count} that {verb} not approved: '
+        "{labels} (D-45)."
     ),
     # §10 BILLED_OVER_CONTRACT
     "BILLED_OVER_CONTRACT": (
@@ -292,4 +299,24 @@ def approval_not_carried_issue(
             "agreed_on": agreed_on.isoformat(),
             "approval": str(approval_id),
         },
+    )
+
+
+def unapproved_co_billing_issue(name: str, wa: JobWorkAreas) -> Issue | None:
+    """F08.1 (D-45): one sentence per job naming the amount billed on kept change orders
+    without an applying approval and their numbers; nothing when it is 0.00."""
+    if wa.unapproved_billed <= Decimal("0.00"):
+        return None
+    n = len(wa.unapproved_labels)
+    return Issue(
+        "BILLING_UNAPPROVED_CO",
+        sentence(
+            "BILLING_UNAPPROVED_CO",
+            amount=words(wa.unapproved_billed),
+            name=name,
+            count=f"{n} change order{'' if n == 1 else 's'}",
+            verb="is" if n == 1 else "are",
+            labels=", ".join(wa.unapproved_labels),
+        ),
+        {"amount": str(wa.unapproved_billed), "work_areas": list(wa.unapproved_labels)},
     )

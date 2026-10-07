@@ -60,3 +60,14 @@ def test_d42_d43_once_and_d44_word_for_word_after_d43() -> None:
     assert _entry(decisions, "D-44") == _entry(brief, "D-44")
     assert "project manager" in _entry(decisions, "D-42")
     assert "Retainage" in _entry(decisions, "D-43")
+
+
+def test_d45_is_in_decisions_once_directly_after_d44() -> None:
+    """F08.1: D-45 was appended by the owner (2026-10-06) and is left alone; it is the one
+    decision after D-44 and names the flag."""
+    decisions = DECISIONS.read_text()
+    order = [m.group(1) for m in re.finditer(r"^## (D-\d+[a-z]?) ·", decisions, re.M)]
+    assert order.count("D-45") == 1
+    assert order.index("D-45") == order.index("D-44") + 1
+    entry = _entry(decisions, "D-45")
+    assert "BILLING_UNAPPROVED_CO" in entry and "assigns earlier invoice lines" in entry

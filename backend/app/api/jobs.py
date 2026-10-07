@@ -3,7 +3,10 @@ attaching, detaching, linking, unlinking, confirming a work-area kind and editin
 for ``firm_admin``, ``firm_staff`` and ``client_admin`` (``can_manage_jobs``), each one
 audit row. The customer duplicates list is read-only, for the same three roles. F07.4
 (D-42): approving a change order and withdrawing an approval are for ``client_pm`` and
-``firm_admin`` (``can_approve_change_orders``), one audit row each.
+``firm_admin`` (``can_approve_change_orders``), one audit row each. F08.1 (D-45): the
+invoice lines of a job and their ties to work areas are read by every role; assigning,
+reassigning and clearing a line are for the roles that manage jobs, by id, one audit
+row each; the suggestion by name reaches only the response.
 
 Money is strings with cents (D-22). Suggestions carry their reason; nothing is
 attached or linked except by a person's request naming an id.
@@ -22,6 +25,7 @@ from sqlalchemy.orm import Session
 
 from app.api.schemas import (
     ApprovalEventOut,
+    AssignSuggestedOut,
     AttachCandidateOut,
     BillingHistoryOut,
     BillingTotalsOut,
@@ -34,6 +38,8 @@ from app.api.schemas import (
     DuplicateSideOut,
     DuplicatesOut,
     EstimateIssueOut,
+    InvoiceLineOut,
+    InvoiceLinesOut,
     JobAliasOut,
     JobBillingOut,
     JobDetailOut,
@@ -50,6 +56,8 @@ from app.api.schemas import (
     ReviewOut,
     TieOutOut,
     TrackedOut,
+    WorkAreaChoiceOut,
+    WorkAreaTotalsOut,
 )
 from app.core.audit import request_meta
 from app.core.auth import Principal, TenantSession
@@ -60,16 +68,26 @@ from app.core.authz import (
     can_view_customer_duplicates,
     can_view_jobs,
 )
-from app.domain.billing import export
-from app.domain.billing.board import Board, TieRow, load_board, money_str, tie_out, tie_out_status
-from app.domain.billing.figures import JobFigures, Totals, totals
+from app.domain.billing import assignments, export
+from app.domain.billing.board import (
+    Board,
+    TieRow,
+    area_refs,
+    load_board,
+    money_str,
+    tie_out,
+    tie_out_status,
+)
+from app.domain.billing.figures import ZERO, JobFigures, Totals, totals
+from app.domain.billing.line_details import EMPTY, line_details
+from app.domain.billing.work_areas import AreaRef, JobWorkAreas, LineTie
 from app.domain.config.audit import Actor
 from app.domain.config.models import Division
 from app.domain.estimates.exceptions import Issue
 from app.domain.estimates.models import STATUS_LABELS
 from app.domain.estimates.service import money
 from app.domain.jobs import service
-from app.domain.jobs.issues import billing_issues, sentence
+from app.domain.jobs.issues import billing_issues, sentence, unapproved_co_billing_issue
 from app.domain.jobs.models import (
     ALIAS_SYSTEM_LABELS,
     APPROVAL_ACTION_LABELS,
@@ -143,6 +161,25 @@ class ApprovalIn(_In):
     agreed_by: str | None = Field(default=None, max_length=200)
     evidence_ref: str | None = Field(default=None, max_length=500)
     note: str | None = Field(default=None, max_length=2000)
+
+
+class WorkAreaAssignIn(_In):
+    """F08.1: a line to a work area, by the work area's row id."""
+
+    estimate_work_area_id: UUID
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class AssignPairIn(_In):
+    billing_line_id: UUID
+    estimate_work_area_id: UUID
+
+
+class AssignPairsIn(_In):
+    """F08.1: "Confirm all as suggested" sends the pairs the screen showed as suggested;
+    the server assigns by id and compares no name (the owner's answer 4)."""
+
+    assignments: list[AssignPairIn] = Field(max_length=500)
 
 
 class WithdrawalIn(_In):
@@ -318,9 +355,10 @@ def _tenant_name(db: Session, tenant_id: UUID) -> str:
     return row.name if row is not None else ""
 
 
-def _row(v: service.JobView, f: JobFigures) -> dict:
+def _row(v: service.JobView, f: JobFigures, wa: JobWorkAreas | None = None) -> dict:
     job = v.job
     original = v.original
+    flag = unapproved_co_billing_issue(job.name, wa) if wa is not None else None
     return {
         "id": str(job.id),
         "name": job.name,
@@ -348,7 +386,7 @@ def _row(v: service.JobView, f: JobFigures) -> dict:
             else a.external_id
             for a in v.qbo_aliases
         ],
-        "attention": _issues([*v.issues, *billing_issues(job.name, f)]),
+        "attention": _issues([*v.issues, *billing_issues(job.name, f), *([flag] if flag else [])]),
         "billing": _billing(v, f),
         "original_contract": money(v.contract.original_contract),
         "approved_change_orders": money(v.contract.approved_change_orders),
@@ -403,10 +441,18 @@ def _approval_words(v: service.JobView, estimate_id: UUID, row, role: str) -> di
     }
 
 
-def _work_area_out(v: service.JobView, a: service.AttachedView, row) -> JobWorkAreaOut:
+def _work_area_out(
+    v: service.JobView, a: service.AttachedView, row, wa: JobWorkAreas | None = None
+) -> JobWorkAreaOut:
     suggestion = suggested_kind(row.change_order_suggested) if row.kept else None
     role = a.link.role
+    billed = left = None
+    if wa is not None and (ref := _area_ref(v, a, row)) is not None:
+        billed = money_str(wa.billed_on(ref)) if wa.not_assigned is not None else None
+        left = money_str(wa.left_to_bill(ref)) if billed is not None else None
     return JobWorkAreaOut(
+        billed_to_date=billed,
+        left_to_bill=left,
         id=str(row.id),
         order_no=row.order_no,
         name=row.name,
@@ -422,6 +468,106 @@ def _work_area_out(v: service.JobView, a: service.AttachedView, row) -> JobWorkA
         estimate_external_id=a.estimate.external_id,
         estimate_role=role,
         **_approval_words(v, a.estimate.id, row, role),
+    )
+
+
+def _area_ref(v: service.JobView, a: service.AttachedView, row) -> AreaRef | None:
+    approval = v.approval_for(a.estimate.id, row.order_no)
+    return AreaRef(
+        estimate_id=str(a.estimate.id),
+        estimate_number=a.estimate.external_id,
+        role=a.link.role,
+        work_area_id=str(row.id),
+        order_no=row.order_no,
+        name=row.name,
+        kept=row.kept,
+        price=row.price,
+        kind=row.kind,
+        approved=bool(approval is not None and approval.applies),
+    )
+
+
+def _choice_label(a: AreaRef) -> str:
+    text = f"#{a.order_no} {a.name}"
+    return text if a.role == "original" else f"{text} ({a.estimate_number})"
+
+
+def _invoice_lines(db: Session, v: service.JobView, board: Board) -> InvoiceLinesOut:
+    """F08.1 (D-45): the job's lines with their ties, the quantity, rate and service date
+    from the raw payload, the pick-list and the suggestion by name (response only)."""
+    wa = board.work_areas[v.job.id]
+    areas = area_refs(v)
+    details = line_details(db, [UUID(d.doc.id) for d in board.per_job[v.job.id].documents])
+    users = service._user_names(
+        db, {UUID(t.assignment.recorded_by) for t in wa.lines if t.assignment is not None}
+    )
+
+    def out(t: LineTie) -> InvoiceLineOut:
+        d = details.get((t.doc.doc.id, t.line.external_line_id or ""), EMPTY)
+        tied = t.area
+        who = users.get(UUID(t.assignment.recorded_by)) if t.assignment else None
+        how_label = t.how_label
+        if t.how == "assigned":
+            how_label = f"Assigned by {who or 'a user'}"
+        return InvoiceLineOut(
+            billing_line_id=t.line.id or "",
+            billing_id=t.doc.doc.id,
+            doc_number=t.doc.doc.doc_number,
+            external_id=t.doc.doc.external_id,
+            txn_date=t.doc.doc.txn_date.isoformat(),
+            kind=t.doc.doc.kind,
+            kind_label=t.doc.kind_label,
+            state_label=t.doc.state_label,
+            line_no=t.line.line_no,
+            description=t.line.description,
+            quantity=d.quantity,
+            rate=d.rate,
+            service_date=d.service_date,
+            amount=money_str(t.amount) or "0.00",
+            offered=t.offered,
+            not_offered=t.not_offered,
+            work_area_id=tied.work_area_id if tied else None,
+            work_area_label=_choice_label(tied) if tied else None,
+            how=t.how,
+            how_label=how_label,
+            assigned_by=who if t.how == "assigned" else None,
+            assigned_at=t.assignment.recorded_at.isoformat() if t.how == "assigned" else None,
+            note=t.note,
+            suggested_work_area_id=t.suggested.work_area_id if t.suggested else None,
+            suggested_label=_choice_label(t.suggested) if t.suggested else None,
+        )
+
+    return InvoiceLinesOut(
+        job_id=str(v.job.id),
+        lines=[out(t) for t in wa.lines],
+        work_areas=[
+            WorkAreaChoiceOut(
+                id=a.work_area_id,
+                label=_choice_label(a),
+                estimate_external_id=a.estimate_number,
+                order_no=a.order_no,
+                name=a.name,
+                price=money(a.price),
+            )
+            for a in areas
+            if a.kept
+        ],
+        not_assigned_to_work_area=money_str(wa.not_assigned),
+        suggested=wa.suggested,
+        policy_note=board.policy_note,
+    )
+
+
+def _work_area_totals(rows: list[JobWorkAreaOut]) -> WorkAreaTotalsOut:
+    kept = [r for r in rows if r.kept]
+    price = sum((Decimal(r.price) for r in kept), ZERO)
+    billed = [Decimal(r.billed_to_date) for r in kept if r.billed_to_date is not None]
+    left = [Decimal(r.left_to_bill) for r in kept if r.left_to_bill is not None]
+    decided = any(r.billed_to_date is not None for r in kept)
+    return WorkAreaTotalsOut(
+        price=money(price),
+        billed_to_date=money(sum(billed, ZERO)) if decided else None,
+        left_to_bill=money(sum(left, ZERO)) if decided else None,
     )
 
 
@@ -470,19 +616,25 @@ def _confirm_message(confirmed: int, skipped: int) -> str:
 def _detail(db: Session, tenant_id: UUID, v: service.JobView) -> JobDetailOut:
     board = load_board(db, tenant_id, [v], other=False)  # F08.2: this job's rows only
     f = board.per_job[v.job.id]
+    wa = board.work_areas[v.job.id]
     documents, payments = _billing_history(f)
     original = v.original
     work_areas: list[JobWorkAreaOut] = []
     if original is not None:
-        work_areas = [_work_area_out(v, original, w.row) for w in original.view.work_areas or ()]
+        work_areas = [
+            _work_area_out(v, original, w.row, wa) for w in original.view.work_areas or ()
+        ]
     change_order_areas = [
-        _work_area_out(v, a, w.row)
+        _work_area_out(v, a, w.row, wa)
         for a in v.attached
         if a.link.role == "change_order"
         for w in a.view.work_areas or ()
     ]
     return JobDetailOut(
-        **_row(v, f),
+        **_row(v, f, wa),
+        invoice_lines=_invoice_lines(db, v, board),
+        work_area_totals=_work_area_totals(work_areas),
+        change_order_totals=_work_area_totals(change_order_areas),
         billing_history=documents,
         payment_history=payments,
         tenant_name=_tenant_name(db, tenant_id),
@@ -587,6 +739,9 @@ class _BoardPage:
     def figures(self, v: service.JobView) -> JobFigures:
         return self.board.per_job[v.job.id]
 
+    def row(self, v: service.JobView) -> dict:
+        return _row(v, self.figures(v), self.board.work_areas.get(v.job.id))
+
     @property
     def totals(self) -> Totals:
         return totals([self.figures(v) for v in self.views])
@@ -634,7 +789,7 @@ def list_jobs(
         no_link=no_link,
     )
     return JobsOut(
-        jobs=[JobRowOut(**_row(v, page.figures(v))) for v in page.views],
+        jobs=[JobRowOut(**page.row(v)) for v in page.views],
         total=len(page.views),
         to_review=len(service.review_queue(db, viewer.active_tenant_id)),
         divisions=_divisions(db),
@@ -1118,6 +1273,84 @@ def confirm_suggested(request: Request, m: Manager, db: TenantSession, job_id: U
 
 
 # --- F07.4 (D-42): change order approval -------------------------------------------------------
+
+
+# --- F08.1 (D-45): invoice lines and their work areas --------------------------------------
+
+
+@router.get("/{job_id}/invoice-lines", response_model=InvoiceLinesOut)
+def invoice_lines(viewer: Viewer, db: TenantSession, job_id: UUID):
+    """Every invoice, credit-memo and sales-receipt line on the job with how it is tied to
+    a work area, the pick-list and the suggestion by name; every role reads it."""
+    try:
+        v = service.job_detail(db, viewer.active_tenant_id, job_id)
+    except service.JobError as exc:
+        _raise(exc)
+    board = load_board(db, viewer.active_tenant_id, [v], other=False)
+    return _invoice_lines(db, v, board)
+
+
+@router.put("/{job_id}/invoice-lines/{billing_line_id}/work-area", response_model=JobDetailOut)
+def assign_invoice_line(
+    request: Request,
+    m: Manager,
+    db: TenantSession,
+    job_id: UUID,
+    billing_line_id: UUID,
+    body: WorkAreaAssignIn,
+):
+    """One line to one work area for its whole amount, by id; one row, one audit row."""
+    try:
+        assignments.assign_line(
+            db,
+            m.active_tenant_id,
+            job_id,
+            billing_line_id,
+            body.estimate_work_area_id,
+            note=body.note,
+            actor=_actor(m, request),
+        )
+    except service.JobError as exc:
+        _raise(exc)
+    return _fresh_detail(db, m, job_id)
+
+
+@router.delete("/{job_id}/invoice-lines/{billing_line_id}/work-area", response_model=JobDetailOut)
+def clear_invoice_line(
+    request: Request, m: Manager, db: TenantSession, job_id: UUID, billing_line_id: UUID
+):
+    try:
+        assignments.clear_line(
+            db, m.active_tenant_id, job_id, billing_line_id, actor=_actor(m, request)
+        )
+    except service.JobError as exc:
+        _raise(exc)
+    return _fresh_detail(db, m, job_id)
+
+
+@router.post("/{job_id}/invoice-lines/assign-suggested", response_model=AssignSuggestedOut)
+def assign_suggested(
+    request: Request, m: Manager, db: TenantSession, job_id: UUID, body: AssignPairsIn
+):
+    """ "Confirm all as suggested": the pairs of ids the screen showed; nothing is matched
+    by name here (the owner's answer 4)."""
+    try:
+        n = assignments.assign_pairs(
+            db,
+            m.active_tenant_id,
+            job_id,
+            [(a.billing_line_id, a.estimate_work_area_id) for a in body.assignments],
+            actor=_actor(m, request),
+        )
+    except service.JobError as exc:
+        _raise(exc)
+    detail = _fresh_detail(db, m, job_id)
+    message = (
+        "Nothing was left to assign."
+        if n == 0
+        else f"{n} line{'' if n == 1 else 's'} assigned as suggested."
+    )
+    return AssignSuggestedOut(**detail.model_dump(), assigned=n, message=message)
 
 
 @router.post("/{job_id}/work-areas/{work_area_id}/approval", response_model=JobDetailOut)

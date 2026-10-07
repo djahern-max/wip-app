@@ -552,3 +552,33 @@ def test_crosswalk_write_actions_take_ids_and_compare_no_customer_name() -> None
     module = inspect.getsource(service)
     assert module.count(".ilike(") == 1
     assert ".ilike(" in inspect.getsource(service.search_customers)
+
+
+def test_invoice_line_assignments_take_ids_and_the_suggestion_reaches_only_the_response() -> None:
+    """F08.1 (D-45; the owner's answer 4): assign, clear and "Confirm all as suggested" are
+    made by id and compare no description or name; the suggestion by name is computed in
+    the pure module and called only from the response builder."""
+    import inspect
+
+    from app.api import jobs as jobs_api
+    from app.domain.billing import assignments, work_areas
+
+    src = inspect.getsource(assignments)
+    for needle in (
+        "same_name",
+        "suggest_work_area",
+        "casefold",
+        ".ilike(",
+        ".like(",
+        "description ==",
+        "lower(",
+    ):
+        assert needle not in src, f"assignments.py compares a name: {needle}"
+    callers = [
+        name
+        for name, obj in vars(jobs_api).items()
+        if inspect.isfunction(obj) and "suggest_work_area" in inspect.getsource(obj)
+    ]
+    assert callers == [], callers  # the router never calls it; the pure read does
+    assert "suggest_work_area(" in inspect.getsource(work_areas.tie_line)
+    assert "suggest_work_area" not in inspect.getsource(assignments)

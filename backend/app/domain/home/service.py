@@ -115,6 +115,7 @@ def job_facts(db: Session, tenant_id: UUID) -> list[JobFacts]:
     out = []
     for v in views:
         f = board.per_job[v.job.id]
+        wa = board.work_areas.get(v.job.id)
         out.append(
             JobFacts(
                 id=str(v.job.id),
@@ -131,6 +132,12 @@ def job_facts(db: Session, tenant_id: UUID) -> list[JobFacts]:
                 unapproved_change_orders=money_str(v.contract.unapproved_change_orders),
                 unapproved_count=v.contract.unapproved_count,
                 approvals_ended=sum(1 for i in v.issues if i.code == "CO_APPROVAL_NOT_CARRIED"),
+                billing_unapproved_co=(
+                    money_str(wa.unapproved_billed)
+                    if wa is not None and wa.unapproved_labels
+                    else None
+                ),
+                billing_unapproved_labels=wa.unapproved_labels if wa is not None else (),
             )
         )
     return out

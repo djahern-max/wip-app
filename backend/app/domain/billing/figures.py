@@ -79,6 +79,11 @@ class LineIn:
     item_external_id: str | None
     amount: Decimal
     description: str | None = None
+    # F08.1 (D-45): the line's row id, its position and its QuickBooks line id, for the
+    # tie to a work area (``work_areas.py``) and the raw detail read on the job page.
+    id: str | None = None
+    line_no: int = 0
+    external_line_id: str | None = None
 
 
 @dataclass(frozen=True)

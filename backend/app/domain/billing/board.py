@@ -9,7 +9,7 @@ tenant's rows into Python. Nothing is stored; nothing here writes. Requires
 ``app.tenant_id`` on the session (RLS)."""
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
@@ -28,7 +28,14 @@ from app.domain.billing.figures import (
     PaymentIn,
     job_figures,
 )
-from app.domain.billing.models import Billing, BillingLine, Customer, Payment, PaymentApplication
+from app.domain.billing.models import (
+    Billing,
+    BillingLine,
+    BillingLineWorkArea,
+    Customer,
+    Payment,
+    PaymentApplication,
+)
 from app.domain.billing.totals import (
     billing_counted,
     billing_sign,
@@ -36,6 +43,7 @@ from app.domain.billing.totals import (
     month_of,
     month_totals,
 )
+from app.domain.billing.work_areas import AreaRef, AssignmentIn, JobWorkAreas, job_work_areas
 from app.domain.config.policy import (
     DEPOSIT_IDENTIFICATION,
     FUEL_SURCHARGE_TREATMENT,
@@ -55,6 +63,8 @@ class Board:
     not_on_a_job: JobFigures | None  # None when the caller asked for the jobs only
     policy: BillingPolicy
     today: date
+    # F08.1 (D-45): per job, its lines tied to work areas and the figures from them.
+    work_areas: dict[UUID, JobWorkAreas] = field(default_factory=dict)
 
     @property
     def policy_note(self) -> str | None:
@@ -84,6 +94,61 @@ def load_policy(db: Session) -> BillingPolicy:
 
 def _estimate_numbers(view: JobView) -> frozenset[str]:
     return frozenset(a.estimate.external_id for a in view.attached if a.link.role != "ignored")
+
+
+def area_refs(view: JobView) -> list[AreaRef]:
+    """F08.1: every work area of the latest version of each estimate attached to the job
+    as original or change order (``ignored`` counts for nothing), with whether an
+    approval applies (D-42)."""
+    out: list[AreaRef] = []
+    for a in view.attached:
+        if a.link.role == "ignored":
+            continue
+        for w in a.view.work_areas or ():
+            approval = view.approval_for(a.estimate.id, w.row.order_no)
+            out.append(
+                AreaRef(
+                    estimate_id=str(a.estimate.id),
+                    estimate_number=a.estimate.external_id,
+                    role=a.link.role,
+                    work_area_id=str(w.row.id),
+                    order_no=w.row.order_no,
+                    name=w.row.name,
+                    kept=w.row.kept,
+                    price=w.row.price,
+                    kind=w.row.kind,
+                    approved=bool(approval is not None and approval.applies),
+                )
+            )
+    return out
+
+
+def latest_assignments(db: Session, line_ids: Sequence[UUID]) -> dict[str, AssignmentIn]:
+    """F08.1 (D-45): the latest row per line; a ``cleared`` row is no assignment. One
+    read, bounded by the listed jobs' lines."""
+    if not line_ids:
+        return {}
+    latest: dict[str, BillingLineWorkArea] = {}
+    for row in db.execute(
+        select(BillingLineWorkArea)
+        .where(BillingLineWorkArea.billing_line_id.in_(line_ids))
+        .order_by(BillingLineWorkArea.recorded_at, BillingLineWorkArea.id)
+    ).scalars():
+        latest[str(row.billing_line_id)] = row
+    return {
+        line_id: AssignmentIn(
+            id=str(r.id),
+            billing_line_id=line_id,
+            estimate_id=str(r.estimate_id),
+            order_no=r.order_no,
+            work_area_name=r.work_area_name,
+            recorded_by=str(r.recorded_by),
+            recorded_at=r.recorded_at,
+            note=r.note,
+        )
+        for line_id, r in latest.items()
+        if r.action == "assigned"
+    }
 
 
 # --- which rows belong to a job (any job) --------------------------------------------------
@@ -139,7 +204,15 @@ def _job_inputs(
         select(BillingLine).where(BillingLine.billing_id.in_(doc_ids)).order_by(BillingLine.line_no)
     ).scalars():
         lines.setdefault(ln.billing_id, []).append(
-            LineIn(ln.line_kind, ln.item_external_id, ln.amount, ln.description)
+            LineIn(
+                ln.line_kind,
+                ln.item_external_id,
+                ln.amount,
+                ln.description,
+                id=str(ln.id),
+                line_no=ln.line_no,
+                external_line_id=ln.external_line_id,
+            )
         )
     doc_job: dict[str, UUID] = {}
     for b in db.execute(
@@ -409,11 +482,26 @@ def load_board(
             revised_contract=v.contract.revised_contract,
             today=today,
         )
+    line_ids = [
+        UUID(ln.id) for ds in docs.values() for d in ds for ln in d.lines if ln.id is not None
+    ]
+    assignments = latest_assignments(db, line_ids)
+    work_areas = {
+        v.job.id: job_work_areas(
+            per_job[v.job.id].documents,
+            per_job[v.job.id].billed_to_date,
+            area_refs(v),
+            assignments,
+            surcharge_items=policy.surcharge_items,
+        )
+        for v in views
+    }
     return Board(
         per_job=per_job,
         not_on_a_job=other_figures(db, policy, today) if other else None,
         policy=policy,
         today=today,
+        work_areas=work_areas,
     )
 
 

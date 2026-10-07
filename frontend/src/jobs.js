@@ -141,6 +141,9 @@ export const PENDING_WORDS = {
   unlink: "Unlinking…",
   approve: "Approving…", // F07.4
   withdraw: "Withdrawing…",
+  assign: "Assigning…", // F08.1 (D-45)
+  clear: "Clearing…",
+  assign_all: "Assigning…",
 };
 
 export function pendingLabel(action, pending, id) {
@@ -175,4 +178,30 @@ export function approvalReady(form, referenceRequired) {
   if (!form.agreed_on) return false;
   if (referenceRequired && !(form.evidence_ref && form.evidence_ref.trim())) return false;
   return true;
+}
+
+// --- F08.1 (D-45): invoice lines and their work areas ---------------------------------------
+
+// "Confirm all as suggested" sends the pairs the screen shows as suggested, as ids; the
+// server assigns by id and compares no name (the owner's answer 4).
+export function suggestedPairs(lines) {
+  return (lines || [])
+    .filter((ln) => ln.offered && !ln.work_area_id && ln.suggested_work_area_id)
+    .map((ln) => ({ billing_line_id: ln.billing_line_id, estimate_work_area_id: ln.suggested_work_area_id }));
+}
+
+// The work area a press of Assign sends: the person's pick, else the suggestion, else nothing.
+export function pickedWorkArea(line, picks) {
+  const picked = picks && picks[line.billing_line_id];
+  if (picked) return picked;
+  return line.suggested_work_area_id || "";
+}
+
+// The action a line offers: Clear for an assigned line, Assign for an offered line with
+// no tie; nothing for a line tied by its number or by a pay application, or not offered.
+export function lineAction(line) {
+  if (!line.offered) return null;
+  if (line.how === "assigned") return { action: "clear", label: "Clear" };
+  if (!line.work_area_id) return { action: "assign", label: "Assign" };
+  return null;
 }

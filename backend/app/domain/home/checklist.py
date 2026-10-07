@@ -340,6 +340,10 @@ class JobFacts:
     unapproved_change_orders: str | None = None  # the amount, cents, as the API; None: no contract
     unapproved_count: int = 0  # kept change-order work areas without an applying approval
     approvals_ended: int = 0  # CO_APPROVAL_NOT_CARRIED sentences on the job
+    # F08.1 (D-45): BILLING_UNAPPROVED_CO: the amount billed on unapproved change orders
+    # (cents, as the API; None when 0.00) and their labels ("#18", "#1 of EST6120638").
+    billing_unapproved_co: str | None = None
+    billing_unapproved_labels: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -435,6 +439,25 @@ def _over_contract(j: JobFacts) -> Need | None:
     return None
 
 
+# --- F08.1 (D-45): billing on unapproved change orders, with the F08 billing needs ---------
+
+
+def _billing_unapproved_co(j: JobFacts) -> Need | None:
+    """Ahead of the F07.4 needs (the owner, 2026-10-07): a job that bills on change orders
+    no one has approved says so before the plain count of unapproved change orders."""
+    if j.billing_unapproved_co is not None and j.billing_unapproved_labels:
+        n = len(j.billing_unapproved_labels)
+        return Need(
+            "billing_unapproved_co",
+            f"{_money_words(j.billing_unapproved_co)} billed on {n} change "
+            f"{_plural(n, 'order', 'orders')} that {_plural(n, 'is', 'are')} not approved: "
+            f"{', '.join(j.billing_unapproved_labels)} (D-45).",
+            Link("jobs", job_id=j.id),
+            n,
+        )
+    return None
+
+
 # --- F07.4 (D-42): change order approval, appended after the F08 entries -------------------
 
 
@@ -470,7 +493,8 @@ def _unapproved_change_orders(j: JobFacts) -> Need | None:
 
 # First rule that applies wins. F08 appended its three after the F07 ones, in the brief's
 # order (PAYMENT_UNAPPLIED, DEPOSIT_NOT_IDENTIFIED, BILLED_OVER_CONTRACT); F07.4 its two
-# (an ended approval, then unapproved change orders); later features add theirs (a billing
+# (an ended approval, then unapproved change orders); F08.1 put BILLING_UNAPPROVED_CO
+# between them and the F08 needs (the owner, 2026-10-07); later features add theirs (a billing
 # request due, a cost without a job…) with a sentence and a test.
 JOB_NEEDS: tuple[Callable[[JobFacts], Need | None], ...] = (
     _confirm,
@@ -479,6 +503,7 @@ JOB_NEEDS: tuple[Callable[[JobFacts], Need | None], ...] = (
     _unapplied,
     _deposit,
     _over_contract,
+    _billing_unapproved_co,  # F08.1 (D-45): ahead of the F07.4 needs (owner, 2026-10-07)
     _approval_ended,
     _unapproved_change_orders,
 )

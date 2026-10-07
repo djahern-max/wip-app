@@ -108,7 +108,15 @@ test("the tie-out line reads checking until its own request answers, then the AP
   assert.equal(tieOutText({ status: "Ties to the cent to the QuickBooks month totals (308 months)." }), "Tie-out: Ties to the cent to the QuickBooks month totals (308 months).");
   // Link and Unlink: the pressed control says what is happening; the others keep their word.
   // F07.4 added Approve and Withdraw approval to the same convention.
-  assert.deepEqual(PENDING_WORDS, { link: "Linking…", unlink: "Unlinking…", approve: "Approving…", withdraw: "Withdrawing…" });
+  assert.deepEqual(PENDING_WORDS, {
+    link: "Linking…",
+    unlink: "Unlinking…",
+    approve: "Approving…",
+    withdraw: "Withdrawing…",
+    assign: "Assigning…",
+    clear: "Clearing…",
+    assign_all: "Assigning…",
+  });
   assert.equal(pendingLabel("link", null, "201"), null);
   assert.equal(pendingLabel("link", { id: "201", action: "link" }, "201"), "Linking…");
   assert.equal(pendingLabel("link", { id: "201", action: "link" }, "202"), null);
@@ -148,4 +156,24 @@ test("an approval is ready with the agreed date, and a reference only when the p
   assert.equal(approvalReady({ agreed_on: "2026-09-14", evidence_ref: "" }, false), true);
   assert.equal(approvalReady({ agreed_on: "2026-09-14", evidence_ref: "  " }, true), false);
   assert.equal(approvalReady({ agreed_on: "2026-09-14", evidence_ref: "e-mail" }, true), true);
+});
+
+test("F08.1: suggested pairs are ids of offered, untied lines; a pick beats the suggestion", async () => {
+  const { suggestedPairs, pickedWorkArea, lineAction } = await import("./jobs.js");
+  const lines = [
+    { billing_line_id: "l1", offered: true, work_area_id: null, suggested_work_area_id: "w1", how: "none" },
+    { billing_line_id: "l2", offered: true, work_area_id: "w3", suggested_work_area_id: null, how: "number" },
+    { billing_line_id: "l3", offered: true, work_area_id: null, suggested_work_area_id: null, how: "none" },
+    { billing_line_id: "l4", offered: false, work_area_id: null, suggested_work_area_id: "w1", how: "none" },
+    { billing_line_id: "l5", offered: true, work_area_id: "w2", suggested_work_area_id: null, how: "assigned" },
+  ];
+  assert.deepEqual(suggestedPairs(lines), [{ billing_line_id: "l1", estimate_work_area_id: "w1" }]);
+  assert.deepEqual(suggestedPairs([]), []);
+  assert.equal(pickedWorkArea(lines[0], {}), "w1");
+  assert.equal(pickedWorkArea(lines[0], { l1: "w9" }), "w9");
+  assert.equal(pickedWorkArea(lines[2], {}), "");
+  assert.deepEqual(lineAction(lines[0]), { action: "assign", label: "Assign" });
+  assert.equal(lineAction(lines[1]), null);
+  assert.equal(lineAction(lines[3]), null);
+  assert.deepEqual(lineAction(lines[4]), { action: "clear", label: "Clear" });
 });
