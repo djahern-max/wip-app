@@ -262,6 +262,7 @@ Part 2 (after A; its own commit; the criteria as the brief lists them, numbered 
 - **Screens**: the two work-area tables gain the two columns and a totals row; "Invoice lines" below them with "Not assigned to a work area", "Confirm all as suggested (n)", a pick-list per offered untied line with the suggestion preselected and marked "(suggested)", Assign and Clear with "Assigning…" and "Clearing…"; the renumbered sentence and the dropped-work-area sentence under the line (answer 5). Not rendered in a browser by Claude Code (the owner's pass checks 390 px; the table has eleven columns in `.table-wrap`).
 - **Tests first**: the figures of criterion 6 as the tests hold them: billed to date 215,569.48 with the three constructed invoices, remaining to bill 249,900.11. Backend 901 passed (872 before; +29), frontend 72 (71 before), on 2026-10-07; `ruff check` and `ruff format` clean; the Vite build clean.
 - **The owner's pass** (open): on `rye-beach`, 6115758: assign the nine "Ledge Removal" lines (none is suggested) to #18 and #22 to #29 on the job page; the flag should read 49,275.00 on nine with every board figure unchanged; "Confirm all as suggested" offers a `_PMT2` line only if its description equals a work-area name.
+- **Owner's check of Part 1, 2026-10-07**: all 13 invoice lines assigned; Not assigned to a work area 0.00; BILLING_UNAPPROVED_CO reads 49,275.00 on nine change orders (#18, #22 to #29) on the Jobs board, the job page and Home; revised contract 465,469.59, EAC 327,929.93, billed to date 288,618.87, collected to date 250,293.87, open A/R 38,325.00 and remaining to bill 176,850.72 unchanged to the cent. Phone width usable; screen polish deferred by the owner. The feature's owner's-pass criterion stays unticked: it waits for Part 2.
 
 ### Discovered
 Carried from the live `current-feature.md` stub of 2026-10-06 (copied unchanged 2026-10-07 from `git show HEAD:current-feature.md`; nothing is dropped). Closed by this brief when built: "Billing for unapproved change orders is not flagged" (D-45).
@@ -420,8 +421,14 @@ From the owner's pass of 2026-10-06 (F07.4), not fixed here:
 
 New, from the owner's sessions of 2026-10-06 and 2026-10-07, not fixed here:
 - Normalized `billing_line` keeps the line id, kind, item id, description and amount; item name, quantity, rate and service date are in the raw payload only. This brief reads them from raw for display. If a later feature computes on quantity or rate (time-and-materials billing, D-24), they need columns.
-- The 38,325.00 invoice is one line per day (owner's export, 2026-10-07); the 10,950.00 invoice has not been checked.
+- The 38,325.00 invoice is one line per day (owner's export, 2026-10-07); the 10,950.00 invoice was one line for two days; the owner split it in QuickBooks on 2026-10-07.
 - D-45's Affected list names F09 for `BILLING_UNAPPROVED_CO`; this brief shows it on read (owner, 2026-10-07) and F09 persists it.
+
+From the owner's check of 2026-10-07 (F08.1 Part 1), not fixed here:
+- A line that covers several work areas cannot be assigned. EST6115758_PMT3 was one line of 10,950.00 for two ledge days; the owner split it into two lines in QuickBooks. Splitting one line across work areas stays out of scope.
+- The job page shows "Remaining to bill" 176,850.72 at the job level and a work-area total "Left to bill" of 226,125.72. They differ by the 49,275.00 billed on unapproved change orders, as D-45 intends, and nothing on the page says why.
+- On the Jobs board, BILLING_UNAPPROVED_CO names the job inside the job's own row, where it is redundant; Home's sentence does not name it.
+- Screen polish for the Invoice lines and work-area tables at 390 px is deferred until the feature works end to end (owner, 2026-10-07).
 
 ### Close-out
 Tick the criteria except the owner's pass; copy this brief to `docs/briefs/F08.1.md`; append the CHANGELOG entry (what, why, migrations, tests, decisions referenced and made: D-45 committed here); set F08.1 to ◐ in ROADMAP; rewrite the live `current-feature.md` as the stub pointing at F09, keeping the open passes and the Discovered list. The owner pushes.
