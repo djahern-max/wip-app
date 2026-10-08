@@ -1,10 +1,10 @@
 # current-feature.md
 
-_No feature in flight (2026-10-07)._ **F08.3 · Pay application patch from the owner's pass
-is built** (2026-10-07, one commit; no table, no migration, no dependency; the owner's
-answers A and B and the choice of option 3 for question 2 in the brief; **the owner's pass
-on jobcost.dev, tenant `rye-beach`, 6115758, is open, and closes F08.1 with it; ROADMAP
-F08.3 ◐, F08.1 ◐**). The brief, with the Plan, the owner's answers, the build notes and the
+_No feature in flight (2026-10-08)._ **F08.3 · Pay application patch from the owner's pass
+is closed** (built 2026-10-07, one commit; no table, no migration, no dependency; the
+owner's answers A and B and the choice of option 3 for question 2 in the brief; **the
+owner's pass on jobcost.dev, tenant `rye-beach`, 6115758, passed 2026-10-08 and closed
+F08.1 with it; ROADMAP F08.3 ☑, F08.1 ☑**). The brief, with the Plan, the owner's answers, the build notes and the
 Discovered list, is `docs/briefs/F08.3.md`. What it changed: the pay application PDF is
 landscape Letter with fixed column widths, measured by a test; a billing request never
 yields a negative amount (D-26: `BILLING_NEGATIVE` compares earned amounts whatever the
@@ -20,10 +20,7 @@ is the same under every option); a draft is reopened with its values and can be 
 never submits the request or void form. F08.1 is as the stub of 2026-10-07 described it
 (`docs/briefs/F08.1.md`). Dev `wip` is at 0012: deploying runs 0013, 0014 and 0015.
 
-Open passes carried: **F08.3 with F08.1 Part 2** (`docs/briefs/F08.3.md`: draft 5
-reopened with its values, the form prefilled #1 to #5 at 100.00, the three requests of
-2026-10-07 compared to the cent, the PDF printed whole, at 390 px as well), **F07.3**
-(`docs/briefs/F07.3.md`), **F07.2** (`docs/briefs/F07.2.md`; deploying it runs migration
+Open passes carried: **F07.3** (`docs/briefs/F07.3.md`), **F07.2** (`docs/briefs/F07.2.md`; deploying it runs migration
 0012), **F07.1** (`docs/briefs/F07.1.md`) and **F07** (the pass job by job; 67 Elm Street
 passed 2026-10-01). D-08 is still open. Retainage is owed as a later feature with its own
 decision before any tenant that holds it (D-43; a Later line in ROADMAP).
@@ -259,3 +256,7 @@ Found while planning F08.3 (2026-10-07), not fixed here unless the owner says so
 - A draft's exceptions are returned on the `POST` response only; a reopened draft shows none (proposed inside item 2, Plan answer 1).
 - The production draft 5 on `rye-beach` holds #2 to #4 at 0.00 with no exception recorded; the read-time check (Plan answer 1) is what keeps it from printing negatives after the deploy until it is re-saved.
 - The carried intermittent setup ERROR in `test_migrations.py::test_0003_data_step…` (F05.1) was seen once more in the full run of 2026-10-07 (935 passed, 1 error); the file passed alone (9 of 9) straight after. Still unreproduced.
+
+From the owner's pass of 2026-10-08, not fixed here:
+- On a pay application the schedule's "earned this application" total can exceed the amount due by billing outside the schedule of values (53,938.64 against 4,663.64 on 6115758, the 49,275.00 billed on unapproved change orders). Correct under F08.1 answer A; nothing on the document says why.
+- The rye-beach fuel surcharge rate was set to 5.00% on 2026-10-08.
