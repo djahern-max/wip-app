@@ -1,5 +1,11 @@
 # current-feature.md
 
+**F09.2 · Estimates page: list and one estimate is built** (2026-10-08, one commit, no
+migration, no decision; frontend only, no figure and no API response changed; **ROADMAP
+F09.2 ◐; the owner's pass on jobcost.dev, tenant `rye-beach`, is open**; the brief is
+`docs/briefs/F09.2.md`, with the owner's choices, what was not verified and the Discovered
+list).
+
 _No feature in flight (2026-10-08)._ **F09 · Exceptions queue v1 is built** (2026-10-08, one
 commit; migration 0016: `exception` and `exception_event`, the second append-only; D-46
 appended; the owner's answers A to D and the decisions on the Plan's open points of

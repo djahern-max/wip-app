@@ -15,6 +15,14 @@ Newest first. One entry per closed feature or decision. Format:
 
 ---
 
+## 2026-10-08 · F09.2 · Estimates page: list and one estimate
+**What**: The list has a page head (title, a count sentence, "Upload estimates"), labelled filters, seven columns (id with name, client with jobsite) and an empty-state card. One estimate has its name as the heading, its facts in a block with Price and EAC in the WIP basis in bold, Attention above the tables, and an omitted work area muted. Shared styles for later screens (`.page-head`, `.filters`, `.facts` and others).
+**Why**: The second design feature under D-47; mockup approved by the owner 2026-10-08.
+**Migrations**: none.
+**Tests**: `estimates.test.js` (new). `npm test` 84 pass. Backend suite not run in the build environment.
+**Decisions referenced / made**: D-22, D-47 referenced; none made.
+**Dependencies added**: none.
+
 ## 2026-10-08 · F09.1 · Interface foundation, header and Home
 **What**: Shared styles (grey ground, white header, cards and tables; heading scale; 44 px buttons; focus ring). Header: brand, company and account on one line, navigation on its own row with the current page marked, a Menu button below 640 px. Home: the set-up checklist as a numbered list with a progress line. Roles shown in words (`roles.js`). The API and database line moved to the footer.
 **Why**: The owner's pass of 2026-10-08: Home was not usable at phone width (navigation cut off, the checklist's action off the screen, role codes on screen). Mockup approved by the owner first.

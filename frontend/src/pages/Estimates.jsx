@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
+import { detailLead, listSentence } from "../estimates.js";
 import { formatMoney } from "../money.js";
 import { Dismissed } from "./JobAttention.jsx";
 
@@ -84,12 +85,22 @@ export default function Estimates({ me, canUpload, onUpload, target, onOpenJob, 
 
   return (
     <div>
-      <h2>Estimates</h2>
+      <div className="page-head">
+        <div>
+          <h1>Estimates</h1>
+          {data && data.estimates.length > 0 && <p className="muted">{listSentence(data.estimates)}</p>}
+        </div>
+        {canUpload && (
+          <button type="button" className="button-primary" onClick={onUpload}>
+            Upload estimates
+          </button>
+        )}
+      </div>
       {error && <p className="error">{error}</p>}
-      <div className="toolbar">
-        <label>
-          Status{" "}
-          <select value={status} onChange={(e) => setStatus(e.target.value)}>
+      <div className="filters">
+        <label className="field">
+          <span className="field-label">Status</span>
+          <select className="select" value={status} onChange={(e) => setStatus(e.target.value)}>
             {STATUSES.map(([value, label]) => (
               <option key={value} value={value}>
                 {label}
@@ -97,9 +108,9 @@ export default function Estimates({ me, canUpload, onUpload, target, onOpenJob, 
             ))}
           </select>
         </label>
-        <label>
-          Estimator{" "}
-          <select value={estimator} onChange={(e) => setEstimator(e.target.value)}>
+        <label className="field">
+          <span className="field-label">Estimator</span>
+          <select className="select" value={estimator} onChange={(e) => setEstimator(e.target.value)}>
             <option value="">All estimators</option>
             {(data ? data.estimators : []).map((name) => (
               <option key={name} value={name}>
@@ -108,24 +119,22 @@ export default function Estimates({ me, canUpload, onUpload, target, onOpenJob, 
             ))}
           </select>
         </label>
-        {canUpload && (
-          <button type="button" className="button-primary" onClick={onUpload}>
-            Upload estimates
-          </button>
-        )}
       </div>
       {!data ? (
         <p className="hint">Loading…</p>
+      ) : data.estimates.length === 0 ? (
+        <div className="empty">
+          <strong>No estimates loaded for this company yet.</strong>
+          <span className="muted">Upload the estimate template on the Imports page.</span>
+        </div>
       ) : (
         <div className="table-wrap">
           <table className="table">
             <thead>
               <tr>
-                <th>Estimate ID</th>
+                <th>Estimate</th>
+                <th>Client and jobsite</th>
                 <th>Estimator</th>
-                <th>Client</th>
-                <th>Jobsite</th>
-                <th>Name</th>
                 <th>Status</th>
                 <th className="num">Price</th>
                 <th className="num">Versions</th>
@@ -133,24 +142,19 @@ export default function Estimates({ me, canUpload, onUpload, target, onOpenJob, 
               </tr>
             </thead>
             <tbody>
-              {data.estimates.length === 0 && (
-                <tr>
-                  <td colSpan={9}>
-                    No estimates loaded for this company yet. Upload the estimate template on the Imports page.
-                  </td>
-                </tr>
-              )}
               {data.estimates.map((e) => (
                 <tr key={e.id}>
                   <td>
                     <button type="button" className="link-button" onClick={() => setSelected(e.id)}>
                       {e.external_id}
                     </button>
+                    <div className="cell-sub">{e.name}</div>
+                  </td>
+                  <td>
+                    {e.client_name || ""}
+                    <div className="cell-sub">{e.jobsite || ""}</div>
                   </td>
                   <td>{e.estimator || ""}</td>
-                  <td>{e.client_name || ""}</td>
-                  <td>{e.jobsite || ""}</td>
-                  <td>{e.name}</td>
                   <td>{e.status_label}</td>
                   <td className="num">{formatMoney(e.price)}</td>
                   <td className="num">{e.versions}</td>
@@ -211,24 +215,27 @@ function Detail({ d, onOpenJob, onReview }) {
   const t = d.totals;
   return (
     <div>
-      <h2>
-        {d.external_id} · {d.name}
-      </h2>
-      <dl className="kv">
-        <dt>Status</dt>
-        <dd>{d.status_label}</dd>
-        <dt>Estimator</dt>
-        <dd>{d.estimator || "Not given"}</dd>
-        <dt>Client</dt>
-        <dd>{d.client_name || "Not given"}</dd>
-        <dt>Jobsite</dt>
-        <dd>{d.jobsite || "Not given"}</dd>
-        <dt>Price</dt>
-        <dd className="num">{formatMoney(d.price)}</dd>
-        <dt>Estimate date</dt>
-        <dd>{d.estimate_date || "Not given"}</dd>
+      <h1>{d.name}</h1>
+      <p className="lead">{detailLead(d)}</p>
+      <dl className="facts">
+        <div>
+          <dt>Client</dt>
+          <dd>{d.client_name || "Not given"}</dd>
+        </div>
+        <div>
+          <dt>Jobsite</dt>
+          <dd>{d.jobsite || "Not given"}</dd>
+        </div>
+        <div>
+          <dt>Estimator</dt>
+          <dd>{d.estimator || "Not given"}</dd>
+        </div>
+        <div>
+          <dt>Estimate date</dt>
+          <dd>{d.estimate_date || "Not given"}</dd>
+        </div>
         {(d.job || d.to_review) && (
-          <>
+          <div>
             <dt>Job</dt>
             <dd>
               {d.job ? (
@@ -244,14 +251,36 @@ function Detail({ d, onOpenJob, onReview }) {
                 </button>
               )}
             </dd>
-          </>
+          </div>
         )}
-        <dt>Versions</dt>
-        <dd>
-          {d.versions}
-          {d.baseline_version_no ? ` (baseline: version ${d.baseline_version_no})` : " (no baseline yet)"}
-        </dd>
+        <div>
+          <dt>Versions</dt>
+          <dd>
+            {d.versions}
+            {d.baseline_version_no ? ` (baseline: version ${d.baseline_version_no})` : " (no baseline yet)"}
+          </dd>
+        </div>
+        <div>
+          <dt>Price</dt>
+          <dd className="fact-figure">{formatMoney(d.price)}</dd>
+        </div>
+        <div>
+          <dt>EAC in the WIP basis</dt>
+          <dd className="fact-figure">{eacWithBurden(t)}</dd>
+        </div>
       </dl>
+
+      <h3>Attention</h3>
+      {d.attention.length === 0 ? (
+        <p className="hint">Nothing needs attention on this estimate.</p>
+      ) : (
+        <ul className="issues panel">
+          {d.attention.map((i, n) => (
+            <li key={n}>{i.message}</li>
+          ))}
+        </ul>
+      )}
+      <Dismissed items={d.dismissed} />
 
       <h3>Work areas (latest version)</h3>
       {d.work_areas.length === 0 ? (
@@ -273,7 +302,7 @@ function Detail({ d, onOpenJob, onReview }) {
             </thead>
             <tbody>
               {d.work_areas.map((w) => (
-                <tr key={w.order_no}>
+                <tr key={w.order_no} className={w.kept ? undefined : "row-off"}>
                   <td>#{w.order_no}</td>
                   <td>{w.name}</td>
                   <td>{w.kept_label}</td>
@@ -372,18 +401,6 @@ function Detail({ d, onOpenJob, onReview }) {
           </tbody>
         </table>
       </div>
-
-      <h3>Attention</h3>
-      {d.attention.length === 0 ? (
-        <p className="hint">Nothing needs attention on this estimate.</p>
-      ) : (
-        <ul className="issues">
-          {d.attention.map((i, n) => (
-            <li key={n}>{i.message}</li>
-          ))}
-        </ul>
-      )}
-      <Dismissed items={d.dismissed} />
 
       <h3>Versions</h3>
       <div className="table-wrap">

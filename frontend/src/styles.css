@@ -742,3 +742,109 @@ h3 {
 .kv dd.num {
   font-variant-numeric: tabular-nums;
 }
+
+/* --- F09.2: page head, filters, facts ------------------------------------------------------
+   Shared pieces for the working screens, first used on Estimates. The page head holds the
+   title, one sentence and the screen's one primary action; filters carry their label above
+   the control; the facts of one record sit in a block of label over value. */
+
+.page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.75rem 1.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.page-head h1,
+.page-head p {
+  margin: 0;
+}
+
+.lead {
+  margin: 0 0 1.25rem;
+  color: var(--muted);
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field-label {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.select {
+  min-width: 11rem;
+  min-height: 40px;
+  padding: 0 0.6rem;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--control);
+  border-radius: 6px;
+}
+
+/* A second line in a cell: the estimate's name under its id, the jobsite under the client. */
+.cell-sub {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.table tr.row-off td {
+  color: var(--muted); /* an omitted work area: its Kept column still says so in words */
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 1.75rem 1.5rem;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+  gap: 1rem 1.5rem;
+  margin: 0;
+  padding: 1.25rem 1.5rem;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.facts dt {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.facts dd {
+  margin: 2px 0 0;
+}
+
+.fact-figure {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.panel {
+  padding: 0.9rem 1.5rem 0.9rem 2.5rem;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 14px;
+}
