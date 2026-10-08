@@ -1030,8 +1030,9 @@ platform says what to bill and gives the customer the document.
   draft with the percents, the application date and the surcharge choice it holds;
   saving changes what was changed and keeps the number. **Discard draft** (whoever may
   enter a request) removes the draft and its lines, writes `pay_application_discarded`,
-  and the number is used by the next application. Void on a draft stays as built (the
-  row kept, with a reason).
+  and the number is used by the next application. A draft is discarded, never voided:
+  **Void** is offered on an issued application only, and a void request on a draft is
+  refused in one sentence pointing to Discard draft.
 - **Reading the exceptions**: one sentence each on the draft, none stopping the other
   lines. Over 100.00% (`BILLING_OVER_100`), priced 0.00 (`BILLING_UNPRICED_CO`) and
   omitted from the estimate (`BILLING_OMITTED_AREA`) leave the work area off this

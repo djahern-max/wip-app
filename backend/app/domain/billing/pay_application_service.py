@@ -472,7 +472,8 @@ def void_application(
     reason: str | None,
     actor: Actor,
 ) -> PayApplication:
-    """Void with a reason (D-36: a correction is void and a new application); one audit row."""
+    """Void an issued application with a reason (D-36: a correction is void and a new
+    application); one audit row. A draft is discarded, never voided (refused in words)."""
     _job_view(db, tenant_id, job_id)
     app = _application(db, job_id, application_id)
     text = service._clean(reason, 2000)
@@ -480,6 +481,13 @@ def void_application(
         raise Invalid("Give the reason: a pay application is voided only with a reason.")
     if app.status == "void":
         raise Conflict(f"Pay application {app.number} is already void.")
+    if app.status == "draft":
+        # F08.3 patch (2026-10-08): the 0015 CHECK keeps the issue fields set on every
+        # non-draft row, so a draft cannot become void; a draft is discarded instead.
+        raise Conflict(
+            f"Pay application {app.number} is a draft; a draft is discarded, not voided "
+            "(Discard draft)."
+        )
     before = _fields(app)
     app.status = "void"
     app.voided_by = actor.user_id

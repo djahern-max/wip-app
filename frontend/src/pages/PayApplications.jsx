@@ -383,7 +383,7 @@ function Application({ app, jobId, busy, pending, canIssue, onIssue, voidReason,
             {pendingLabel("issue", pending, app.id) || "Issue"}
           </button>
         )}{" "}
-        {canIssue && app.status !== "void" && !voidReason && (
+        {canIssue && app.status === "issued" && !voidReason && (
           <button type="button" className="link-button" disabled={busy} onClick={() => setVoidReason({ id: app.id, reason: "" })}>
             Void
           </button>

@@ -1006,6 +1006,18 @@ def test_f083_a_draft_is_reopened_edited_and_discarded(t: Tenant, as_role) -> No
     assert t.client.delete(f"{_path(job['id'])}/{draft['id']}", headers=CSRF).status_code == 404
     nxt = _request(t, job, {}, on="2026-10-07", surcharge=False)
     assert nxt["number"] == 3
+    # Void on a draft is refused in words (the 0015 CHECK keeps the issue fields set on every
+    # non-draft row): 409, the row stays a draft, no audit row (F08.3 patch, 2026-10-08).
+    rows_before = t.audit_rows()
+    r = t.client.post(
+        f"{_path(job['id'])}/{nxt['id']}/void", json={"reason": "probe"}, headers=CSRF
+    )
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"] == (
+        "Pay application 3 is a draft; a draft is discarded, not voided (Discard draft)."
+    )
+    assert t.get(f"{_path(job['id'])}/{nxt['id']}")["status"] == "draft"
+    assert t.audit_rows() == rows_before and _rows(t) == (1, 16)
     # Not through any route for an issued or void application; a viewer may not discard.
     issued = _issue(t, job["id"], nxt["id"])
     assert t.client.delete(f"{_path(job['id'])}/{issued['id']}", headers=CSRF).status_code == 409
