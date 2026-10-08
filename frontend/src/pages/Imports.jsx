@@ -16,7 +16,8 @@ import { chooseSource, rememberSource, rememberedSource, sessionStore } from "..
 // visit per company per session opens on "Choose a source" and Upload waits for a
 // choice (F06.1).
 //
-// Layout: a table with .num columns on a laptop; below 640 px this admin screen
+// Layout (F09.3): source, file and the upload button on one line on a laptop, wrapping
+// on a phone; the files in a table with .num columns on a laptop; below 640 px this admin screen
 // stacks to cards. Reports (F08+) must NOT do that: they use the container-scroll
 // pattern (.table-wrap, first column held in place) from styles.css.
 export default function Imports({ me }) {
@@ -89,11 +90,13 @@ export default function Imports({ me }) {
 
   return (
     <div>
-      <h2>Imports</h2>
-      <form onSubmit={submit} className="card card-wide">
-        <label className="label">
-          Source
-          <select className="input" value={kind} onChange={(e) => chooseKind(e.target.value)} disabled={busy}>
+      <div className="page-head">
+        <h1>Imports</h1>
+      </div>
+      <form onSubmit={submit} className="upload-form">
+        <label className="field">
+          <span className="field-label">Source</span>
+          <select className="select" value={kind} onChange={(e) => chooseKind(e.target.value)} disabled={busy}>
             <option value="">Choose a source</option>
             {kinds.map((k) => (
               <option key={k.name} value={k.name}>
@@ -103,12 +106,12 @@ export default function Imports({ me }) {
             ))}
           </select>
         </label>
-        <label className="label">
-          File
+        <label className="field">
+          <span className="field-label">File</span>
           <input
             key={inputKey}
             type="file"
-            className="input"
+            className="file-input"
             onChange={(e) => setFile(e.target.files[0] || null)}
             disabled={busy}
           />
@@ -116,18 +119,22 @@ export default function Imports({ me }) {
         <button type="submit" className="button-primary" disabled={busy || !file || !kind}>
           {busy ? "Uploading…" : "Upload file"}
         </button>
-        {notice && <p className="hint">{notice}</p>}
-        {error && <p className="error">{error}</p>}
+        {!busy && (!file || !kind) && !notice && !error && (
+          <p className="hint upload-note">Choose a source and a file, then upload.</p>
+        )}
+        {notice && <p className="hint upload-note">{notice}</p>}
+        {error && <p className="error upload-note">{error}</p>}
       </form>
 
-      <p>
-        <button type="button" className="link-button" onClick={reload}>
+      <div className="section-head section-head-wide">
+        <h2>Uploaded files</h2>
+        <button type="button" className="button" onClick={reload}>
           Refresh
         </button>
-      </p>
+      </div>
       {narrow ? (
         <div className="card-list">
-          {batches.length === 0 && <p className="hint">No files uploaded for this company yet.</p>}
+          {batches.length === 0 && <div className="empty">No files uploaded for this company yet.</div>}
           {batches.map((b) => (
             <div key={b.id} className="item">
               <div className="item-title">{b.original_filename}</div>
@@ -145,49 +152,50 @@ export default function Imports({ me }) {
           ))}
         </div>
       ) : (
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>File</th>
-                <th>Source</th>
-                <th className="num">Size</th>
-                <th>Status</th>
-                <th className="num">Rows loaded</th>
-                <th className="num">Rows skipped</th>
-                <th>Uploaded by</th>
-                <th>Uploaded</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {batches.length === 0 && (
+        batches.length === 0 ? (
+          <div className="empty">No files uploaded for this company yet.</div>
+        ) : (
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
                 <tr>
-                  <td colSpan={9}>No files uploaded for this company yet.</td>
+                  <th>File</th>
+                  <th>Status</th>
+                  <th className="num">Rows loaded</th>
+                  <th className="num">Rows skipped</th>
+                  <th>Uploaded</th>
+                  <th></th>
                 </tr>
-              )}
-              {batches.map((b) => (
-                <tr key={b.id}>
-                  <td className="wrap-anywhere">{b.original_filename}</td>
-                  <td>{b.source_label}</td>
-                  <td className="num">{formatBytes(b.byte_size)}</td>
-                  <td>
-                    {b.status_label}
-                    {b.message && <div className={messageClass(b)}>{b.message}</div>}
-                    <Issues items={b.issues} />
-                  </td>
-                  <td className="num">{b.rows_loaded}</td>
-                  <td className="num">{b.rows_rejected}</td>
-                  <td>{b.uploaded_by_email || "unknown user"}</td>
-                  <td>{new Date(b.uploaded_at).toLocaleString()}</td>
-                  <td>
-                    <a href={`/api/imports/${b.id}/download`}>Download</a>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {batches.map((b) => (
+                  <tr key={b.id}>
+                    <td className="wrap-anywhere">
+                      {b.original_filename}
+                      <div className="cell-sub">
+                        {b.source_label} · {formatBytes(b.byte_size)}
+                      </div>
+                    </td>
+                    <td>
+                      {b.status_label}
+                      {b.message && <div className={messageClass(b)}>{b.message}</div>}
+                      <Issues items={b.issues} />
+                    </td>
+                    <td className="num">{b.rows_loaded}</td>
+                    <td className="num">{b.rows_rejected}</td>
+                    <td>
+                      {new Date(b.uploaded_at).toLocaleString()}
+                      <div className="cell-sub">{b.uploaded_by_email || "unknown user"}</div>
+                    </td>
+                    <td>
+                      <a href={`/api/imports/${b.id}/download`}>Download</a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
       )}
     </div>
   );

@@ -125,6 +125,10 @@ Design only: the shared styles, a header with the navigation on its own row (a M
 Design only: a page head with a count sentence, labelled filters, a seven-column list, an empty state; one estimate with its facts in a block, Attention above the tables. No figure and no API response changed.
 **Accept**: the same estimates, prices, versions and attention sentences as before; every figure on 6115758 unchanged; no sideways page scroll at 1280 px and 390 px; one primary action.
 
+### F09.3 · Imports page  ◐ (built 2026-10-08, no migration, no decision; the owner's pass on jobcost.dev is open; see `docs/briefs/F09.3.md`)
+Design only: the upload form on one line in a card, the files list with six columns and a Refresh button, an empty state. No API response and no upload behaviour changed.
+**Accept**: a real upload, a repeated upload and a failed file read as before; Download works; no sideways page scroll at 1280 px and 390 px; one primary action.
+
 > **Release B**: you can answer "who has paid a deposit, what is billed, what is left to bill" for every sold job, with backlog by division and estimator.
 
 ---

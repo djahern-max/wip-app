@@ -15,6 +15,14 @@ Newest first. One entry per closed feature or decision. Format:
 
 ---
 
+## 2026-10-08 · F09.3 · Imports page
+**What**: The upload form is one card with Source, File and "Upload file" on one line (stacked on a phone), the file control styled like the others, and one new sentence while a source or file is missing. The files list has a heading with a Refresh button, six columns (file with source and size, uploaded with the person) and an empty-state card; the phone cards sit on white.
+**Why**: The third design feature under D-47; the owner asked for it 2026-10-08.
+**Migrations**: none.
+**Tests**: none added; the existing checks on this page pass unchanged. `npm test` 84 pass. Backend suite not run in the build environment.
+**Decisions referenced / made**: D-22, D-47 referenced; none made.
+**Dependencies added**: none.
+
 ## 2026-10-08 · F09.2 · Estimates page: list and one estimate
 **What**: The list has a page head (title, a count sentence, "Upload estimates"), labelled filters, seven columns (id with name, client with jobsite) and an empty-state card. One estimate has its name as the heading, its facts in a block with Price and EAC in the WIP basis in bold, Attention above the tables, and an omitted work area muted. Shared styles for later screens (`.page-head`, `.filters`, `.facts` and others).
 **Why**: The second design feature under D-47; mockup approved by the owner 2026-10-08.

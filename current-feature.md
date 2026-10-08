@@ -1,5 +1,10 @@
 # current-feature.md
 
+**F09.3 · Imports page is built** (2026-10-08, one commit, no migration, no decision;
+frontend only, no API response and no upload behaviour changed; **ROADMAP F09.3 ◐; the
+owner's pass on jobcost.dev, tenant `rye-beach`, is open**; the brief is
+`docs/briefs/F09.3.md`).
+
 **F09.2 · Estimates page: list and one estimate is built** (2026-10-08, one commit, no
 migration, no decision; frontend only, no figure and no API response changed; **ROADMAP
 F09.2 ◐; the owner's pass on jobcost.dev, tenant `rye-beach`, is open**; the brief is

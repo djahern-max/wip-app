@@ -593,6 +593,7 @@ h3 {
   padding: 0.75rem;
   margin-bottom: 0.75rem;
   font-size: 14px;
+  background: var(--surface);
 }
 
 .item-title {
@@ -847,4 +848,78 @@ h3 {
   border-radius: 8px;
   background: var(--surface);
   font-size: 14px;
+}
+
+/* --- F09.3: Imports ------------------------------------------------------------------------
+   The upload form is one line on a laptop (source, file, the button), wrapping on a phone;
+   what the form has to say sits on its own line under the controls. */
+
+.upload-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 1rem 1.5rem;
+  padding: 1.25rem 1.5rem;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.upload-form .select {
+  min-width: 16rem;
+}
+
+.upload-note {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.file-input {
+  max-width: 100%;
+  min-height: 40px;
+  box-sizing: border-box;
+  padding: 0.3rem;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--control);
+  border-radius: 6px;
+}
+
+.file-input::file-selector-button {
+  min-height: 30px;
+  margin-right: 0.75rem;
+  padding: 0 0.75rem;
+  font: inherit;
+  cursor: pointer;
+  color: var(--text);
+  background: var(--surface-alt);
+  border: 1px solid var(--control);
+  border-radius: 4px;
+}
+
+/* A section heading with a control at its right, as wide as the page. */
+.section-head-wide {
+  align-items: center;
+  max-width: none;
+  margin: 2rem 0 0.75rem;
+}
+
+.section-head-wide h2 {
+  margin: 0;
+}
+
+@media (max-width: 640px) {
+  .upload-form {
+    padding: 1rem;
+  }
+
+  .upload-form .field,
+  .upload-form .select,
+  .upload-form .file-input,
+  .upload-form .button-primary {
+    width: 100%;
+    min-width: 0;
+  }
 }
