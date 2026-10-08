@@ -79,10 +79,22 @@ def test_d46_is_in_decisions_once_directly_after_d45_word_for_word() -> None:
     decisions = DECISIONS.read_text()
     order = [m.group(1) for m in re.finditer(r"^## (D-\d+[a-z]?) ·", decisions, re.M)]
     assert order.count("D-46") == 1
-    assert order.index("D-46") == order.index("D-45") + 1 == len(order) - 1
+    assert order.index("D-46") == order.index("D-45") + 1
     brief = _brief("D-46", "F09.md")
     assert _entry(decisions, "D-46") == _entry(brief, "D-46")
     assert "block-close cannot be dismissed" in _entry(decisions, "D-46").replace(
         "An exception of severity block-close cannot be dismissed",
         "block-close cannot be dismissed",
     )
+
+
+def test_d47_is_in_decisions_once_directly_after_d46_and_last() -> None:
+    """F09.1: D-47 (2026-10-08) amends D-22 without editing it; it is the one decision
+    after D-46 and names what stays."""
+    decisions = DECISIONS.read_text()
+    order = [m.group(1) for m in re.finditer(r"^## (D-\d+[a-z]?) ·", decisions, re.M)]
+    assert order.count("D-47") == 1
+    assert order.index("D-47") == order.index("D-46") + 1 == len(order) - 1
+    entry = _entry(decisions, "D-47")
+    assert "D-22 stands except as follows" in entry
+    assert "no gradients, shadows or animations" in entry
