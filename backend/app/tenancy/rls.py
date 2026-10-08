@@ -39,6 +39,7 @@ APPEND_ONLY_TABLES: tuple[str, ...] = (
     "webhook_event",  # F05.1 (D-29): tenant-less, stored before the tenant is known
     "change_order_approval",  # F07.4 (D-42): approvals and withdrawals are history
     "billing_line_work_area",  # F08.1 (D-45): assignments and clears are history
+    "exception_event",  # F09 (D-46): an exception's history, notes and dismissals
 )
 
 

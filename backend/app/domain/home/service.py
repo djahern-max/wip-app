@@ -4,6 +4,7 @@ functions in ``checklist.py`` turn the facts into lines. Requires ``app.tenant_i
 the session. Reads only; nothing here writes."""
 
 from dataclasses import dataclass
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -21,7 +22,10 @@ from app.domain.config.models import (
 )
 from app.domain.config.policy import POLICY_KEYS, WIP_BASIS
 from app.domain.config.service import unmapped_count
+from app.domain.estimates.exceptions import Issue
 from app.domain.estimates.models import Estimate
+from app.domain.exceptions import service as exceptions
+from app.domain.exceptions.collect import job_attention
 from app.domain.home.checklist import (
     Item,
     JobFacts,
@@ -109,13 +113,40 @@ def setup_facts(db: Session, tenant_id: UUID, role: Role | None) -> SetupFacts:
     )
 
 
+def _first(by_code: dict[str, list[Issue]], code: str) -> Issue | None:
+    found = by_code.get(code)
+    return found[0] if found else None
+
+
+def _amount(detail: dict, key: str) -> str | None:
+    value = detail.get(key)
+    return None if value is None else money_str(Decimal(str(value)))
+
+
 def job_facts(db: Session, tenant_id: UUID) -> list[JobFacts]:
+    """F09: every fact that is a review sentence comes from the one computation
+    (``job_attention``), with the dismissed exceptions left out, so Home's needs and the
+    board's sentences cannot disagree; the contract facts come from the view."""
     views = jobs.list_jobs(db, tenant_id)
-    board = load_board(db, tenant_id, views, other=False)  # F08: the three billing needs
+    board = load_board(db, tenant_id, views, other=False)  # F08: the billing needs
+    dismissed = exceptions.dismissed_keys(db)
     out = []
     for v in views:
         f = board.per_job[v.job.id]
-        wa = board.work_areas.get(v.job.id)
+        issues = exceptions.without_dismissed(
+            job_attention(v, f, board.work_areas.get(v.job.id), board.applications.get(v.job.id)),
+            "job",
+            v.job.id,
+            dismissed,
+        )
+        by_code: dict[str, list[Issue]] = {}
+        for i in issues:
+            by_code.setdefault(i.code, []).append(i)
+        unapplied = _first(by_code, "PAYMENT_UNAPPLIED")
+        over = _first(by_code, "BILLED_OVER_CONTRACT")
+        flag = _first(by_code, "BILLING_UNAPPROVED_CO")
+        credits = by_code.get("PAYMENT_OTHER_CREDIT", [])
+        credit_total = sum((Decimal(str(i.detail["amount"])) for i in credits), Decimal("0.00"))
         out.append(
             JobFacts(
                 id=str(v.job.id),
@@ -125,19 +156,20 @@ def job_facts(db: Session, tenant_id: UUID) -> list[JobFacts]:
                 revenue_method=v.job.revenue_method,
                 to_confirm=v.contract.to_confirm,
                 qbo_linked=bool(v.qbo_aliases),
-                needs_link=any(i.code == "JOB_NO_LEDGER_LINK" for i in v.issues),
-                unapplied_payments=(money_str(f.unapplied_payments) if f.unapplied_count else None),
-                deposit_not_identified=len(f.deposit_mismatches),
-                billed_over_contract=money_str(f.over_contract),
+                needs_link="JOB_NO_LEDGER_LINK" in by_code,
+                unapplied_payments=_amount(unapplied.detail, "amount") if unapplied else None,
+                deposit_not_identified=len(by_code.get("DEPOSIT_NOT_IDENTIFIED", [])),
+                billed_over_contract=_amount(over.detail, "over") if over else None,
                 unapproved_change_orders=money_str(v.contract.unapproved_change_orders),
                 unapproved_count=v.contract.unapproved_count,
-                approvals_ended=sum(1 for i in v.issues if i.code == "CO_APPROVAL_NOT_CARRIED"),
-                billing_unapproved_co=(
-                    money_str(wa.unapproved_billed)
-                    if wa is not None and wa.unapproved_labels
-                    else None
-                ),
-                billing_unapproved_labels=wa.unapproved_labels if wa is not None else (),
+                approvals_ended=len(by_code.get("CO_APPROVAL_NOT_CARRIED", [])),
+                billing_unapproved_co=_amount(flag.detail, "amount") if flag else None,
+                billing_unapproved_labels=tuple(flag.detail["work_areas"]) if flag else (),
+                other_credits_applied=money_str(credit_total) if credits else None,
+                other_credit_count=len(credits),
+                payapp_not_invoiced=len(by_code.get("PAYAPP_NOT_INVOICED", [])),
+                payapp_invoice_mismatch=len(by_code.get("PAYAPP_INVOICE_MISMATCH", [])),
+                invoice_no_payapp=len(by_code.get("INVOICE_NO_PAYAPP", [])),
             )
         )
     return out

@@ -71,3 +71,18 @@ def test_d45_is_in_decisions_once_directly_after_d44() -> None:
     assert order.index("D-45") == order.index("D-44") + 1
     entry = _entry(decisions, "D-45")
     assert "BILLING_UNAPPROVED_CO" in entry and "assigns earlier invoice lines" in entry
+
+
+def test_d46_is_in_decisions_once_directly_after_d45_word_for_word() -> None:
+    """F09: D-46 (the owner's paste, 2026-10-08) is appended after D-45 and carried in the
+    brief word for word."""
+    decisions = DECISIONS.read_text()
+    order = [m.group(1) for m in re.finditer(r"^## (D-\d+[a-z]?) ·", decisions, re.M)]
+    assert order.count("D-46") == 1
+    assert order.index("D-46") == order.index("D-45") + 1 == len(order) - 1
+    brief = _brief("D-46", "F09.md")
+    assert _entry(decisions, "D-46") == _entry(brief, "D-46")
+    assert "block-close cannot be dismissed" in _entry(decisions, "D-46").replace(
+        "An exception of severity block-close cannot be dismissed",
+        "block-close cannot be dismissed",
+    )

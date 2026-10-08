@@ -29,6 +29,7 @@ from app.domain.config.models import (
     TenantPolicy,
 )
 from app.domain.estimates.models import Estimate, EstimateCost, EstimateVersion, EstimateWorkArea
+from app.domain.exceptions.models import ExceptionEvent, ReviewException
 from app.domain.jobs.models import ChangeOrderApproval, Job, JobAlias, JobEstimate
 from app.ingest.models import Connection, ImportBatch, RawRecord, SyncRun
 from app.tenancy import catalog
@@ -56,6 +57,7 @@ F08_1_TABLES = (
     "pay_application",  # F08.1 Part 2 (D-36), 0015
     "pay_application_line",
 )
+F09_TABLES = ("exception", "exception_event")  # F09 (D-46), 0016; the event table append-only
 F04_TABLES = (
     "division",
     "cost_category",
@@ -80,6 +82,7 @@ def test_every_tenant_table_is_enumerated(migrated_db: None, owner_engine: Engin
         *F07_TABLES,
         *F07_4_TABLES,
         *F08_1_TABLES,
+        *F09_TABLES,
     }
 
 
@@ -635,6 +638,59 @@ def test_f08_1_tables_read_zero_rows_of_another_tenant(
             .first()
             is not None
         )
+
+
+def _seed_f09_rows(
+    owner_engine: Engine, tenant_id: uuid.UUID, marker: str, user_id: uuid.UUID
+) -> None:
+    """One exception with one event in ``tenant_id`` (F09)."""
+    now = datetime.now(UTC)
+    with tenant_session(owner_engine, tenant_id) as s:
+        row = ReviewException(
+            tenant_id=tenant_id,
+            code="JOB_DIVISION_UNSET",
+            severity="warn",
+            subject_type="job",
+            subject_id=uuid.uuid4(),
+            item_key=marker,
+            message=f"Probe {marker}.",
+            detail={},
+            status="open",
+            first_raised_at=now,
+            last_raised_at=now,
+        )
+        s.add(row)
+        s.flush()
+        s.add(
+            ExceptionEvent(
+                tenant_id=tenant_id,
+                exception_id=row.id,
+                kind="note",
+                actor_user_id=user_id,
+                text=marker,
+            )
+        )
+
+
+@pytest.mark.parametrize("table", F09_TABLES)
+def test_f09_tables_read_zero_rows_of_another_tenant(
+    seed: Seed, rw_engine: Engine, owner_engine: Engine, table: str
+) -> None:
+    marker = f"f09-{uuid.uuid4().hex[:8]}"
+    _seed_f09_rows(owner_engine, seed.tenant_b, marker, seed.users["firm_admin"].id)
+    models = {"exception": ReviewException, "exception_event": ExceptionEvent}
+    with tenant_session(rw_engine, seed.tenant_a) as s:
+        orm_tenants = {r.tenant_id for r in s.execute(select(models[table])).scalars()}
+        other = s.execute(
+            text(f'SELECT count(*) FROM "{table}" WHERE tenant_id = :b'), {"b": seed.tenant_b}
+        ).scalar_one()
+    assert seed.tenant_b not in orm_tenants and other == 0
+    with tenant_session(rw_engine, seed.tenant_b) as s:
+        assert s.execute(text(f'SELECT count(*) FROM "{table}"')).scalar_one() >= 1
+        if table == "exception_event":
+            # D-13: the history is never edited, by any role.
+            with pytest.raises(ProgrammingError):
+                s.execute(text(f"UPDATE \"{table}\" SET text = 'x'"))
 
 
 @pytest.mark.parametrize("table", F07_4_TABLES)

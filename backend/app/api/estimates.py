@@ -10,6 +10,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.schemas import (
+    DismissedOut,
     EstimateBurdenDivisionOut,
     EstimateCategoryTotalOut,
     EstimateCostLineOut,
@@ -36,6 +37,8 @@ from app.domain.estimates.service import (
     status_label,
 )
 from app.domain.estimates.totals import with_burden
+from app.domain.exceptions import service as exceptions
+from app.domain.exceptions.collect import estimate_attention
 from app.domain.jobs.models import ROLE_LABELS
 from app.domain.jobs.service import estimate_job
 
@@ -44,7 +47,9 @@ router = APIRouter(prefix="/estimates", tags=["estimates"])
 Viewer = Annotated[Principal, Depends(can_view_estimates)]
 
 
-def _row(view: EstimateView) -> EstimateRowOut:
+def _row(view: EstimateView, attention: list) -> EstimateRowOut:
+    """F09: ``attention`` is the one computation (``estimate_attention``) less the dismissed
+    exceptions; the list and the detail pass the same list, burden sentences included."""
     e = view.estimate
     return EstimateRowOut(
         id=str(e.id),
@@ -59,7 +64,14 @@ def _row(view: EstimateView) -> EstimateRowOut:
         price=money(e.price),
         estimate_date=e.estimate_date.isoformat() if e.estimate_date else None,
         versions=view.version_count,
-        attention=[EstimateIssueOut(code=i.code, message=i.message) for i in view.issues()],
+        attention=[EstimateIssueOut(code=i.code, message=i.message) for i in attention],
+    )
+
+
+def _attention(db, view: EstimateView, grid: Grid, inputs, dismissed) -> list:
+    burden = service.estimate_burden(db, view, grid, inputs)
+    return exceptions.without_dismissed(
+        estimate_attention(view, burden), "estimate", view.estimate.id, dismissed
     )
 
 
@@ -70,10 +82,18 @@ def list_estimates(
     status: Annotated[str | None, Query(pattern="^(pending|sold|lost|unknown)$")] = None,
     estimator: Annotated[str | None, Query(max_length=200)] = None,
 ):
-    views, estimators, _grid = service.list_estimates(
+    views, estimators, grid = service.list_estimates(
         db, viewer.active_tenant_id, status=status, estimator=estimator
     )
-    return EstimatesOut(estimates=[_row(v) for v in views], estimators=estimators, total=len(views))
+    # F09: the burden sentences on the list too (the rates and the time zone read once), and
+    # the dismissed exceptions left out (one statement for the page).
+    inputs = service.load_burden_inputs(db)
+    dismissed = exceptions.dismissed_keys(db)
+    return EstimatesOut(
+        estimates=[_row(v, _attention(db, v, grid, inputs, dismissed)) for v in views],
+        estimators=estimators,
+        total=len(views),
+    )
 
 
 def _work_area(w: service.WorkAreaView, burden: BurdenView | None = None) -> EstimateWorkAreaOut:
@@ -165,8 +185,24 @@ def get_estimate(viewer: Viewer, db: TenantSession, estimate_id: UUID):
     view, versions, grid = found
     burden = service.estimate_burden(db, view, grid)
     baseline = next((vv.version.version_no for vv in versions if vv.version.is_baseline), None)
-    row = _row(view).model_dump()
-    row["attention"] += [EstimateIssueOut(code=i.code, message=i.message) for i in burden.issues]
+    attention = exceptions.without_dismissed(
+        estimate_attention(view, burden),
+        "estimate",
+        view.estimate.id,
+        exceptions.dismissed_keys(db),
+    )
+    row = _row(view, attention).model_dump()
+    dismissed = [
+        DismissedOut(
+            id=d.id,
+            code=d.code,
+            message=d.message,
+            note=d.note,
+            dismissed_by=d.dismissed_by,
+            dismissed_at=d.dismissed_at,
+        )
+        for d in exceptions.dismissed_for(db, "estimate", view.estimate.id)
+    ]
     on_job = estimate_job(db, view.estimate.id)  # F07: the "Job:" line
     return EstimateDetailOut(
         **row,
@@ -179,6 +215,7 @@ def get_estimate(viewer: Viewer, db: TenantSession, estimate_id: UUID):
             role_label=ROLE_LABELS[on_job[1].role],
         ),
         to_review=on_job is None and view.estimate.status_norm == "sold",
+        dismissed=dismissed,
         versions_list=[
             EstimateVersionOut(
                 id=str(vv.version.id),

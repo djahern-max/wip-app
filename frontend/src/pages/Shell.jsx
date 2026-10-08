@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { PRODUCT_NAME, SUPPORT_EMAIL } from "../product.js";
+import { openWords, pickerWords } from "../exceptions.js";
 import Logo from "../Logo.jsx";
 import Config from "./Config.jsx";
 import Connections from "./Connections.jsx";
 import Customers from "./Customers.jsx";
 import Estimates from "./Estimates.jsx";
+import Exceptions from "./Exceptions.jsx";
 import Home from "./Home.jsx";
 import Imports from "./Imports.jsx";
 import Jobs from "./Jobs.jsx";
@@ -87,7 +89,7 @@ export default function Shell({ me, onChanged, onLogout }) {
       .then(setTenants)
       .catch(() => setError("The list of companies could not be loaded. Reload the page."));
     fetch("/api/health").then((r) => r.json()).then(setHealth).catch(() => setHealth(null));
-  }, [me.active_tenant_id]);
+  }, [me.active_tenant_id, view]); // F09: the open count follows the person from page to page
 
   async function switchTenant(tenantId) {
     setError(null);
@@ -123,6 +125,7 @@ export default function Shell({ me, onChanged, onLogout }) {
             {tenants.map((t) => (
               <option key={t.tenant_id} value={t.tenant_id}>
                 {t.name} ({t.role})
+                {me.firm_role && t.open_exceptions ? ` · ${pickerWords(t.open_exceptions)}` : ""}
               </option>
             ))}
           </select>
@@ -137,6 +140,9 @@ export default function Shell({ me, onChanged, onLogout }) {
             </button>
             <button type="button" className="link-button" onClick={() => go("jobs")}>
               Jobs
+            </button>
+            <button type="button" className="link-button" onClick={() => go("exceptions")}>
+              Exceptions{active.open_exceptions ? ` (${openWords(active.open_exceptions)})` : ""}
             </button>
             {canManageJobs && (
               <button type="button" className="link-button" onClick={() => go("customers")}>
@@ -179,6 +185,8 @@ export default function Shell({ me, onChanged, onLogout }) {
           />
         ) : active && view === "jobs" ? (
           <Jobs me={me} canManage={canManageJobs} target={jobTarget} onOpenEstimate={openEstimate} />
+        ) : active && view === "exceptions" ? (
+          <Exceptions me={me} onOpenJob={openJob} onOpenEstimate={openEstimate} onOpenCustomers={() => go("customers")} />
         ) : active && view === "customers" && canManageJobs ? (
           <Customers me={me} onOpenJob={openJob} />
         ) : active && view === "imports" && canImport ? (

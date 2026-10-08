@@ -306,6 +306,11 @@ def normalize(
                 skipped += 1
             elif outcome.result in ("applied", "deleted"):
                 applied += 1
+        if applied:
+            # F09: the review sentences follow the change on the next run (one per burst).
+            from app.domain.exceptions.run import request_refresh
+
+            request_refresh(db, tenant_id)
         if entity == "Account":
             result = attach_account_ids(db, tenant_id)
             log.info(

@@ -86,6 +86,7 @@ The owner is a CPA and the domain expert. When accounting treatment is unclear, 
 - **Cost code**: division digit plus cost category slot, e.g. 410 = SNOW Labor. Computed, never stored.
 - **WIP basis**: the set of cost categories included in both cost to date and EAC for percent complete.
 - **Unassigned**: ledger amounts in job-cost accounts with no job. Always displayed, never dropped.
+- **Exception**: a review sentence with an identity (the subject, the code and the item it is about): open until its cause is gone (resolved, by the run only) or a person dismisses it with a note (D-46). A block-close exception is never dismissed. A dismissed one opens again when what its sentence states changes. The pages compute their sentences live through one function per subject; the run persists what they return; the queue shows them as of the last run (F09).
 - **Billing request**: operations' statement of cumulative percent complete per work area; the platform computes the amount to bill.
 - **Work area number**: the work area's order in the estimate; invoice lines begin with #n.
 - **Pool**: a job with `revenue_method = pool` that holds shared supplies until month-end allocation (D-30, D-31); never on the WIP schedule.

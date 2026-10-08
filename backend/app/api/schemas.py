@@ -39,11 +39,20 @@ class EnrolConfirmOut(SessionOut):
     recovery_codes: list[str]
 
 
+class ExceptionCountsOut(_Out):
+    """F09: a company's open exceptions by severity (§10 words on screen)."""
+
+    info: int
+    warn: int
+    block_close: int
+
+
 class TenantOut(_Out):
     tenant_id: str
     name: str
     slug: str
     role: str
+    open_exceptions: ExceptionCountsOut | None = None  # F09: read one company at a time
 
 
 class TenantEnteredOut(_Out):
@@ -378,6 +387,18 @@ class EstimateIssueOut(_Out):
     message: str
 
 
+class DismissedOut(_Out):
+    """F09 (D-46): a dismissed exception of the subject, listed under "Dismissed" with its
+    note and who dismissed it; never a need."""
+
+    id: str
+    code: str
+    message: str
+    note: str
+    dismissed_by: str | None
+    dismissed_at: str
+
+
 class EstimateRowOut(_Out):
     id: str
     external_id: str
@@ -495,6 +516,7 @@ class EstimateDetailOut(EstimateRowOut):
     totals: EstimateTotalsOut
     job: EstimateJobOut | None = None  # F07
     to_review: bool = False  # F07: sold and on no job
+    dismissed: list[DismissedOut] = []  # F09
 
 
 # --- F07 jobs and the crosswalk: money as strings with cents (D-22) --------------------------
@@ -798,6 +820,8 @@ class JobDetailOut(JobRowOut):
     invoice_lines: InvoiceLinesOut
     work_area_totals: WorkAreaTotalsOut
     change_order_totals: WorkAreaTotalsOut
+    # F09 (D-46): the job's dismissed exceptions, with their notes.
+    dismissed: list[DismissedOut] = []
 
 
 class PayApplicationLineOut(_Out):
@@ -1062,3 +1086,61 @@ class DuplicatePairOut(_Out):
 
 class DuplicatesOut(_Out):
     pairs: list[DuplicatePairOut]
+
+
+# --- F09 exceptions queue (D-22, D-46): the sentence, never the code alone -------------------
+
+
+class ExceptionSubjectOut(_Out):
+    type: str  # job | estimate | customer
+    id: str
+    label: str  # the job's name, the estimate's number, the QuickBooks row's name
+
+
+class ExceptionEventOut(_Out):
+    id: str
+    kind: str
+    kind_label: str
+    occurred_at: str
+    actor: str | None  # None: the run
+    assigned_to: str | None
+    text: str | None
+    detail: dict | None
+
+
+class ExceptionOut(_Out):
+    id: str
+    code: str  # machine value; never shown without its sentence
+    severity: str
+    severity_label: str
+    message: str
+    subject: ExceptionSubjectOut
+    status: str
+    status_label: str
+    may_dismiss: bool  # D-46: false for block-close
+    assigned_to_id: str | None
+    assigned_to: str | None
+    first_raised_at: str
+    last_raised_at: str
+    resolved_at: str | None
+    dismissed_at: str | None
+    dismissed_by: str | None
+
+
+class ExceptionDetailOut(ExceptionOut):
+    events: list[ExceptionEventOut]  # oldest first
+
+
+class ExceptionMemberOut(_Out):
+    id: str
+    name: str
+
+
+class ExceptionsOut(_Out):
+    exceptions: list[ExceptionOut]
+    total: int
+    tenant_name: str
+    as_of: str | None  # the last run; None before the first
+    counts: ExceptionCountsOut  # open, by severity, whatever the filters
+    members: list[ExceptionMemberOut]  # who an exception can be assigned to
+    can_manage: bool  # the caller may assign, dismiss and reopen

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { formatMoney } from "../money.js";
+import { Dismissed } from "./JobAttention.jsx";
 
 // Estimates (F06): every estimate loaded from the estimate template, and one
 // estimate's detail (its latest version's work areas with their cost, cost by cost
@@ -382,6 +383,7 @@ function Detail({ d, onOpenJob, onReview }) {
           ))}
         </ul>
       )}
+      <Dismissed items={d.dismissed} />
 
       <h3>Versions</h3>
       <div className="table-wrap">

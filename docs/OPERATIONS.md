@@ -678,8 +678,9 @@ EAC in the basis, the version list, and the attention sentences.
 | (no code) | A row was not loaded: kept not Y/N, a value not a number, a duplicate, a cost line for a work area not in the file, an id not yet on any Estimates sheet. | Fix the row; upload again. |
 
 The per-estimate sentences are computed when the estimate is read (pure generators in
-`app/domain/estimates/exceptions.py`); F09 persists them. File-level ones live on the
-batch.
+`app/domain/estimates/exceptions.py`) and held as exceptions by the F09 run ("Exceptions",
+below); the list and the detail carry the same sentences, burden sentences included.
+File-level ones live on the batch and are not queued.
 
 ## Jobs (F07, D-03)
 
@@ -1102,8 +1103,55 @@ platform says what to bill and gives the customer the document.
 | `INVOICE_NO_PAYAPP` | An invoice on the job dated on or after the job's first issued pay application that is not an application's and not the deposit (D-36; F08.1). | Enter the billing request it belongs to, or correct its number. |
 | `PAYAPP_INVOICE_MISMATCH` | The invoice does not tie to its pay application: the amount less fuel surcharge lines, or the fuel surcharge lines themselves, differ from the application (D-39; F08.1); the sentence names the difference. | Correct the invoice in QuickBooks; the next poll clears it. |
 
-The review items are computed when read (`app/domain/jobs/issues.py`); F09 persists them.
-Home lists the three F08 needs after the F07 ones, first rule that applies.
+The review items are computed when read (`app/domain/jobs/issues.py`, assembled once per
+job in `app/domain/exceptions/collect.py`) and held as exceptions by the F09 run
+("Exceptions", below). Home lists the F08 needs after the F07 ones, then other credits
+applied (D-41), the unapproved flag, the three pay-application ties, then the F07.4
+needs, first rule that applies; a dismissed exception is not a need anywhere.
+
+## Exceptions (F09, D-46)
+
+An **exception** is a review sentence with an identity that lasts: the subject (a job, an
+estimate or a QuickBooks customer row), the code and the item it is about (a work area, a
+document, a payment, an approval). It is **open** until its cause is gone (**resolved**,
+set only by the run) or a person **dismisses** it with a note. The Exceptions page (every
+role) lists the company's exceptions, open first, then by severity, then oldest first,
+with the sentence, what it is about (a link), the severity in words, when it was first
+raised, who it is assigned to and its status; filters by status, severity and "Assigned
+to me". The company picker shows a firm user each company's open count in words.
+
+- **Severity (§10)**: *Blocks period close* (`block_close`: a sold estimate on no job, an
+  open job with no QuickBooks link, a tracked row with no job, a fixed-price job's
+  estimate without cost lines), *Needs attention* (`warn`: every other code in scope),
+  *For information* (`info`: none today). F16 reads the severity when a period closes.
+- **When the run happens**: after a QuickBooks poll that applied a change, after an
+  import that loaded estimates (the `estimates.normalize` task queues it), and after a
+  person's state-changing request on the jobs, customers, pay application or configuration
+  pages (the API queues one run per burst; a run already queued takes the change; one
+  already running is followed by one more). The worker task is `exceptions.refresh`; the page says "As of the last run on
+  <date>" from its task row. A page read never runs it: the Jobs board, the job page,
+  Home and the Estimates pages compute their sentences live and leave out what is
+  dismissed. A second run with nothing changed writes nothing.
+- **Assign** (`firm_admin`, `firm_staff`, `client_admin`): to a member of the company, or
+  to nobody; one audit row (`exception_assigned`). Assigning to someone who is not a
+  member is refused in one sentence.
+- **Add a note** (everyone who can open the company): any number, kept in order with who
+  and when in the exception's history; no audit row (the history row is the record).
+- **Dismiss** (`firm_admin`, `firm_staff`, `client_admin`): an open info or warn
+  exception, with a note; refused in one sentence without one, or on a block-close
+  exception. One audit row (`exception_dismissed`). A dismissed exception is not a need
+  on the board, Home or the Estimates list; the job page and the estimate page list it
+  under "Dismissed" with its note and who dismissed it. It stays dismissed across runs
+  while what its sentence states is unchanged (the amount, the work areas, the subject)
+  and **opens again** when that changes, with the earlier note kept and "Opened again:
+  what the sentence states changed" in its history. A dismissed exception whose cause
+  goes away becomes resolved; if the cause returns, it opens.
+- **Reopen** (the same roles): a dismissed exception; one audit row
+  (`exception_reopened`).
+- **Resolved**: only the run sets it, when the generators no longer raise the sentence;
+  if they raise it again later it is the same exception, opened again ("Raised again").
+- Nothing here changes a figure: dismissing, assigning and resolving leave billed to
+  date, the revised contract, EAC and every other figure exactly as they are.
 
 ## QuickBooks connection (F05)
 

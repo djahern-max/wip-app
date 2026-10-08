@@ -27,6 +27,9 @@ from app.domain.billing.models import (
 from app.domain.config import burden, policy
 from app.domain.config.audit import Actor
 from app.domain.config.service import create_division
+from app.domain.exceptions import service as exceptions_service
+from app.domain.exceptions.models import ReviewException
+from app.domain.exceptions.run import refresh
 from app.domain.jobs.models import ChangeOrderApproval
 from app.tenancy import catalog
 from app.tenancy.models import RlsProbe, Tenant, UserSession
@@ -164,6 +167,12 @@ def _fill_every_tenant_table(
                 percent_complete=Decimal("50.00"),
             )
         )
+    # F09: the exceptions run (exception, exception_event) and one note.
+    with tenant_session(rw_engine, tenant_id) as db:
+        refresh(db, tenant_id)  # the worker may have run already; the rows are what matters
+        first = db.execute(select(ReviewException)).scalars().first()
+        assert first is not None
+        exceptions_service.add_note(db, tenant_id, first.id, "scratch note", actor)
     with tenant_session(owner_engine, tenant_id) as db:
         db.add(RlsProbe(tenant_id=tenant_id, label="to-delete"))
     return fake, _slug(rw_engine, tenant_id)
@@ -193,6 +202,7 @@ def test_the_owner_role_deletes_everything_once_the_slug_is_typed_back(
     assert p.order.index("raw_record") < p.order.index("import_batch")  # child first
     assert p.order.index("import_batch") < p.order.index("task")
     assert p.order.index("billing_line") < p.order.index("billing")
+    assert p.order.index("exception_event") < p.order.index("exception")  # F09
     with pytest.raises(delete_tenant.Refused, match="typed back does not match"):
         delete_tenant.run(
             owner_engine, store, settings, slug=slug, typed=slug + "x", operator="tester"

@@ -118,6 +118,10 @@ class TenantEvent(enum.StrEnum):
     # F07.2 (D-37): a person picks the QuickBooks rows the platform works on
     customer_tracked = "customer_tracked"
     customer_untracked = "customer_untracked"
+    # F09 (D-46): the queue; a note writes its event row and no audit row
+    exception_assigned = "exception_assigned"
+    exception_dismissed = "exception_dismissed"
+    exception_reopened = "exception_reopened"
     work_area_kind_confirmed = "work_area_kind_confirmed"
     # F07.4 (D-42): a project manager records that the customer agreed, or withdraws it
     change_order_approved = "change_order_approved"

@@ -344,6 +344,13 @@ class JobFacts:
     # (cents, as the API; None when 0.00) and their labels ("#18", "#1 of EST6120638").
     billing_unapproved_co: str | None = None
     billing_unapproved_labels: tuple[str, ...] = ()
+    # F09 (the owner's yes to the Plan's order): PAYMENT_OTHER_CREDIT (D-41, F08.2) and the
+    # three pay-application tie sentences (D-36, D-39, F08.1), from the one computation.
+    other_credits_applied: str | None = None  # the sum of the sentences shown (cents, as the API)
+    other_credit_count: int = 0  # payments with other credits applied
+    payapp_not_invoiced: int = 0  # PAYAPP_NOT_INVOICED sentences on the job
+    payapp_invoice_mismatch: int = 0  # PAYAPP_INVOICE_MISMATCH sentences on the job
+    invoice_no_payapp: int = 0  # INVOICE_NO_PAYAPP sentences on the job
 
 
 @dataclass(frozen=True)
@@ -439,6 +446,23 @@ def _over_contract(j: JobFacts) -> Need | None:
     return None
 
 
+# --- F09: PAYMENT_OTHER_CREDIT (D-41, F08.2) after the F08 billing needs ---------------------
+
+
+def _other_credit(j: JobFacts) -> Need | None:
+    if j.other_credit_count and j.other_credits_applied is not None:
+        n = j.other_credit_count
+        return Need(
+            "payment_other_credit",
+            f"{_money_words(j.other_credits_applied)} of other credits applied on {n} "
+            f"{_plural(n, 'payment', 'payments')}: an invoice was settled by something other "
+            "than cash (D-41). Collected to date leaves it out.",
+            Link("jobs", job_id=j.id),
+            n,
+        )
+    return None
+
+
 # --- F08.1 (D-45): billing on unapproved change orders, with the F08 billing needs ---------
 
 
@@ -452,6 +476,49 @@ def _billing_unapproved_co(j: JobFacts) -> Need | None:
             f"{_money_words(j.billing_unapproved_co)} billed on {n} change "
             f"{_plural(n, 'order', 'orders')} that {_plural(n, 'is', 'are')} not approved: "
             f"{', '.join(j.billing_unapproved_labels)} (D-45).",
+            Link("jobs", job_id=j.id),
+            n,
+        )
+    return None
+
+
+# --- F09: the pay-application ties (D-36, D-39; F08.1), after the unapproved flag ----------
+
+
+def _payapp_not_invoiced(j: JobFacts) -> Need | None:
+    if j.payapp_not_invoiced:
+        n = j.payapp_not_invoiced
+        return Need(
+            "payapp_not_invoiced",
+            f"{n} issued pay {_plural(n, 'application has', 'applications have')} an amount due "
+            "and no invoice in QuickBooks (D-36). Key the invoice from the application.",
+            Link("jobs", job_id=j.id),
+            n,
+        )
+    return None
+
+
+def _payapp_invoice_mismatch(j: JobFacts) -> Need | None:
+    if j.payapp_invoice_mismatch:
+        n = j.payapp_invoice_mismatch
+        return Need(
+            "payapp_invoice_mismatch",
+            f"{n} {_plural(n, 'invoice does', 'invoices do')} not tie to "
+            f"{_plural(n, 'its', 'their')} pay application (D-39). Correct the invoice in "
+            "QuickBooks.",
+            Link("jobs", job_id=j.id),
+            n,
+        )
+    return None
+
+
+def _invoice_no_payapp(j: JobFacts) -> Need | None:
+    if j.invoice_no_payapp:
+        n = j.invoice_no_payapp
+        return Need(
+            "invoice_no_payapp",
+            f"{n} {_plural(n, 'invoice is', 'invoices are')} not keyed from a pay application "
+            "(D-36). Enter the billing request it belongs to, or correct the number.",
             Link("jobs", job_id=j.id),
             n,
         )
@@ -503,7 +570,11 @@ JOB_NEEDS: tuple[Callable[[JobFacts], Need | None], ...] = (
     _unapplied,
     _deposit,
     _over_contract,
+    _other_credit,  # F09: D-41's sentence, with the F08 billing needs (owner, 2026-10-08)
     _billing_unapproved_co,  # F08.1 (D-45): ahead of the F07.4 needs (owner, 2026-10-07)
+    _payapp_not_invoiced,  # F09: the three tie sentences, after the flag (owner, 2026-10-08)
+    _payapp_invoice_mismatch,
+    _invoice_no_payapp,
     _approval_ended,
     _unapproved_change_orders,
 )

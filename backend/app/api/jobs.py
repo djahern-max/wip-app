@@ -33,6 +33,7 @@ from app.api.schemas import (
     ConfirmSuggestedOut,
     CustomerPickOut,
     CustomersPageOut,
+    DismissedOut,
     DivisionChoiceOut,
     DuplicatePairOut,
     DuplicateSideOut,
@@ -80,15 +81,18 @@ from app.domain.billing.board import (
 )
 from app.domain.billing.figures import ZERO, JobFigures, Totals, totals
 from app.domain.billing.line_details import EMPTY, line_details
-from app.domain.billing.pay_applications import ApplicationView, tie_issues
+from app.domain.billing.pay_applications import ApplicationView
 from app.domain.billing.work_areas import AreaRef, JobWorkAreas, LineTie
 from app.domain.config.audit import Actor
 from app.domain.config.models import Division
 from app.domain.estimates.exceptions import Issue
 from app.domain.estimates.models import STATUS_LABELS
 from app.domain.estimates.service import money
+from app.domain.exceptions import service as exceptions
+from app.domain.exceptions.collect import job_attention
+from app.domain.exceptions.registry import Key
 from app.domain.jobs import service
-from app.domain.jobs.issues import billing_issues, sentence, unapproved_co_billing_issue
+from app.domain.jobs.issues import sentence
 from app.domain.jobs.models import (
     ALIAS_SYSTEM_LABELS,
     APPROVAL_ACTION_LABELS,
@@ -361,11 +365,14 @@ def _row(
     f: JobFigures,
     wa: JobWorkAreas | None = None,
     apps: list[ApplicationView] | None = None,
+    dismissed: frozenset[Key] = frozenset(),
 ) -> dict:
     job = v.job
     original = v.original
-    flag = unapproved_co_billing_issue(job.name, wa) if wa is not None else None
-    ties = tie_issues(job.name, apps or [], f.documents)
+    # F09: one computation per job (collect.job_attention), the dismissed exceptions left out.
+    attention = exceptions.without_dismissed(
+        job_attention(v, f, wa, apps), "job", job.id, dismissed
+    )
     return {
         "id": str(job.id),
         "name": job.name,
@@ -393,9 +400,7 @@ def _row(
             else a.external_id
             for a in v.qbo_aliases
         ],
-        "attention": _issues(
-            [*v.issues, *billing_issues(job.name, f), *([flag] if flag else []), *ties]
-        ),
+        "attention": _issues(attention),
         "billing": _billing(v, f),
         "original_contract": money(v.contract.original_contract),
         "approved_change_orders": money(v.contract.approved_change_orders),
@@ -641,8 +646,22 @@ def _detail(db: Session, tenant_id: UUID, v: service.JobView) -> JobDetailOut:
         if a.link.role == "change_order"
         for w in a.view.work_areas or ()
     ]
+    dismissed = exceptions.dismissed_for(
+        db, "job", v.job.id, [a.estimate.id for a in v.attached if a.link.role != "ignored"]
+    )
     return JobDetailOut(
-        **_row(v, f, wa, board.applications.get(v.job.id)),
+        **_row(v, f, wa, board.applications.get(v.job.id), exceptions.dismissed_keys(db)),
+        dismissed=[
+            DismissedOut(
+                id=d.id,
+                code=d.code,
+                message=d.message,
+                note=d.note,
+                dismissed_by=d.dismissed_by,
+                dismissed_at=d.dismissed_at,
+            )
+            for d in dismissed
+        ],
         invoice_lines=_invoice_lines(db, v, board),
         work_area_totals=_work_area_totals(work_areas),
         change_order_totals=_work_area_totals(change_order_areas),
@@ -736,6 +755,7 @@ class _BoardPage:
     ) -> None:
         self.all_views = service.list_jobs(db, tenant_id)
         self.board: Board = load_board(db, tenant_id, self.all_views)
+        self.dismissed = exceptions.dismissed_keys(db)  # F09: one statement for the page
         self.views = [
             v
             for v in self.all_views
@@ -756,6 +776,7 @@ class _BoardPage:
             self.figures(v),
             self.board.work_areas.get(v.job.id),
             self.board.applications.get(v.job.id),
+            self.dismissed,
         )
 
     @property

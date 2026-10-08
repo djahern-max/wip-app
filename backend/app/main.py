@@ -3,7 +3,7 @@ import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, Response
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import DBAPIError
 
@@ -13,6 +13,8 @@ from app.api.auth import router as auth_router
 from app.api.change_orders import router as change_orders_router
 from app.api.config import router as config_router
 from app.api.estimates import router as estimates_router
+from app.api.exceptions import refresh_after_write
+from app.api.exceptions import router as exceptions_router
 from app.api.health import router as health_router
 from app.api.home import router as home_router
 from app.api.imports import router as imports_router
@@ -116,6 +118,16 @@ def create_app() -> FastAPI:
         response.headers["X-Request-Id"] = request.state.request_id
         return response
 
+    # F09 (Plan answer 1): a state-changing request on a router whose writes change a
+    # generator's input queues one exceptions run in its own transaction. Imports are not
+    # hooked: an upload changes nothing until ``estimates.normalize`` loads it, and that
+    # task queues the run itself.
+    writes_reviewed = (
+        pay_applications_router,
+        config_router,
+        jobs_router,
+        customers_router,
+    )
     for router in (
         health_router,
         auth_router,
@@ -128,11 +140,14 @@ def create_app() -> FastAPI:
         config_router,
         qbo_router,
         estimates_router,
+        exceptions_router,
         jobs_router,
         customers_router,
         home_router,
     ):
-        app.include_router(router, prefix="/api")
+        reviewed = any(router is r for r in writes_reviewed)
+        hooks = [Depends(refresh_after_write)] if reviewed else None
+        app.include_router(router, prefix="/api", dependencies=hooks)
     return app
 
 

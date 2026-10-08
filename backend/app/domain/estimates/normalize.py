@@ -422,6 +422,11 @@ def normalize_task(tenant_id: UUID, *, engine: Engine, import_batch_id: str) -> 
     batch_id = UUID(import_batch_id)
     with tenant_session(engine, tenant_id) as s:
         counts = normalize_batch(s, tenant_id, batch_id)
+        if counts.created or counts.updated or counts.versions:
+            # F09: the estimates' review sentences follow the load on the next run.
+            from app.domain.exceptions.run import request_refresh
+
+            request_refresh(s, tenant_id)
     log.info(
         "tenant=%s batch=%s estimates normalized: created=%d updated=%d versions=%d "
         "unchanged=%d held=%d issues=%d",

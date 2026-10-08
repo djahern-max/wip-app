@@ -274,6 +274,80 @@ def test_billing_on_unapproved_change_orders_shows_ahead_of_the_f07_4_needs() ->
     assert next_need(quiet).code == "change_orders_unapproved"
 
 
+def test_f09_other_credits_and_the_three_tie_sentences_in_the_owners_order() -> None:
+    """F09 (the owner, 2026-10-08): PAYMENT_OTHER_CREDIT after the F08 billing needs and
+    before the unapproved flag; the three pay-application ties after the flag and before
+    the F07.4 needs. No earlier assertion changes."""
+    credit = _job(
+        qbo_linked=True, status="in_progress", other_credits_applied="200.00", other_credit_count=1
+    )
+    need = next_need(credit)
+    assert (need.code, need.message, need.link, need.count) == (
+        "payment_other_credit",
+        "200.00 of other credits applied on 1 payment: an invoice was settled by something other "
+        "than cash (D-41). Collected to date leaves it out.",
+        Link("jobs", job_id="j"),
+        1,
+    )
+    two = _job(
+        qbo_linked=True, status="in_progress", other_credits_applied="1250.50", other_credit_count=2
+    )
+    assert next_need(two).message.startswith("1,250.50 of other credits applied on 2 payments:")
+    # Order: the F08 needs first, then other credits, then the flag, then the three ties.
+    over = _job(
+        qbo_linked=True,
+        status="in_progress",
+        billed_over_contract="10.00",
+        other_credits_applied="1.00",
+        other_credit_count=1,
+        billing_unapproved_co="5475.00",
+        billing_unapproved_labels=("#18",),
+        payapp_not_invoiced=1,
+    )
+    assert next_need(over).code == "billed_over_contract"
+    assert next_need(_job(**{**over.__dict__, "billed_over_contract": None})).code == (
+        "payment_other_credit"
+    )
+    flag = _job(
+        qbo_linked=True,
+        status="in_progress",
+        billing_unapproved_co="5475.00",
+        billing_unapproved_labels=("#18",),
+        payapp_not_invoiced=1,
+        payapp_invoice_mismatch=1,
+        invoice_no_payapp=1,
+        unapproved_count=12,
+        unapproved_change_orders="1.00",
+    )
+    assert next_need(flag).code == "billing_unapproved_co"
+    ties = {**flag.__dict__, "billing_unapproved_co": None, "billing_unapproved_labels": ()}
+    assert next_need(_job(**ties)).message == (
+        "1 issued pay application has an amount due and no invoice in QuickBooks (D-36). Key the "
+        "invoice from the application."
+    )
+    assert next_need(_job(**{**ties, "payapp_not_invoiced": 0})).message == (
+        "1 invoice does not tie to its pay application (D-39). Correct the invoice in QuickBooks."
+    )
+    assert next_need(
+        _job(**{**ties, "payapp_not_invoiced": 0, "payapp_invoice_mismatch": 0})
+    ).message == (
+        "1 invoice is not keyed from a pay application (D-36). Enter the billing request it "
+        "belongs to, or correct the number."
+    )
+    quiet = {
+        **ties,
+        "payapp_not_invoiced": 0,
+        "payapp_invoice_mismatch": 0,
+        "invoice_no_payapp": 0,
+    }
+    assert next_need(_job(**quiet)).code == "change_orders_unapproved"
+    many = _job(qbo_linked=True, status="in_progress", payapp_not_invoiced=2, invoice_no_payapp=3)
+    assert next_need(many).message.startswith("2 issued pay applications have an amount due")
+    assert next_need(
+        _job(qbo_linked=True, status="in_progress", invoice_no_payapp=3)
+    ).message.startswith("3 invoices are not keyed")
+
+
 def test_the_review_item_and_the_tracked_rows_link_only_for_roles_that_can_open_them() -> None:
     assert review_item(0, 0, can_review=True, can_import=True) == Item(
         "no_estimates", "Upload an estimate.", Link("imports"), 0

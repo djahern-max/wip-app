@@ -17,7 +17,7 @@ import {
   suggestedPairs,
 } from "../jobs.js";
 import { KindActions } from "../kindActions.js";
-import Attention from "./JobAttention.jsx";
+import Attention, { Dismissed } from "./JobAttention.jsx";
 import PayApplications from "./PayApplications.jsx";
 
 // Job detail (F07): the job's header (edited in place by the roles that manage jobs),
@@ -992,6 +992,7 @@ export default function JobDetail({ me, jobId, canManage, onBack, onOpenEstimate
       ) : (
         <Attention items={job.attention} />
       )}
+      <Dismissed items={job.dismissed} />
     </div>
   );
 }

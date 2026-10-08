@@ -61,6 +61,9 @@ EXPECTED_TABLES = {
     # F08.1 Part 2 (0015): the pay application and its schedule of values (D-36)
     "pay_application",
     "pay_application_line",
+    # F09 (0016): the exceptions queue (D-46); exception_event append-only
+    "exception",
+    "exception_event",
 }
 F06_TABLES = {"estimate", "estimate_version", "estimate_work_area", "estimate_cost"}
 F07_TABLES = {"job", "job_estimate", "job_alias"}
@@ -69,6 +72,7 @@ F07_2_CUSTOMER_COLUMNS = {"tracked_at", "tracked_by"}  # 0012 (D-37)
 F07_4_TABLES = {"change_order_approval"}  # 0013 (D-42)
 F08_1_TABLES = {"billing_line_work_area"}  # 0014 (D-45)
 F08_1_PART_2_TABLES = {"pay_application", "pay_application_line"}  # 0015 (D-36)
+F09_TABLES = {"exception", "exception_event"}  # 0016 (D-46)
 F03_TABLES = {"connection", "sync_run", "import_batch", "raw_record", "task"}
 F05_TABLES = {"customer", "billing", "billing_line", "payment", "payment_application"}
 F04_TABLES = {
@@ -193,6 +197,23 @@ def test_upgrade_head_then_downgrade_base(scratch_db_url: str) -> None:
         "CREATE UNIQUE INDEX uq_job_estimate_one_original ON public.job_estimate "
         "USING btree (tenant_id, job_id) WHERE ((role)::text = 'original'::text)"
     }
+    # 0016 alone is reversible (F09): the two exception tables, with their RLS policies,
+    # their CHECKs and the event table's append-only triggers, come and go.
+    assert F09_TABLES <= _public_tables(scratch_db_url)
+    assert {
+        "ck_exception_severity",
+        "ck_exception_subject",
+        "ck_exception_status",
+        "ck_exception_resolved",
+        "ck_exception_dismissed",
+        "uq_exception_identity",
+    } <= _constraints(scratch_db_url, "exception")
+    assert {"ck_exception_event_kind", "ck_exception_event_text"} <= _constraints(
+        scratch_db_url, "exception_event"
+    )
+    command.downgrade(cfg, "0015")
+    assert F09_TABLES.isdisjoint(_public_tables(scratch_db_url))
+    assert APPEND_ONLY_FUNCTION in _functions(scratch_db_url)  # other tables still use it
     # 0015 alone is reversible (F08.1 Part 2): the two pay-application tables, with their
     # RLS policies, come and go; nothing else is touched.
     assert F08_1_PART_2_TABLES <= _public_tables(scratch_db_url)

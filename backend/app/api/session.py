@@ -9,11 +9,12 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 from app.api.auth import session_payload
-from app.api.schemas import SessionOut, TenantEnteredOut, TenantOut
+from app.api.schemas import ExceptionCountsOut, SessionOut, TenantEnteredOut, TenantOut
 from app.auth import service
 from app.core.audit import request_meta
 from app.core.auth import AnyPrincipal, VerifiedPrincipal
-from app.core.db import RequestSession
+from app.core.db import AppEngine, RequestSession
+from app.domain.exceptions import service as exceptions
 
 router = APIRouter(prefix="/session", tags=["session"])
 
@@ -28,9 +29,17 @@ def me(principal: AnyPrincipal):
 
 
 @router.get("/tenants", response_model=list[TenantOut])
-def tenants(principal: VerifiedPrincipal, db: RequestSession):
+def tenants(principal: VerifiedPrincipal, db: RequestSession, engine: AppEngine):
+    """F09: each company the person may enter carries its open exceptions by severity,
+    read one company at a time in that company's own context (D-19), never across."""
     return [
-        TenantOut(tenant_id=str(t.id), name=t.name, slug=t.slug, role=role.value)
+        TenantOut(
+            tenant_id=str(t.id),
+            name=t.name,
+            slug=t.slug,
+            role=role.value,
+            open_exceptions=ExceptionCountsOut(**exceptions.open_counts(engine, t.id)),
+        )
         for t, role in service.tenants_for(db, principal)
     ]
 

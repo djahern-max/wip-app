@@ -1,68 +1,82 @@
 # current-feature.md
 
-_No feature in flight (2026-10-08)._ **F08.3 · Pay application patch from the owner's pass
-is closed** (built 2026-10-07, one commit; no table, no migration, no dependency; the
-owner's answers A and B and the choice of option 3 for question 2 in the brief; **the
-owner's pass on jobcost.dev, tenant `rye-beach`, 6115758, passed 2026-10-08 and closed
-F08.1 with it; ROADMAP F08.3 ☑, F08.1 ☑**). The brief, with the Plan, the owner's answers, the build notes and the
-Discovered list, is `docs/briefs/F08.3.md`. What it changed: the pay application PDF is
-landscape Letter with fixed column widths, measured by a test; a billing request never
-yields a negative amount (D-26: `BILLING_NEGATIVE` compares earned amounts whatever the
-source of the previous figure; the work area stays at its previous percent with 0.00
-earned this application and the sentence beside it; the check runs again on every read of
-a draft, and a held line is frozen at the shown percent at issue); the form starts from
-what has been billed (the prefill is the last issued application's percent, else the
-percent the tied invoice lines' billing stands for, half up to two places; on a job's
-first application "earned on previous applications" is the scheduled value at that
-percent, question 2 option 3, delegated by the owner to the design partner; the amount due
-is the same under every option); a draft is reopened with its values and can be discarded
-(`DELETE …/pay-applications/{id}`, `pay_application_discarded`, the number reused); Enter
-never submits the request or void form. F08.1 is as the stub of 2026-10-07 described it
-(`docs/briefs/F08.1.md`). Dev `wip` is at 0012: deploying runs 0013, 0014 and 0015.
+_No feature in flight (2026-10-08)._ **F09 · Exceptions queue v1 is built** (2026-10-08, one
+commit; migration 0016: `exception` and `exception_event`, the second append-only; D-46
+appended; the owner's answers A to D and the decisions on the Plan's open points of
+2026-10-08; **ROADMAP F09 ◐; the owner's pass on jobcost.dev, tenant `rye-beach`, is
+open**). The brief, with the Plan, the owner's answers, D-46, the build notes and the
+Discovered list, is `docs/briefs/F09.md`. What it changed: every review sentence the
+generators raise is held as an **exception** with an identity that lasts, open until its
+cause is gone (resolved, by the run only) or a person dismisses it with a note; a
+block-close exception is never dismissed; a dismissed one opens again when what it states
+changes, the earlier note kept (D-46). One worker task, `exceptions.refresh`, runs after a
+QuickBooks poll that applied a change, after `estimates.normalize` loads estimates, and
+after a person's state-changing request (an after-write hook, deduped); a page read never
+runs it; a second run with nothing changed writes nothing. The Jobs board, the job page,
+Home, the Estimates list and the estimate detail compute their sentences live through one
+function per subject (`app/domain/exceptions/collect.py`) and leave out what is dismissed;
+the job page and the estimate page list the dismissed under "Dismissed". Home gained other
+credits applied (D-41) and the three pay-application ties (D-36, D-39) in the owner's
+order. The Exceptions page, "Exceptions (n open)" in the navigation, the company picker's
+counts. Nothing in `app/wip/`; no figure changed. Dev `wip` is at 0012: deploying runs
+0013 to 0016.
 
-Open passes carried: **F07.3** (`docs/briefs/F07.3.md`), **F07.2** (`docs/briefs/F07.2.md`; deploying it runs migration
-0012), **F07.1** (`docs/briefs/F07.1.md`) and **F07** (the pass job by job; 67 Elm Street
-passed 2026-10-01). D-08 is still open. Retainage is owed as a later feature with its own
-decision before any tenant that holds it (D-43; a Later line in ROADMAP).
+Open passes carried: **F09** (`docs/briefs/F09.md`: the queue against the board, 6115758
+and Home; the nine `EST_UNIT_PRICED` dismissed with a note and gone from the Estimates
+pages; the `BILLING_UNAPPROVED_CO` exception assigned; the count on the company picker; at
+390 px as well), **F07.3** (`docs/briefs/F07.3.md`), **F07.2** (`docs/briefs/F07.2.md`;
+deploying it runs migration 0012), **F07.1** (`docs/briefs/F07.1.md`) and **F07** (the
+pass job by job; 67 Elm Street passed 2026-10-01). D-08 is still open. Retainage is owed
+as a later feature with its own decision before any tenant that holds it (D-43; a Later
+line in ROADMAP).
 
-Next per ROADMAP: **F09 · Exceptions queue v1**: the exception model, generators for the
-estimate, job, link and billing types in §10 (today they are computed on read in
-`app/domain/estimates/exceptions.py`, `app/domain/jobs/issues.py` and
-`app/domain/billing/pay_applications.py`, and Home composes the pages' functions),
-assignment, resolution notes, dismissal with a note, counts on the firm console; accept:
-resolving an exception's underlying cause clears it on the next run; dismissing requires
-a note. Not started; the owner supplies the brief. Copy it here, expand it, and restate
-the acceptance criteria before coding. The carried Discovered items that F09 is named
-for: persisting the review sentences once (the board's Attention column and Home compute
-them in two reads), `PAYMENT_OTHER_CREDIT` and the pay-application sentences on Home, an
-`EST_UNIT_PRICED` dismissal, the `_sold_on_set_by_person` audit index.
+Next per ROADMAP: **F10 · GL cost sync**: Bills, Vendor Credits, Purchases (card, check,
+cash) and Journal Entries to `ledger_line` at line level with job reference, account and
+vendor; `account_map` applied; `COST_UNASSIGNED` and `COST_DIVISION_MISMATCH` exceptions
+(F09 queues them once they exist: a registry row each with its severity, §10); accept:
+GL-direct job cost + unassigned = QuickBooks P&L cost of goods sold by account for each
+closed month; a Ramp-synced expense with a Customer/Job value lands on the right job with
+its receipt link. Not started; the owner supplies the brief. Copy it here, expand it, and
+restate the acceptance criteria before coding.
 
-Standing state from F07 to F08.3: the job is the reporting unit; matching is by alias
+Standing state from F07 to F09: the job is the reporting unit; matching is by alias
 (`job_alias`), never by name. The original contract, approved change orders, revised
 contract, unapproved change orders, EAC and every billing figure are computed on read
 (`app/domain/jobs/contract.py`, `app/domain/billing/figures.py`, `board.py`,
-`work_areas.py`, `pay_applications.py`), never stored; the rows written by F07.4 and
-F08.1 are approvals and withdrawals (`change_order_approval`), assignments and clears
-(`billing_line_work_area`, both append-only), and the pay applications with their
-schedule as it stood at issue and the three figures frozen at issue (`pay_application`,
-`pay_application_line`; a draft is edited until issued, or discarded, F08.3); nothing in
-`app/wip/` has been touched. Billed to date is total − sales tax − fuel surcharge lines,
-the deposit invoice counted from its date; per work area it is the tied lines and the pay
-applications (D-45). Collected to date is cash (D-41). Review items are pure generators
-(the F07 ones, `PAYMENT_UNAPPLIED`, `DEPOSIT_NOT_IDENTIFIED`, `BILLED_OVER_CONTRACT`,
+`work_areas.py`, `pay_applications.py`), never stored; the rows written by F07.4, F08.1
+and F09 are approvals and withdrawals (`change_order_approval`), assignments and clears
+(`billing_line_work_area`, both append-only), the pay applications with their schedule as
+it stood at issue and the three figures frozen at issue (`pay_application`,
+`pay_application_line`; a draft is edited until issued, or discarded, F08.3; never voided),
+and the exceptions with their history (`exception`, `exception_event` append-only; the
+sentence and detail as last raised, never the truth); nothing in `app/wip/` has been
+touched. Billed to date is total − sales tax − fuel surcharge lines, the deposit invoice
+counted from its date; per work area it is the tied lines and the pay applications (D-45).
+Collected to date is cash (D-41). Review items are pure generators (the F07 ones,
+`PAYMENT_UNAPPLIED`, `DEPOSIT_NOT_IDENTIFIED`, `BILLED_OVER_CONTRACT`,
 `PAYMENT_OTHER_CREDIT`, `CO_APPROVAL_NOT_CARRIED`, `BILLING_UNAPPROVED_CO`, the four D-26
-request exceptions and the three tie sentences); F09 persists them. Home's `JOB_NEEDS`
-has the F07 rules, the three F08 ones, `BILLING_UNAPPROVED_CO` (ahead of the F07.4 needs,
-the owner's word), then the two F07.4 ones; `REQUIRED_POLICY_KEYS` holds the five keys
-read today. Roles: `client_pm` and `firm_admin` approve and withdraw; a billing request is
+request exceptions and the three tie sentences; the F06 and F06.1 estimate set), assembled
+once per subject by `collect.py` and persisted by the F09 run; the four D-26 request
+sentences, `CUSTOMER_FUZZY` and the batch-level `EST_NO_ID` are not queued. Severities are
+§10's (`app/domain/exceptions/registry.py`): block-close for `EST_UNATTACHED`,
+`JOB_NO_LEDGER_LINK`, `LEDGER_PROJECT_NO_JOB` and `EST_NO_CATEGORY_SPLIT` on a
+fixed-price job's estimate; warn for every other code in scope. Home's `JOB_NEEDS` has the
+F07 rules, the three F08 ones, `PAYMENT_OTHER_CREDIT`, `BILLING_UNAPPROVED_CO`, the three
+tie sentences, then the two F07.4 ones; `REQUIRED_POLICY_KEYS` holds the five keys read
+today. Roles: `client_pm` and `firm_admin` approve and withdraw; a billing request is
 entered, and a draft discarded, by `client_pm` and the roles that manage jobs; issue and
-void, and assigning invoice lines, by the roles that manage jobs. PDFs are reportlab,
+void, assigning invoice lines, and assigning, dismissing and reopening an exception by the
+roles that manage jobs; everyone reads the queue and adds notes. PDFs are reportlab,
 uncompressed; the pay application is landscape. The owner's reviewed 67 Elm Street
 workbook (`estimate_upload_EST6115758_reviewed_10.06.xlsx`; original contract 465,469.59,
 twelve change orders 53,704.13) is the job the owner is working; later features are
 accepted against it.
 
 ## Discovered
+Carried from `docs/briefs/F09.md` (copied unchanged 2026-10-08; nothing is dropped):
+
+Carried from the live `current-feature.md` stub of 2026-10-08 (copied unchanged 2026-10-08 from `git show HEAD:current-feature.md`; nothing is dropped). Closed by this brief when built: the two-reads item (F08), the Estimates list and detail difference (F06.1), `PAYMENT_OTHER_CREDIT` and the pay-application sentences on Home (F08.2, F08.1), the `EST_UNIT_PRICED` dismissal (F08). The `_sold_on_set_by_person` audit index stays carried (Plan answer 7).
+
 Carried from `docs/briefs/F08.3.md` (copied unchanged 2026-10-07; nothing is dropped):
 
 Carried from the live `current-feature.md` stub of 2026-10-07 (copied unchanged 2026-10-07 from `git show HEAD:current-feature.md`; nothing is dropped):
@@ -260,3 +274,22 @@ Found while planning F08.3 (2026-10-07), not fixed here unless the owner says so
 From the owner's pass of 2026-10-08, not fixed here:
 - On a pay application the schedule's "earned this application" total can exceed the amount due by billing outside the schedule of values (53,938.64 against 4,663.64 on 6115758, the 49,275.00 billed on unapproved change orders). Correct under F08.1 answer A; nothing on the document says why.
 - The rye-beach fuel surcharge rate was set to 5.00% on 2026-10-08.
+
+From the F08.3 patch of 2026-10-08 (void on a draft refused; committed alone before F09's first commit, the owner's step 1):
+- The 0015 CHECK `ck_pay_application_issued` keeps the issue fields set on every non-draft row, so a draft could never become void: the API answered 500 "database error" and nothing was written. No test had voided a draft; the F08.1 and F08.3 briefs' "Void on a draft stays as built" was false as built. Fixed by refusing the void in one sentence and offering Void on an issued application only (its CHANGELOG entry, 2026-10-08). Letting Void work on a draft would need a migration and a second way to end a draft.
+
+New, from the owner's decisions of 2026-10-08, for later briefs:
+- F16's brief decides which codes block a close: today `EST_UNATTACHED`, `JOB_NO_LEDGER_LINK`, `LEDGER_PROJECT_NO_JOB` and `EST_NO_CATEGORY_SPLIT` on a fixed-price job's estimate are block-close (§10); the ten F06 and F06.1 codes are warn, the two burden codes included, although a missing burden rate leaves EAC in the basis uncomputed.
+- D-01's Affected line names two F09 exception types that were never built as generators ("billed-then-omitted", "unapproved change order with cost"); unapproved change orders are a Home need and the F07.4 list, the deductive change is `EST_DEDUCTIVE_CHANGE`. Whether they are owed a feature is for a later brief.
+
+Found while building F09 (2026-10-08), not fixed here:
+- A change applied while a run is running is caught by the run after it (`refresh:next`), never missed; but a run queued by a poll runs after that poll's normalize tasks only because its `run_after` is later, an ordering by timestamp rather than by dependency. A task that depends on another would be the tidier form if the worker ever gains one.
+- `PAYAPP_INVOICE_MISMATCH` compares `difference` only for the reopening rule; a surcharge-only change reopens nothing until its detail carries the two surcharge figures (a detail-only change to the generator, for the owner's yes).
+- The queue shows `message` as of the last run; a sentence reworded by a deploy reads old on the queue until the next run, while the subject pages read new. One run after a deploy (`exceptions.refresh` enqueued at start-up, like the poll chains) would close that gap.
+- `members` on `GET /api/exceptions` lists every membership row of the company, a firm user's entry row included, so a firm staff member can be assigned; the picker does not say which members are firm staff.
+- The Shell reloads the company list on every page change to keep the Exceptions count current; a count in the page's own response would save that request.
+
+New, found while planning F09 (2026-10-08), not fixed here:
+- `EST_UNKNOWN_COST_CODE` is emitted once per cost line, so two lines with one bad code on one work area give two identical sentences on the estimate page; the run keeps one exception per `(order, cost_code)`. One sentence per work area and code would be quieter (D-22); a generator change, not for F09.
+- `PAYAPP_INVOICE_MISMATCH`'s `detail` carries `difference` only; the surcharge figures its sentence states are in the text alone (Plan answer 3, for the owner's yes).
+- `estimate_burden` reads the active burden rates and the time zone once per call; the Estimates list, once it carries the burden sentences, needs them read once per request (Plan answer 4; done in F09).

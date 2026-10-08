@@ -40,6 +40,7 @@ TASK_MODULES: tuple[str, ...] = (
     "app.domain.config.chart",
     "app.domain.estimates.normalize",
     "app.integrations.qbo.tasks",
+    "app.domain.exceptions.run",  # F09: the exceptions refresh
 )
 # Called once per tenant at start-up, each inside its own ``tenant_session``
 # (F05: re-seed the poll and drift chains of a connected company). A hook takes

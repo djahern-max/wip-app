@@ -8,6 +8,7 @@ import itertools
 import uuid
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,6 +18,7 @@ from app.core.authz import CAPABILITIES
 from app.core.db import tenant_session, untenanted_session
 from app.core.storage import LocalObjectStore
 from app.domain.config.models import AccountMap, GlAccount
+from app.domain.exceptions.models import ReviewException
 from app.ingest.models import ImportBatch
 from app.tenancy.models import FirmMembership, Membership, Role
 from tests._env import OBJECT_STORE_DIR
@@ -374,6 +376,40 @@ def _routes() -> list[Route]:
             prepare="firm_member",
         ),
     ]
+    # F09 (D-46; the owner's answer C): every role reads the queue and adds notes; assign,
+    # dismiss and reopen are the roles that manage jobs. {exception} is a warn exception
+    # seeded in tenant A; a later cell may find it already dismissed or open (409).
+    routes += [
+        Route("GET", "/api/exceptions", ALL),
+        Route("GET", "/api/exceptions?status=open&severity=warn&mine=true", ALL),
+        Route("GET", "/api/exceptions/{exception}", ALL),
+        Route(
+            "POST",
+            "/api/exceptions/{exception}/notes",
+            ALL,
+            body=lambda: {"text": "matrix"},
+        ),
+        Route(
+            "POST",
+            "/api/exceptions/{exception}/assign",
+            frozenset({FA, FS, CA}),
+            body=lambda: {"user_id": None},
+            also_ok=frozenset({409}),
+        ),
+        Route(
+            "POST",
+            "/api/exceptions/{exception}/dismiss",
+            frozenset({FA, FS, CA}),
+            body=lambda: {"note": "matrix"},
+            also_ok=frozenset({409}),
+        ),
+        Route(
+            "POST",
+            "/api/exceptions/{exception}/reopen",
+            frozenset({FA, FS, CA}),
+            also_ok=frozenset({409}),
+        ),
+    ]
     for name, (_guard, roles, _scope) in CAPABILITIES.items():
         routes.append(Route("GET", f"/api/_probe/cap/{name}", frozenset(r.value for r in roles)))
     return routes
@@ -436,6 +472,33 @@ def _seed_batch(seed: Seed, owner_engine: Engine) -> str:
     return _BATCH_ID["id"]
 
 
+_EXCEPTION_ID: dict[str, str] = {}
+
+
+def _seed_exception(seed: Seed, owner_engine: Engine) -> str:
+    """One open warn exception in tenant A for the {exception} routes (F09)."""
+    if "id" not in _EXCEPTION_ID:
+        now = datetime.now(UTC)
+        with tenant_session(owner_engine, seed.tenant_a) as s:
+            row = ReviewException(
+                tenant_id=seed.tenant_a,
+                code="JOB_DIVISION_UNSET",
+                severity="warn",
+                subject_type="job",
+                subject_id=uuid.uuid4(),
+                item_key="matrix",
+                message="Matrix.",
+                detail={},
+                status="open",
+                first_raised_at=now,
+                last_raised_at=now,
+            )
+            s.add(row)
+            s.flush()
+            _EXCEPTION_ID["id"] = str(row.id)
+    return _EXCEPTION_ID["id"]
+
+
 _ACCOUNT_ID: dict[str, str] = {}
 
 
@@ -462,6 +525,9 @@ def _fill(route: Route, seed: Seed, owner_engine: Engine | None = None) -> tuple
     if "{account}" in path:
         acct = _seed_account(seed, owner_engine) if owner_engine is not None else str(uuid.uuid4())
         path = path.replace("{account}", acct)
+    if "{exception}" in path:
+        exc = _seed_exception(seed, owner_engine) if owner_engine is not None else str(uuid.uuid4())
+        path = path.replace("{exception}", exc)
     body = None
     if route.body is not None:
         body = {

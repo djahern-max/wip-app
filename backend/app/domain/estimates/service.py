@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.domain.config.burden import active_burden_rates
 from app.domain.config.categories import ensure_cost_categories
-from app.domain.config.models import CostCategory, Division
+from app.domain.config.models import BurdenRate, CostCategory, Division
 from app.domain.config.policy import TIMEZONE, WIP_BASIS, get_policy
 from app.domain.estimates.burden import BurdenResult, compute_burden
 from app.domain.estimates.exceptions import EstimateState, Issue, burden_issues, issues_for
@@ -282,7 +282,24 @@ class BurdenView:
     issues: list[Issue]
 
 
-def pricing_day(db: Session, view: EstimateView) -> tuple[date | None, str]:
+@dataclass(frozen=True)
+class BurdenInputs:
+    """What ``estimate_burden`` reads of the tenant: the active rates and the time zone.
+    F09: read once per request (``load_burden_inputs``) when many estimates are priced,
+    so the Estimates list carries the burden sentences at two reads, not two per row."""
+
+    rates: tuple[BurdenRate, ...]
+    timezone: str | None
+
+
+def load_burden_inputs(db: Session) -> BurdenInputs:
+    tz = get_policy(db, TIMEZONE)
+    return BurdenInputs(tuple(active_burden_rates(db)), None if tz is None else str(tz.value))
+
+
+def pricing_day(
+    db: Session, view: EstimateView, inputs: BurdenInputs | None = None
+) -> tuple[date | None, str]:
     """The date the burden rate is read at: the estimate date; when it is blank, the
     received date of the version whose work areas are shown, in the tenant's time zone
     (owner's answer 1). No time zone set, or no such version: no date."""
@@ -290,16 +307,24 @@ def pricing_day(db: Session, view: EstimateView) -> tuple[date | None, str]:
         return view.estimate.estimate_date, "estimate_date"
     if view.areas_version is None:
         return None, "none"
-    tz = get_policy(db, TIMEZONE)
+    tz = inputs.timezone if inputs is not None else _timezone(db)
     if tz is None:
         return None, "none"
-    return view.areas_version.received_at.astimezone(ZoneInfo(str(tz.value))).date(), "received"
+    return view.areas_version.received_at.astimezone(ZoneInfo(tz)).date(), "received"
 
 
-def estimate_burden(db: Session, view: EstimateView, grid: Grid) -> BurdenView:
-    """Reads the active burden rates and the time zone; writes nothing."""
-    day, source = pricing_day(db, view)
-    result = compute_burden(
-        tuple(w.as_in() for w in view.work_areas or ()), active_burden_rates(db), day
-    )
+def _timezone(db: Session) -> str | None:
+    tz = get_policy(db, TIMEZONE)
+    return None if tz is None else str(tz.value)
+
+
+def estimate_burden(
+    db: Session, view: EstimateView, grid: Grid, inputs: BurdenInputs | None = None
+) -> BurdenView:
+    """Reads the active burden rates and the time zone (or takes them in ``inputs``);
+    writes nothing."""
+    if inputs is None:
+        inputs = load_burden_inputs(db)
+    day, source = pricing_day(db, view, inputs)
+    result = compute_burden(tuple(w.as_in() for w in view.work_areas or ()), inputs.rates, day)
     return BurdenView(result, source, burden_issues(result, grid.basis))
