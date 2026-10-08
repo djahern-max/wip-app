@@ -3,8 +3,8 @@
 _No feature in flight (2026-10-08)._ **F09 · Exceptions queue v1 is built** (2026-10-08, one
 commit; migration 0016: `exception` and `exception_event`, the second append-only; D-46
 appended; the owner's answers A to D and the decisions on the Plan's open points of
-2026-10-08; **ROADMAP F09 ◐; the owner's pass on jobcost.dev, tenant `rye-beach`, is
-open**). The brief, with the Plan, the owner's answers, D-46, the build notes and the
+2026-10-08; **the owner's pass on jobcost.dev, tenant `rye-beach`, passed 2026-10-08 after the
+patch 84bcc65; ROADMAP F09 ☑**). The brief, with the Plan, the owner's answers, D-46, the build notes and the
 Discovered list, is `docs/briefs/F09.md`. What it changed: every review sentence the
 generators raise is held as an **exception** with an identity that lasts, open until its
 cause is gone (resolved, by the run only) or a person dismisses it with a note; a
@@ -25,10 +25,7 @@ had the same class of fault), a static test in `tests/test_hygiene.py` keeps it 
 the worker queues one run per tenant at start-up. Nothing in `app/wip/`; no figure changed. Dev `wip` is at 0012: deploying runs
 0013 to 0016.
 
-Open passes carried: **F09** (`docs/briefs/F09.md`: the queue against the board, 6115758
-and Home; the nine `EST_UNIT_PRICED` dismissed with a note and gone from the Estimates
-pages; the `BILLING_UNAPPROVED_CO` exception assigned; the count on the company picker; at
-390 px as well), **F07.3** (`docs/briefs/F07.3.md`), **F07.2** (`docs/briefs/F07.2.md`;
+Open passes carried: **F07.3** (`docs/briefs/F07.3.md`), **F07.2** (`docs/briefs/F07.2.md`;
 deploying it runs migration 0012), **F07.1** (`docs/briefs/F07.1.md`) and **F07** (the
 pass job by job; 67 Elm Street passed 2026-10-01). D-08 is still open. Retainage is owed
 as a later feature with its own decision before any tenant that holds it (D-43; a Later
@@ -281,6 +278,10 @@ From the owner's pass of 2026-10-08, not fixed here:
 
 From the F08.3 patch of 2026-10-08 (void on a draft refused; committed alone before F09's first commit, the owner's step 1):
 - The 0015 CHECK `ck_pay_application_issued` keeps the issue fields set on every non-draft row, so a draft could never become void: the API answered 500 "database error" and nothing was written. No test had voided a draft; the F08.1 and F08.3 briefs' "Void on a draft stays as built" was false as built. Fixed by refusing the void in one sentence and offering Void on an issued application only (its CHANGELOG entry, 2026-10-08). Letting Void work on a draft would need a migration and a second way to end a draft.
+
+From the owner's sessions of 2026-10-08, not fixed here:
+- The backend test run's Python process reached 7.56 GB on the owner's Mac (24 GB, memory pressure yellow, 2.40 GB swap) during a full run. Find what accumulates across tests: engines or connections not disposed, session-scoped fixtures holding data, the generated datasets of the speed tests, and the dozens of leftover tenants the test database holds. Related: the full run takes about 26 minutes locally and 37 on CI, and two runs against `wip_test` destroy each other (2026-10-04); a per-run database and parallel workers would address both, and need a dependency and the owner's yes.
+- The droplet's firewall allows SSH from the owner's home address only; from another network the owner deploys through the DigitalOcean web console. OPERATIONS should say so.
 
 New, from the owner's decisions of 2026-10-08, for later briefs:
 - F16's brief decides which codes block a close: today `EST_UNATTACHED`, `JOB_NO_LEDGER_LINK`, `LEDGER_PROJECT_NO_JOB` and `EST_NO_CATEGORY_SPLIT` on a fixed-price job's estimate are block-close (§10); the ten F06 and F06.1 codes are warn, the two burden codes included, although a missing burden rate leaves EAC in the basis uncomputed.

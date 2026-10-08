@@ -22,7 +22,7 @@ Newest first. One entry per closed feature or decision. Format:
 **Tests**: `tests/test_exceptions.py` (assign to oneself and to firm staff; the members list once each, this company only; the start-up hook registered, deduped, and run by the worker's start-up pass), `tests/test_admin.py` (the caller once), `tests/test_hygiene.py` (the scan and its mutation check); `tests/test_worker.py` (the idle-wake test starts its worker with no start-up hooks: the hook queues a run for every tenant the test database holds, which left that worker busy and failed the test once at the 5 s cap, 995 passed). Full runs after the last change, 2026-10-08: backend 996 passed, 0 failed, 25 min 47 s; frontend 80 (unchanged); `ruff check` and `ruff format` clean.
 **Decisions referenced / made**: D-11, D-18, D-46 referenced; none made.
 **Dependencies added**: none.
-**Follow-ups**: the owner's pass on `rye-beach` (assign to a firm user; the members list; the queue filled after the deploy's restart).
+**Follow-ups**: the owner's pass on `rye-beach` **passed 2026-10-08** (assignment to a firm user, which the 500 had stopped, then passed; the members list once each; the open count on the navigation and the picker).
 
 ---
 
@@ -33,7 +33,7 @@ Newest first. One entry per closed feature or decision. Format:
 **Tests**: `tests/test_exceptions.py` (11), `tests/test_exceptions_registry.py` (5), `tests/test_exceptions_speed.py` (2: statement counts equal at 10 and 1,000 exceptions; the run on 1,000 sold estimates and 200 jobs in 1.55 s, then 0.95 s, budget 20 s), `test_rls.py`, `test_migrations.py`, `test_roles.py`, `test_delete_tenant.py`, `test_home.py`, `test_decisions.py`; frontend `exceptions.test.js`. Full runs after the last change, 2026-10-08: backend 991 passed, 1 failed (a new F09 test's assertion on the exact company list of a seed client user, order-dependent on memberships other tests add; the assertion was loosened to the companies it owns and tenant B's absence, and `tests/test_exceptions.py` re-run alone: 11 of 11), 23 min 25 s; frontend 80; `ruff check`, `ruff format` and the Vite build clean.
 **Decisions referenced / made**: D-01, D-13, D-19, D-22, D-24, D-26 (narrowed as to F09: the four billing-request sentences are not queued; its text untouched), D-36, D-37, D-41, D-42, D-45 referenced; **D-46 made** (the owner's paste of 2026-10-08, appended after D-45).
 **Dependencies added**: none.
-**Follow-ups**: the owner's pass on jobcost.dev, tenant `rye-beach` (the queue against the board, 6115758 and Home; the nine `EST_UNIT_PRICED` dismissed; the flag assigned; the picker count; 390 px). Deploying runs 0013 to 0016 on dev `wip` (at 0012). Discovered items in `docs/briefs/F09.md`: F16's brief decides which codes block a close; D-01's two unbuilt types; the `PAYAPP_INVOICE_MISMATCH` detail keys; a run after a deploy; the firm-staff members in the assign picker.
+**Follow-ups**: the owner's pass on jobcost.dev, tenant `rye-beach`, **passed 2026-10-08** after the patch 84bcc65 (the queue against the board, 6115758 and Home; the nine `EST_UNIT_PRICED` dismissed; the flag assigned; the picker count; 390 px). Deploying runs 0013 to 0016 on dev `wip` (at 0012). Discovered items in `docs/briefs/F09.md`: F16's brief decides which codes block a close; D-01's two unbuilt types; the `PAYAPP_INVOICE_MISMATCH` detail keys; a run after a deploy; the firm-staff members in the assign picker.
 
 ---
 
