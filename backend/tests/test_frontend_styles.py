@@ -1,7 +1,8 @@
 """Interface conventions, statically (D-22; F03.1). One hand-written stylesheet,
 imported once; no inline ``style={{`` objects in ``frontend/src`` (allow-list empty
 until an entry is justified); the one accent colour is a CSS variable used only for
-the primary action and links; one primary action per screen. Same approach as
+the primary action, links, the current navigation item, the next set-up step and the
+focus ring (D-47); one primary action per screen. Same approach as
 ``test_frontend_effects.py``: no JS parser, no new dependency."""
 
 import re
@@ -60,7 +61,7 @@ def test_system_font_stack_and_no_decoration() -> None:
         assert forbidden not in css, forbidden
 
 
-def test_one_accent_colour_used_only_for_primary_action_and_links() -> None:
+def test_one_accent_colour_used_only_where_d47_allows() -> None:
     css = _css()
     assert css.count("--accent:") == 1
     # Every rule that uses the accent, by selector.
@@ -68,10 +69,27 @@ def test_one_accent_colour_used_only_for_primary_action_and_links() -> None:
     for block in re.finditer(r"([^{}]+)\{([^{}]*)\}", css):
         if "var(--accent)" in block.group(2):
             users.append(" ".join(block.group(1).split()))
-    assert sorted(users) == [".button-primary", ".link-button", "a"], users
+    assert sorted(users) == [
+        ".button-primary",
+        ".link-button",
+        '.nav-link[aria-current="page"]',
+        ".step-marker-next",
+        ":focus-visible",
+        "a",
+    ], users
     # No other colour literal is used for text or backgrounds outside the variables.
     literals = re.findall(r"#[0-9a-fA-F]{3,6}\b", css.split("}", 1)[1])  # after :root
     assert literals == [], f"colour literals outside :root: {literals}"
+
+
+def test_roles_reach_the_screen_as_words() -> None:
+    """F09.1: the header shows ``roleWords(...)``; no page interpolates a role code."""
+    shell = (FRONTEND_SRC / "pages/Shell.jsx").read_text()
+    assert "roleWords(" in shell
+    for rel, src in _sources():
+        if rel.startswith("pages/"):
+            assert not re.search(r"\{(?:t|me|active)\.(?:firm_)?role\}", src), rel
+            assert "${me.firm_role}" not in src, rel
 
 
 def test_one_primary_action_per_screen() -> None:

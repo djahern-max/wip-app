@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { doneWord, jobsSentence, linkLabel, primaryCount, setupSentence } from "./home.js";
+import { doneWord, jobsSentence, linkLabel, markerText, primaryCount, progressWords } from "./home.js";
 
 // F07.3: words first; the Shell gets a page and a section from the API's link.
 
@@ -24,9 +24,12 @@ test("status is a word, and the primary action is counted, never assumed", () =>
 });
 
 test("the sentences above the checklist and the jobs", () => {
-  assert.equal(setupSentence([{ done: true }, { done: true }]), "Set-up is complete.");
-  assert.equal(setupSentence([{ done: false }, { done: true }]), "1 set-up step is not done.");
-  assert.equal(setupSentence([{ done: false }, { done: false }]), "2 set-up steps are not done.");
+  assert.equal(progressWords([{ done: true }, { done: true }]), "Set-up is complete.");
+  assert.equal(progressWords([{ done: false }, { done: true }]), "1 of 2 steps done");
+  assert.equal(progressWords([{ done: false }]), "0 of 1 step done");
+  assert.equal(progressWords(null), "0 of 0 steps done");
+  assert.equal(markerText({ done: true }, 0), "\u2713");
+  assert.equal(markerText({ done: false }, 2), "3");
   assert.equal(jobsSentence([]), "No job is open yet.");
   assert.equal(jobsSentence([{ code: null }]), "1 job, nothing needed.");
   assert.equal(jobsSentence([{ code: "to_confirm" }, { code: null }]), "2 jobs; 1 needs something.");

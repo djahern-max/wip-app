@@ -40,11 +40,17 @@ export function primaryCount(setup) {
   return (setup || []).filter((l) => l.primary).length;
 }
 
-/** One sentence above the checklist. */
-export function setupSentence(setup) {
-  const open = (setup || []).filter((l) => !l.done).length;
-  if (open === 0) return "Set-up is complete.";
-  return open === 1 ? "1 set-up step is not done." : `${open} set-up steps are not done.`;
+/** The words beside the Set-up heading and on the progress bar (F09.1). */
+export function progressWords(setup) {
+  const lines = setup || [];
+  const done = lines.filter((l) => l.done).length;
+  if (lines.length > 0 && done === lines.length) return "Set-up is complete.";
+  return `${done} of ${lines.length} ${lines.length === 1 ? "step" : "steps"} done`;
+}
+
+/** What a step's marker shows: a tick when done, otherwise its number in the list. */
+export function markerText(line, index) {
+  return line.done ? "\u2713" : String(index + 1);
 }
 
 /** One sentence above the jobs table. */

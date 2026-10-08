@@ -15,6 +15,14 @@ Newest first. One entry per closed feature or decision. Format:
 
 ---
 
+## 2026-10-08 · F09.1 · Interface foundation, header and Home
+**What**: Shared styles (grey ground, white header, cards and tables; heading scale; 44 px buttons; focus ring). Header: brand, company and account on one line, navigation on its own row with the current page marked, a Menu button below 640 px. Home: the set-up checklist as a numbered list with a progress line. Roles shown in words (`roles.js`). The API and database line moved to the footer.
+**Why**: The owner's pass of 2026-10-08: Home was not usable at phone width (navigation cut off, the checklist's action off the screen, role codes on screen). Mockup approved by the owner first.
+**Migrations**: none.
+**Tests**: `roles.test.js` (new), `home.test.js` (progress words and step marker replace the set-up sentence), `test_frontend_styles.py` (accent selectors per D-47; roles as words). `npm test` 82 pass. Backend suite not run in the build environment.
+**Decisions referenced / made**: D-22 referenced; D-47 made.
+**Dependencies added**: none.
+
 ## 2026-10-08 · F09 patch · Membership reads filter by tenant; the worker queues a run at start-up
 **What**: From the owner's pass on jobcost.dev, tenant `rye-beach`, 2026-10-08. (1) A read of `membership` in a request that relies on RLS alone also returns the caller's own rows in every company they can enter (D-11's `own_membership_read`): assigning an exception to oneself raised `MultipleResultsFound` (a plain 500, no sentence) and the "Assign to" list named the caller once per company. `members` and `assign` in `app/domain/exceptions/service.py` and `list_tenant_users` in `app/auth/admin.py` (`GET /api/admin/users`, the same fault) now filter by `Membership.tenant_id` as well. A static test (`tests/test_hygiene.py`) parses every `select` or `join` on `Membership` in the application package and fails when one has no tenant filter and is not in the allow-list of reads meant to cross companies (`load_memberships`: login and the company picker; `_rows_in_firm`: D-18 inside `read_as_user`). (2) `ensure_refreshed` is a worker start-up hook queuing one deduped `exceptions.refresh` per tenant, so a tenant with data has a queue after a deploy or restart, and a reworded sentence reaches the queue after a deploy.
 **Why**: The owner's three findings; the cause of the first two is a class, found by a sweep of every membership read, and kept out by the static test.

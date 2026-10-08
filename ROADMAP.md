@@ -117,6 +117,10 @@ The PDF fits the page (landscape Letter, fixed column widths, measured by a test
 Exception model (`exception`, `exception_event` append-only), the existing generators for the estimate, job, link and billing types in §10 persisted by one worker run per burst of changes (after a QuickBooks poll that applied a change, an import that loaded estimates, or a person's state-changing request), one computation per subject for the Jobs board, the job page, Home, the Estimates pages and the queue, assignment, notes, dismissal with a note (never a block-close exception; a dismissed one opens again when what it states changes), reopen, the Exceptions page, the count on the company picker (the console itself is F19). The four D-26 billing-request sentences and `CUSTOMER_FUZZY` are not queued (the owner, 2026-10-08).
 **Accept**: resolving an exception's underlying cause clears it on next run; dismissing requires a note. As built: on the 67 Elm Street fixture one run holds `BILLING_UNAPPROVED_CO` at 49,275.00 on nine and nine `EST_UNIT_PRICED`, a second run writes nothing, approving the nine resolves the flag and withdrawing one raises the same exception at 5,475.00; every figure identical before and after; the run on 1,000 sold estimates and 200 jobs in 1.55 s.
 
+### F09.1 · Interface foundation, header and Home  ◐ (built 2026-10-08, no migration, D-47; the owner's pass at laptop width and 390 px is open; see `docs/briefs/F09.1.md`)
+Design only: the shared styles, a header with the navigation on its own row (a Menu button below 640 px), Home's set-up checklist as a list with a progress line, roles in words. No figure and no API response changed.
+**Accept**: every nav item reachable and nothing cut off at 1280 px and 390 px; the checklist's action visible without sideways scrolling; one primary action; no role code on screen.
+
 > **Release B**: you can answer "who has paid a deposit, what is billed, what is left to bill" for every sold job, with backlog by division and estimator.
 
 ---

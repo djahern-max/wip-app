@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
-import { doneWord, jobsSentence, linkLabel, setupSentence } from "../home.js";
+import { doneWord, jobsSentence, linkLabel, markerText, progressWords } from "../home.js";
 
 // Home (F07.3): what to do next, computed on read by GET /api/home. The set-up
 // checklist (done or not, one sentence, one link to the action that completes it) is
@@ -8,7 +8,7 @@ import { doneWord, jobsSentence, linkLabel, setupSentence } from "../home.js";
 // with links only to pages the role can open. The API marks at most one line primary;
 // the page draws it as the one primary action. Mount effects only read (GET).
 
-export default function Home({ me, companyName, role, onOpen }) {
+export default function Home({ me, companyName, onOpen }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
 
@@ -36,7 +36,6 @@ export default function Home({ me, companyName, role, onOpen }) {
   return (
     <div>
       <h1>{companyName}</h1>
-      <p className="hint">Your role here: {role}.</p>
       {error && <p className="error">{error}</p>}
       {!data ? (
         <p className="hint">{error ? "" : "Loading…"}</p>
@@ -44,33 +43,44 @@ export default function Home({ me, companyName, role, onOpen }) {
         <>
           {data.setup && (
             <>
-              <h2>Set-up</h2>
-              <p>{setupSentence(data.setup)}</p>
-              <div className="table-wrap">
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>Step</th>
-                      <th>Status</th>
-                      <th>What to do</th>
-                      <th>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.setup.map((line) => (
-                      <tr key={line.code}>
-                        <td>{line.label}</td>
-                        <td>{doneWord(line.done)}</td>
-                        <td>
-                          {line.message}
-                          {line.note && <span className="muted"> {line.note}</span>}
-                        </td>
-                        <td>{action(line.link, line.primary)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="section-head">
+                <h2>Set-up</h2>
+                <span className="muted">{progressWords(data.setup)}</span>
               </div>
+              <div className="progress" role="img" aria-label={progressWords(data.setup)}>
+                {data.setup.map((line) => (
+                  <span key={line.code} className={line.done ? "progress-step progress-done" : "progress-step"} />
+                ))}
+              </div>
+              <ol className="checklist">
+                {data.setup.map((line, n) => (
+                  <li key={line.code} className="step">
+                    <span
+                      className={
+                        line.done
+                          ? "step-marker step-marker-done"
+                          : line.primary
+                            ? "step-marker step-marker-next"
+                            : "step-marker"
+                      }
+                      aria-hidden="true"
+                    >
+                      {markerText(line, n)}
+                    </span>
+                    <div className="step-body">
+                      <div className="step-title">{line.label}</div>
+                      <div className="step-message">
+                        {line.message}
+                        {line.note && <span> {line.note}</span>}
+                      </div>
+                    </div>
+                    <span className={line.done ? "step-status step-status-done" : "step-status"}>
+                      {doneWord(line.done)}
+                    </span>
+                    <div className="step-action">{action(line.link, line.primary)}</div>
+                  </li>
+                ))}
+              </ol>
             </>
           )}
 

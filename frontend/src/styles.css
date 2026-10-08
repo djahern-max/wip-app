@@ -5,21 +5,24 @@
    styles (tests/test_frontend_styles.py fails on `style={{`). */
 
 :root {
-  --accent: #0b5cad; /* the one accent colour: primary action and links */
-  --text: #1a1a1a;
-  --muted: #666;
-  --rule: #ddd;
-  --rule-light: #eee;
+  --accent: #0b5cad; /* the one accent colour: primary action, links, where you are, focus (D-47) */
+  --text: #1b1f24;
+  --muted: #5b6470;
+  --rule: #dfe3e8;
+  --rule-light: #eceff2;
+  --control: #c5ccd4; /* the border of a button or a field */
   --surface: #fff;
-  --surface-alt: #fafafa;
+  --surface-alt: #f6f7f8; /* the page behind the header, cards and tables */
   --error: #b00020;
+  --done: #1d6b45; /* status colour, always beside its word (D-47) */
 }
 
 html {
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color: var(--text);
-  background: var(--surface);
-  line-height: 1.4;
+  background: var(--surface-alt);
+  font-size: 15px;
+  line-height: 1.45;
 }
 
 body {
@@ -30,12 +33,25 @@ a {
   color: var(--accent);
 }
 
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 h1 {
-  margin-top: 0;
+  margin: 0 0 0.5rem;
+  font-size: 1.9rem;
+  line-height: 1.2;
 }
 
 h2 {
-  margin-top: 0;
+  margin: 2rem 0 0.5rem;
+  font-size: 1.3rem;
+}
+
+h3 {
+  margin: 1.5rem 0 0.5rem;
+  font-size: 1.05rem;
 }
 
 /* --- text roles ------------------------------------------------------------------- */
@@ -95,9 +111,14 @@ h2 {
 }
 
 .button {
-  padding: 0.6rem 1rem;
-  font-size: 16px;
+  min-height: 44px;
+  padding: 0 1rem;
+  font: inherit;
   cursor: pointer;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--control);
+  border-radius: 6px;
 }
 
 .button:disabled {
@@ -106,13 +127,15 @@ h2 {
 
 /* One primary action per screen, in the accent colour. */
 .button-primary {
-  padding: 0.6rem 1rem;
-  font-size: 16px;
+  min-height: 44px;
+  padding: 0 1.1rem;
+  font: inherit;
+  font-weight: 600;
   cursor: pointer;
   color: var(--surface);
   background: var(--accent);
   border: 1px solid var(--accent);
-  border-radius: 4px;
+  border-radius: 6px;
 }
 
 .button-primary:disabled {
@@ -126,6 +149,7 @@ h2 {
   color: var(--accent);
   cursor: pointer;
   padding: 0;
+  font: inherit;
   font-size: 14px;
   text-decoration: underline;
 }
@@ -147,39 +171,308 @@ h2 {
   gap: 0.5rem;
 }
 
-/* --- signed-in frame --------------------------------------------------------------- */
+/* --- signed-in frame (F09.1) ---------------------------------------------------------
+   Laptop: brand, company and account on one line, the navigation on its own row below,
+   wrapping when it runs out of room. Phone: brand and a Menu button, the company below,
+   and the navigation and account folded away until Menu is pressed. */
 
 .header {
-  display: flex;
-  flex-wrap: wrap; /* phone width: the switcher, nav and user wrap instead of overflowing */
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas:
+    "brand company account"
+    "nav nav nav";
   align-items: center;
-  gap: 0.75rem 1.5rem;
-  padding: 0.75rem 1rem;
+  column-gap: 1.5rem;
+  padding: 0.6rem 2rem 0;
   border-bottom: 1px solid var(--rule);
-  background: var(--surface-alt);
+  background: var(--surface);
 }
 
-.header-nav {
+.header-brand {
+  grid-area: brand;
+  font-size: 1.1rem;
+}
+
+.header-company {
+  grid-area: company;
   display: flex;
+  flex-direction: column;
+  justify-self: start;
+  min-width: 0;
+  max-width: 100%;
+  padding-left: 1.5rem;
+  border-left: 1px solid var(--rule);
+}
+
+.header-company-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.header-select {
+  max-width: 100%;
+  min-height: 28px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--control);
+  border-radius: 6px;
+  padding: 0 0.4rem;
+}
+
+.header-account {
+  grid-area: account;
+  display: flex;
+  align-items: center;
   gap: 1rem;
-  font-size: 14px;
 }
 
 .header-user {
-  margin-left: auto;
+  display: flex;
+  flex-direction: column;
+  text-align: right;
   font-size: 14px;
 }
 
+.header-role {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.menu-button {
+  display: none;
+}
+
+.header-nav {
+  grid-area: nav;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1.75rem;
+  margin-top: 0.4rem;
+}
+
+.nav-link {
+  min-height: 44px;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  color: var(--text);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+}
+
+/* Where you are: the accent and weight together, never colour alone. */
+.nav-link[aria-current="page"] {
+  font-weight: 600;
+  color: var(--accent);
+  border-bottom-color: currentColor;
+}
+
+@media (max-width: 640px) {
+  .header {
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "brand menu"
+      "company company"
+      "nav nav"
+      "account account";
+    padding: 0.5rem 1rem 0.75rem;
+    row-gap: 0.5rem;
+  }
+
+  .header-company {
+    justify-self: stretch;
+    padding-left: 0;
+    border-left: none;
+  }
+
+  .header-select {
+    min-height: 44px;
+  }
+
+  .menu-button {
+    display: block;
+    grid-area: menu;
+  }
+
+  .header-nav,
+  .header-account {
+    display: none;
+  }
+
+  .header-nav.header-open {
+    display: flex;
+    flex-direction: column;
+    margin-top: 0;
+  }
+
+  .header-nav.header-open .nav-link {
+    text-align: left;
+    border-bottom: 1px solid var(--rule-light);
+  }
+
+  .header-account.header-open {
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .header-account.header-open .header-user {
+    text-align: left;
+  }
+}
+
 .main {
-  padding: 1rem;
+  padding: 2rem;
   max-width: 100%;
   box-sizing: border-box;
 }
 
 .footer {
-  padding: 0.75rem 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.25rem 1.5rem;
+  padding: 0.75rem 2rem;
   border-top: 1px solid var(--rule);
+  font-size: 13px;
+}
+
+@media (max-width: 640px) {
+  .main {
+    padding: 1.25rem 1rem;
+  }
+
+  .footer {
+    padding: 0.75rem 1rem;
+  }
+}
+
+/* --- Home: the set-up checklist (F09.1) ------------------------------------------------
+   A list of steps, not a table: each step is its number (a tick when done), its name, one
+   sentence, its status in words and its one action. The step the API marks primary carries
+   the screen's one primary action and the accent on its number. */
+
+.section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+  max-width: 52rem;
+}
+
+.section-head h2 {
+  margin-bottom: 0;
+}
+
+.progress {
+  display: flex;
+  gap: 4px;
+  max-width: 52rem;
+  margin: 0.75rem 0 1.25rem;
+}
+
+.progress-step {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--rule);
+}
+
+.progress-done {
+  background: var(--done);
+}
+
+.checklist {
+  max-width: 52rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.step {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--rule-light);
+}
+
+.step:last-child {
+  border-bottom: none;
+}
+
+.step-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--control);
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.step-marker-next {
+  color: var(--accent);
+  border-color: currentColor;
+}
+
+.step-marker-done {
+  color: var(--surface);
+  background: var(--done);
+  border-color: var(--done);
+}
+
+.step-title {
+  font-weight: 600;
+}
+
+.step-message {
   font-size: 14px;
+  color: var(--muted);
+}
+
+.step-status {
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.step-status-done {
+  font-weight: 600;
+  color: var(--done);
+}
+
+.step-action .link-button {
+  min-height: 44px;
+  text-align: left;
+}
+
+@media (max-width: 640px) {
+  .step {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: start;
+    padding: 1rem;
+  }
+
+  .step-action {
+    grid-column: 2 / -1;
+  }
+
+  .step-action:empty {
+    display: none;
+  }
 }
 
 .small {
@@ -208,6 +501,7 @@ h2 {
   max-height: 75vh;
   max-height: 75dvh; /* phones: the viewport that is actually visible */
   border: 1px solid var(--rule);
+  background: var(--surface);
 }
 
 .table {

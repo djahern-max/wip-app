@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { PRODUCT_NAME, SUPPORT_EMAIL } from "../product.js";
 import { openWords, pickerWords } from "../exceptions.js";
+import { roleWords } from "../roles.js";
 import Logo from "../Logo.jsx";
 import Config from "./Config.jsx";
 import Connections from "./Connections.jsx";
@@ -42,6 +43,7 @@ export default function Shell({ me, onChanged, onLogout }) {
   const [jobTarget, setJobTarget] = useState(null);
   const [estimateTarget, setEstimateTarget] = useState(null);
   const [configTarget, setConfigTarget] = useState(null); // F07.3: the Configuration section Home asked for
+  const [menuOpen, setMenuOpen] = useState(false); // F09.1: phone width only; the nav is always shown on a laptop
 
   // Leaving a screen forgets the message QuickBooks came back with.
   function go(next) {
@@ -49,6 +51,7 @@ export default function Shell({ me, onChanged, onLogout }) {
     setJobTarget(null);
     setEstimateTarget(null);
     setConfigTarget(null);
+    setMenuOpen(false);
     setView(next);
   }
 
@@ -114,9 +117,10 @@ export default function Shell({ me, onChanged, onLogout }) {
           <Logo size={24} />
           <strong>{PRODUCT_NAME}</strong>
         </span>
-        <label className="small">
-          Company{" "}
+        <label className="header-company">
+          <span className="header-company-label">Company</span>
           <select
+            className="header-select"
             value={me.active_tenant_id || ""}
             onChange={(e) => switchTenant(e.target.value)}
             disabled={tenants.length === 0}
@@ -124,53 +128,103 @@ export default function Shell({ me, onChanged, onLogout }) {
             {!me.active_tenant_id && <option value="">Choose…</option>}
             {tenants.map((t) => (
               <option key={t.tenant_id} value={t.tenant_id}>
-                {t.name} ({t.role})
+                {t.name}
                 {me.firm_role && t.open_exceptions ? ` · ${pickerWords(t.open_exceptions)}` : ""}
               </option>
             ))}
           </select>
         </label>
+        <button
+          type="button"
+          className="button menu-button"
+          aria-expanded={menuOpen}
+          onClick={() => setMenuOpen(!menuOpen)}
+        >
+          Menu
+        </button>
         {active && (
-          <nav className="header-nav">
-            <button type="button" className="link-button" onClick={() => go("home")}>
+          <nav className={menuOpen ? "header-nav header-open" : "header-nav"} aria-label="Main">
+            <button
+              type="button"
+              className="nav-link"
+              aria-current={view === "home" ? "page" : undefined}
+              onClick={() => go("home")}
+            >
               Home
             </button>
-            <button type="button" className="link-button" onClick={() => go("estimates")}>
+            <button
+              type="button"
+              className="nav-link"
+              aria-current={view === "estimates" ? "page" : undefined}
+              onClick={() => go("estimates")}
+            >
               Estimates
             </button>
-            <button type="button" className="link-button" onClick={() => go("jobs")}>
+            <button
+              type="button"
+              className="nav-link"
+              aria-current={view === "jobs" ? "page" : undefined}
+              onClick={() => go("jobs")}
+            >
               Jobs
             </button>
-            <button type="button" className="link-button" onClick={() => go("exceptions")}>
+            <button
+              type="button"
+              className="nav-link"
+              aria-current={view === "exceptions" ? "page" : undefined}
+              onClick={() => go("exceptions")}
+            >
               Exceptions{active.open_exceptions ? ` (${openWords(active.open_exceptions)})` : ""}
             </button>
             {canManageJobs && (
-              <button type="button" className="link-button" onClick={() => go("customers")}>
+              <button
+                type="button"
+                className="nav-link"
+                aria-current={view === "customers" ? "page" : undefined}
+                onClick={() => go("customers")}
+              >
                 Customers
               </button>
             )}
             {canImport && (
-              <button type="button" className="link-button" onClick={() => go("imports")}>
+              <button
+                type="button"
+                className="nav-link"
+                aria-current={view === "imports" ? "page" : undefined}
+                onClick={() => go("imports")}
+              >
                 Imports
               </button>
             )}
             {canConfig && (
-              <button type="button" className="link-button" onClick={() => go("config")}>
+              <button
+                type="button"
+                className="nav-link"
+                aria-current={view === "config" ? "page" : undefined}
+                onClick={() => go("config")}
+              >
                 Configuration
               </button>
             )}
             {canConnections && (
-              <button type="button" className="link-button" onClick={() => go("connections")}>
+              <button
+                type="button"
+                className="nav-link"
+                aria-current={view === "connections" ? "page" : undefined}
+                onClick={() => go("connections")}
+              >
                 Connections
               </button>
             )}
           </nav>
         )}
-        <span className="header-user">
-          {me.user.email}
-          {me.firm_role ? ` · ${me.firm_role}` : ""}
-        </span>
-        <button type="button" className="button" onClick={onLogout}>Sign out</button>
+        <div className={menuOpen ? "header-account header-open" : "header-account"}>
+          <span className="header-user">
+            <span>{me.user.email}</span>
+            <span className="header-role">{roleWords(active ? active.role : me.firm_role)}</span>
+          </span>
+          <button type="button" className="button" onClick={onLogout}>Sign out</button>
+        </div>
       </header>
       <main className="main">
         {error && <p className="error">{error}</p>}
@@ -196,18 +250,20 @@ export default function Shell({ me, onChanged, onLogout }) {
         ) : active && view === "connections" && canConnections ? (
           <Connections me={me} result={returned ? returned.result : ""} />
         ) : active ? (
-          <Home me={me} companyName={active.name} role={active.role} onOpen={openLink} />
+          <Home me={me} companyName={active.name} onOpen={openLink} />
         ) : (
           <p>Choose a company to start.</p>
         )}
-        {health && (
-          <p className="hint">
-            API {health.status} · database {health.db}
-          </p>
-        )}
       </main>
       <footer className="footer">
-        Support: <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>
+        <span>
+          Support: <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>
+        </span>
+        {health && (
+          <span className="muted">
+            API {health.status} · database {health.db}
+          </span>
+        )}
       </footer>
     </div>
   );
