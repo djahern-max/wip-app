@@ -359,8 +359,12 @@ def test_dedupe_key_blocks_a_second_enqueue_while_the_first_is_open(
 
 
 def test_notify_wakes_an_idle_worker_in_under_a_second(
-    seed: Seed, rw_engine: Engine, clean_queue: None
+    seed: Seed, rw_engine: Engine, clean_queue: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # F09 (2026-10-08): the start-up hooks queue an exceptions run for every tenant the
+    # test database holds, so a freshly started worker is busy, not idle. This test
+    # measures the idle wake, so it starts the worker with no start-up hooks.
+    monkeypatch.setattr("app.worker.runner.STARTUP_HOOKS", [])
     w = Worker(rw_engine, name="w-listen", listen=True, poll_seconds=30)
     t = threading.Thread(target=w.run_forever, daemon=True)
     t.start()

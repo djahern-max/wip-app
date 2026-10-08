@@ -629,9 +629,14 @@ def remove_membership(
 
 
 def list_tenant_users(db: Session, tenant: Tenant) -> list[tuple[Membership, User, Role | None]]:
-    """Users of one tenant with their effective role. Requires ``app.tenant_id``."""
+    """Users of one tenant with their effective role. Requires ``app.tenant_id``; filtered
+    by tenant as well, because D-11's own-rows policy would also list the caller's entry
+    rows in every other company (F09 patch, 2026-10-08)."""
     rows = db.execute(
-        select(Membership, User).join(User, User.id == Membership.user_id).order_by(User.email)
+        select(Membership, User)
+        .join(User, User.id == Membership.user_id)
+        .where(Membership.tenant_id == tenant.id)
+        .order_by(User.email)
     ).all()
     out = []
     for m, u in rows:

@@ -320,12 +320,16 @@ def last_run_at(db: Session) -> datetime | None:
     ).scalar_one()
 
 
-def members(db: Session) -> list[Member]:
+def members(db: Session, tenant_id: UUID) -> list[Member]:
     """Everyone who can open the company: the tenant's membership rows (a firm user's
-    entry row included), by display name."""
+    entry row included), by display name. Filtered by tenant as well as by RLS: D-11's
+    ``own_membership_read`` policy also shows the caller their own rows in every company
+    they can enter, which RLS alone would list here once per company (F09 patch,
+    2026-10-08)."""
     rows = db.execute(
         select(User)
         .join(Membership, Membership.user_id == User.id)
+        .where(Membership.tenant_id == tenant_id)
         .order_by(func.lower(User.display_name))
     ).scalars()
     return [Member(str(u.id), u.display_name) for u in rows]
@@ -408,8 +412,12 @@ def assign(
     """To a member of the company, or to nobody; one event, one audit row."""
     row = _row(db, exception_id)
     if user_id is not None:
+        # Filtered by tenant as well as by RLS (D-11 shows the caller their own rows in
+        # every company; without the filter assigning to oneself found several rows).
         member = db.execute(
-            select(Membership).where(Membership.user_id == user_id)
+            select(Membership).where(
+                Membership.tenant_id == tenant_id, Membership.user_id == user_id
+            )
         ).scalar_one_or_none()
         if member is None:
             raise Invalid("That user is not a member of this company; assign to a member.")

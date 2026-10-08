@@ -339,6 +339,116 @@ def test_read_as_user_is_called_only_from_the_admin_service() -> None:
     assert "Tenant.firm_id == firm_id" in src.split("def _rows_in_firm(")[1].split("\ndef ")[0]
 
 
+# --- every query on membership filters by tenant, unless it is meant to cross companies ----------
+
+# (file, function) pairs whose membership reads are meant to cross companies (D-11): the
+# caller's own rows at login and for the company picker, and D-18's read of another user's
+# rows through read_as_user. Anything else that selects or joins Membership without
+# ``Membership.tenant_id ==`` fails here: RLS alone also returns the caller's own rows in
+# every company they can enter (the F09 pass of 2026-10-08: a firm admin assigning an
+# exception to themselves found several rows; the members list named them once per company).
+MEMBERSHIP_CROSS_COMPANY_READS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("app/core/auth.py", "load_memberships"),  # login and the company picker
+        ("app/auth/admin.py", "_rows_in_firm"),  # D-18, inside read_as_user
+    }
+)
+
+
+def _membership_queries(source: str) -> list[tuple[str | None, int, str]]:
+    """``(enclosing function, line, statement text)`` for every statement that selects or
+    joins ``Membership``. Parsed, so comments and docstrings do not count."""
+    import ast
+
+    tree = ast.parse(source)
+    out: list[tuple[str | None, int, str]] = []
+
+    def mentions(node: ast.AST) -> bool:
+        for sub in ast.walk(node):
+            if not isinstance(sub, ast.Call):
+                continue
+            name = (
+                sub.func.id
+                if isinstance(sub.func, ast.Name)
+                else sub.func.attr
+                if isinstance(sub.func, ast.Attribute)
+                else ""
+            )
+            if name in ("select", "join") and any(
+                isinstance(a, ast.Name) and a.id == "Membership" for a in sub.args
+            ):
+                return True
+        return False
+
+    def visit(body: list[ast.stmt], func: str | None) -> None:
+        for stmt in body:
+            if isinstance(stmt, ast.FunctionDef | ast.AsyncFunctionDef):
+                visit(stmt.body, stmt.name)
+                continue
+            if isinstance(stmt, ast.ClassDef):
+                visit(stmt.body, func)
+                continue
+            if mentions(stmt):
+                out.append((func, stmt.lineno, ast.get_source_segment(source, stmt) or ""))
+            for child in ast.iter_child_nodes(stmt):
+                if isinstance(getattr(child, "body", None), list):
+                    visit(child.body, func)
+                if isinstance(getattr(child, "orelse", None), list):
+                    visit(child.orelse, func)
+
+    visit(tree.body, None)
+    return out
+
+
+def _unfiltered_membership_queries(rel: str, source: str) -> list[str]:
+    return [
+        f"{rel}:{line} ({func or 'module'})"
+        for func, line, text_ in _membership_queries(source)
+        if "Membership.tenant_id ==" not in text_
+        and (rel, func or "") not in MEMBERSHIP_CROSS_COMPANY_READS
+    ]
+
+
+def test_every_membership_query_filters_by_tenant_unless_allow_listed() -> None:
+    offenders: list[str] = []
+    found: set[tuple[str, str]] = set()
+    for path in sorted(APP_DIR.rglob("*.py")):
+        rel = str(path.relative_to(BACKEND))
+        src = path.read_text()
+        for func, _line, _text in _membership_queries(src):
+            found.add((rel, func or ""))
+        offenders += _unfiltered_membership_queries(rel, src)
+    assert offenders == []
+    # The allow-list names reads that exist; a stale entry fails too.
+    assert MEMBERSHIP_CROSS_COMPANY_READS <= found
+    # The scan saw the reads this feature fixed.
+    assert ("app/domain/exceptions/service.py", "members") in found
+    assert ("app/domain/exceptions/service.py", "assign") in found
+    assert ("app/auth/admin.py", "list_tenant_users") in found
+
+
+def test_the_membership_scan_would_catch_an_unfiltered_read() -> None:
+    bad = (
+        "def members(db):\n"
+        "    rows = db.execute(\n"
+        "        select(User).join(Membership, Membership.user_id == User.id)\n"
+        "    ).all()\n"
+        "    return rows\n"
+        "def fine(db, tenant_id):\n"
+        "    return db.execute(select(Membership).where(Membership.tenant_id == tenant_id)).all()\n"
+        "def note():\n"
+        '    """select(Membership) in a docstring is not a query."""\n'
+    )
+    assert _unfiltered_membership_queries("app/x.py", bad) == ["app/x.py:2 (members)"]
+    assert (
+        _unfiltered_membership_queries(
+            "app/core/auth.py",
+            "def load_memberships(db):\n    return db.execute(select(Membership)).all()\n",
+        )
+        == []
+    )
+
+
 # --- exactly one function computes the tenant role ----------------------------------------------
 
 _ROLE_OWNERS = {"m", "membership", "row", "existing", "Membership"}

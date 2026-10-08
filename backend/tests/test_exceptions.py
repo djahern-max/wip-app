@@ -612,3 +612,74 @@ def test_a_second_tenant_reads_none_of_the_firsts_exceptions(
     ids = {e["id"] for e in _queue(t)["exceptions"]}
     for exception_id in list(ids)[:3]:
         assert other.get(f"/api/exceptions/{exception_id}").status_code == 404
+
+
+# --- the F09 patch of 2026-10-08 (the owner's pass): membership reads, the start-up hook ----
+
+
+def test_a_firm_user_assigns_to_themselves_and_the_members_list_has_each_member_once(
+    t: Tenant, seed: Seed, as_role
+) -> None:
+    """D-11's own-rows policy shows the caller their membership rows in every company; the
+    membership reads filter by tenant as well, so assigning to oneself works and the list
+    names each member once (the owner's pass of 2026-10-08: "Dane (admin)" twice, and the
+    assignment failing)."""
+    _fixture(t)
+    (flag,) = _of(_queue(t), "BILLING_UNAPPROVED_CO")
+    members = _queue(t)["members"]
+    ids = [m["id"] for m in members]
+    assert len(ids) == len(set(ids)), members  # once each, the caller included
+    me = str(seed.users["rotate_me"].id)
+    staff = str(seed.users["recover_me"].id)  # firm_staff with an entry row here
+    assert {me, staff} <= set(ids)
+    # Members of other companies are not listed, not even the caller's own rows there.
+    assert str(seed.users["client_admin_b"].id) not in ids
+    out = _post(t, flag["id"], "assign", {"user_id": me})
+    assert (out["assigned_to_id"], out["assigned_to"]) == (me, "rotate_me")
+    assert (
+        out["events"][-1]["kind"] == "assigned" and out["events"][-1]["assigned_to"] == "rotate_me"
+    )
+    out = _post(t, flag["id"], "assign", {"user_id": staff})
+    assert out["assigned_to"] == "recover_me"
+    # A member of another company only is still refused in one sentence.
+    other = _post(t, flag["id"], "assign", {"user_id": str(seed.users["client_admin_b"].id)}, 422)
+    assert other["detail"] == NOT_MEMBER
+
+
+def test_the_worker_queues_one_run_per_tenant_at_start_up(t: Tenant) -> None:
+    """A tenant with data has a queue after a deploy or restart without waiting for a poll
+    or a write: ``ensure_refreshed`` is a start-up hook, deduped."""
+    from app.domain.exceptions.run import REFRESH_KIND, ensure_refreshed
+    from app.worker.models import Task
+    from app.worker.runner import STARTUP_HOOKS, Worker, load_worker_modules
+
+    load_worker_modules()
+    assert ensure_refreshed in STARTUP_HOOKS
+    _fixture(t)  # every queued run has run; the queue has an "as of"
+    before = _queue(t)["as_of"]
+    assert before is not None
+
+    def queued() -> int:
+        with tenant_session(t.engine, t.id) as s:
+            return len(
+                s.execute(select(Task).where(Task.kind == REFRESH_KIND, Task.status == "queued"))
+                .scalars()
+                .all()
+            )
+
+    assert queued() == 0
+    with tenant_session(t.engine, t.id) as s:
+        ensure_refreshed(s, t.id)
+    with tenant_session(t.engine, t.id) as s:
+        ensure_refreshed(s, t.id)  # deduped: still one
+    assert queued() == 1
+    run_until_quiet(t.engine)
+    assert queued() == 0
+    w = Worker(t.engine, name="w-f09-startup", listen=False, poll_seconds=0.01)
+    w.tenant_ids = lambda: [t.id]  # type: ignore[method-assign]
+    w.run_startup_hooks()
+    assert queued() == 1
+    run_until_quiet(t.engine)
+    after = _queue(t)["as_of"]
+    assert after is not None and after > before
+    assert _run(t).writes == 0  # the start-up run changed nothing on a quiet tenant

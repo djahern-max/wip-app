@@ -123,6 +123,11 @@ def test_list_users_of_active_tenant(login_as: Callable[..., TestClient], seed: 
     assert by_email[seed.users["firm_staff"].email]["role"] == "firm_staff"  # effective role
     assert by_email[seed.users["orphan"].email]["role"] is None  # orphan entry row
     assert seed.users["client_admin_b"].email not in by_email  # tenant B only
+    # F09 patch (2026-10-08): the caller holds entry rows in other companies too (D-11's
+    # own-rows policy shows them); the list names each user once, this company's rows only.
+    emails = [r["email"] for r in rows]
+    assert len(emails) == len(set(emails)), emails
+    assert emails.count(seed.users["firm_admin"].email) == 1
     assert all(
         set(r) == {"user_id", "email", "display_name", "role", "totp_enrolled"} for r in rows
     )

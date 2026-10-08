@@ -1128,8 +1128,10 @@ to me". The company picker shows a firm user each company's open count in words.
   import that loaded estimates (the `estimates.normalize` task queues it), and after a
   person's state-changing request on the jobs, customers, pay application or configuration
   pages (the API queues one run per burst; a run already queued takes the change; one
-  already running is followed by one more). The worker task is `exceptions.refresh`; the page says "As of the last run on
-  <date>" from its task row. A page read never runs it: the Jobs board, the job page,
+  already running is followed by one more), and once per tenant when the worker starts
+  (a deploy restarts it, so a tenant with data has a queue after a deploy without waiting
+  for a poll or a write; F09 patch of 2026-10-08). The worker task is
+  `exceptions.refresh`; the page says "As of the last run on <date>" from its task row. A page read never runs it: the Jobs board, the job page,
   Home and the Estimates pages compute their sentences live and leave out what is
   dismissed. A second run with nothing changed writes nothing.
 - **Assign** (`firm_admin`, `firm_staff`, `client_admin`): to a member of the company, or

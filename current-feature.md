@@ -18,7 +18,11 @@ function per subject (`app/domain/exceptions/collect.py`) and leave out what is 
 the job page and the estimate page list the dismissed under "Dismissed". Home gained other
 credits applied (D-41) and the three pay-application ties (D-36, D-39) in the owner's
 order. The Exceptions page, "Exceptions (n open)" in the navigation, the company picker's
-counts. Nothing in `app/wip/`; no figure changed. Dev `wip` is at 0012: deploying runs
+counts. A patch from the owner's pass of 2026-10-08 (same day, no migration): every
+membership read in a request filters by tenant as well as by RLS (D-11's own-rows policy
+had shown the caller once per company and broke assigning to oneself; `GET /api/admin/users`
+had the same class of fault), a static test in `tests/test_hygiene.py` keeps it so, and
+the worker queues one run per tenant at start-up. Nothing in `app/wip/`; no figure changed. Dev `wip` is at 0012: deploying runs
 0013 to 0016.
 
 Open passes carried: **F09** (`docs/briefs/F09.md`: the queue against the board, 6115758
@@ -285,7 +289,7 @@ New, from the owner's decisions of 2026-10-08, for later briefs:
 Found while building F09 (2026-10-08), not fixed here:
 - A change applied while a run is running is caught by the run after it (`refresh:next`), never missed; but a run queued by a poll runs after that poll's normalize tasks only because its `run_after` is later, an ordering by timestamp rather than by dependency. A task that depends on another would be the tidier form if the worker ever gains one.
 - `PAYAPP_INVOICE_MISMATCH` compares `difference` only for the reopening rule; a surcharge-only change reopens nothing until its detail carries the two surcharge figures (a detail-only change to the generator, for the owner's yes).
-- The queue shows `message` as of the last run; a sentence reworded by a deploy reads old on the queue until the next run, while the subject pages read new. One run after a deploy (`exceptions.refresh` enqueued at start-up, like the poll chains) would close that gap.
+- The queue shows `message` as of the last run; a sentence reworded by a deploy reads old on the queue until the next run, while the subject pages read new. One run after a deploy (`exceptions.refresh` enqueued at start-up, like the poll chains) would close that gap. **Closed by the patch of 2026-10-08: the worker start-up hook queues one run per tenant.**
 - `members` on `GET /api/exceptions` lists every membership row of the company, a firm user's entry row included, so a firm staff member can be assigned; the picker does not say which members are firm staff.
 - The Shell reloads the company list on every page change to keep the Exceptions count current; a count in the page's own response would save that request.
 

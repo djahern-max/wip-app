@@ -159,7 +159,10 @@ def list_exceptions(
         tenant_name=_tenant_name(db, viewer.active_tenant_id),
         as_of=last.isoformat() if last is not None else None,
         counts=ExceptionCountsOut(**counts),
-        members=[ExceptionMemberOut(id=m.id, name=m.name) for m in service.members(db)],
+        members=[
+            ExceptionMemberOut(id=m.id, name=m.name)
+            for m in service.members(db, viewer.active_tenant_id)
+        ],
         can_manage=viewer.role in CAPABILITIES["manage_exceptions"][1],
     )
 

@@ -33,6 +33,7 @@ from app.domain.exceptions.models import ExceptionEvent, ReviewException
 from app.domain.exceptions.registry import Key, item_key, stated
 from app.worker.queue import enqueue, open_task
 from app.worker.registry import task
+from app.worker.runner import STARTUP_HOOKS
 
 log = logging.getLogger("app.exceptions")
 
@@ -171,3 +172,14 @@ def request_refresh(db: Session, tenant_id: UUID) -> None:
         enqueue(db, tenant_id, REFRESH_KIND, {}, dedupe_key=DEDUPE_NEXT)
         return
     enqueue(db, tenant_id, REFRESH_KIND, {}, dedupe_key=DEDUPE)
+
+
+def ensure_refreshed(db: Session, tenant_id: UUID) -> None:
+    """Worker start-up (F09 patch, 2026-10-08): queue one run per tenant, deduped, so a
+    tenant with data has a queue after a deploy or a restart without waiting for a poll
+    that applies a change or a person's write, and a sentence reworded by a deploy
+    reaches the queue. Called once per tenant inside its own ``tenant_session``."""
+    request_refresh(db, tenant_id)
+
+
+STARTUP_HOOKS.append(ensure_refreshed)
