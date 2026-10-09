@@ -771,6 +771,7 @@ h3 {
 .filters {
   display: flex;
   flex-wrap: wrap;
+  align-items: flex-end;
   gap: 0.75rem 1.5rem;
   margin-bottom: 1rem;
 }
@@ -921,5 +922,206 @@ h3 {
   .upload-form .button-primary {
     width: 100%;
     min-width: 0;
+  }
+}
+
+/* --- F09.4: Configuration -------------------------------------------------------------------
+   The six sections sit under a row of tabs that marks where you are the way the main
+   navigation does (D-47). A form that adds a row is one card with its fields on a line,
+   wrapping on a phone. A row being edited is tinted, and the account map's edit form
+   opens across the row. Policy is a list of decisions (D-47, point 3), drawn with the
+   checklist's pieces from Home. */
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1.5rem;
+  margin: 0.75rem 0 1.5rem;
+  border-bottom: 1px solid var(--rule);
+  font-size: 14px;
+}
+
+.tabs .nav-link {
+  margin-bottom: -1px;
+}
+
+.config-narrow {
+  max-width: 52rem;
+}
+
+.control {
+  max-width: 100%;
+  min-height: 40px;
+  box-sizing: border-box;
+  padding: 0 0.6rem;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--control);
+  border-radius: 6px;
+}
+
+.control-short {
+  width: 6rem;
+}
+
+.control-wide {
+  width: 100%;
+}
+
+.form-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 1rem 1.25rem;
+  margin: 0 0 1.25rem;
+  padding: 1.25rem 1.5rem;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.field-grow {
+  flex: 1 1 12rem;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 40px;
+  font-size: 14px;
+}
+
+.actions-row {
+  align-items: center;
+  gap: 0.75rem 1.25rem;
+}
+
+.show-inactive {
+  margin: 0 0 0.5rem;
+}
+
+.filters .show-inactive {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  margin: 0;
+}
+
+.done-line {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0 0 1rem;
+}
+
+.facts-row {
+  margin-bottom: 1.25rem;
+}
+
+.table tr.row-editing td {
+  background: var(--surface-alt);
+}
+
+.table td.cell-wide {
+  max-width: none;
+}
+
+.edit-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1.25rem;
+}
+
+.section-head p {
+  max-width: 40rem;
+  margin: 0;
+}
+
+.checklist-spaced {
+  margin-top: 1rem;
+  overflow: hidden; /* a tinted row keeps the list's rounded corners */
+}
+
+.step-editing {
+  align-items: start;
+  background: var(--surface-alt);
+}
+
+.policy-value {
+  margin-top: 0.5rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.policy-form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.policy-form .field {
+  width: 100%;
+  max-width: 28rem;
+}
+
+.checks {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.checks legend {
+  padding: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.check-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+  gap: 0 1rem;
+  width: 100%;
+}
+
+.checks .check {
+  min-height: 36px;
+}
+
+@media (max-width: 640px) {
+  .form-card {
+    padding: 1rem;
+  }
+
+  .form-card .field,
+  .form-card .select,
+  .form-card .control,
+  .form-card .button-primary {
+    width: 100%;
+    min-width: 0;
+  }
+
+  /* beside the held account column, the edit form is one narrow stack that stays in
+     view however far the table has been scrolled sideways */
+  .edit-form {
+    position: sticky;
+    left: 11.5rem;
+    flex-direction: column;
+    align-items: stretch;
+    width: 11rem;
+  }
+
+  .edit-form .select {
+    min-width: 0;
+    width: 100%;
   }
 }

@@ -1,10 +1,14 @@
 import { createElement as h, useState } from "react";
 import { formatMoney } from "./money.js";
 
-// The rows of the Policy table (F04, F04.1): a key's value or "Not decided", who, when,
+// The rows of the Policy list (F04, F04.1): a key's value or "Not decided", who, when,
 // the reference, and either the Decide/Change control or the sentence saying what the
 // key waits for. Written with createElement rather than JSX so `node --test` can render
 // the rows through react-dom/server; no DOM library is needed.
+//
+// F09.4 (D-47, point 3): each key is a list item drawn with the checklist's pieces from
+// Home (a tick when decided, the label and its sentence, the status in words, the one
+// action); deciding a key opens its form in the same item.
 
 export const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 export const REFERENCE_LABEL = "Reference (optional): where this is written down, e.g. D-04 or the engagement letter";
@@ -68,32 +72,56 @@ export function showValue(p, categories) {
   return String(p.value);
 }
 
+/** Under a decided value: who decided, when, and the reference when there is one. */
+export function decidedLine(p) {
+  const who = p.decided_by_email ? `Decided by ${p.decided_by_email}` : "Decided";
+  const when = p.decided_at ? ` on ${new Date(p.decided_at).toLocaleDateString()}` : "";
+  const ref = p.decision_ref ? ` \u00b7 Reference: ${p.decision_ref}` : "";
+  return `${who}${when}${ref}`;
+}
+
+function marker(p) {
+  return h(
+    "span",
+    { className: p.decided ? "step-marker step-marker-done" : "step-marker", "aria-hidden": "true" },
+    p.decided ? "\u2713" : "",
+  );
+}
+
+function status(p) {
+  return h("span", { className: p.decided ? "step-status step-status-done" : "step-status" }, p.decided ? "Decided" : "Not decided");
+}
+
 export function PolicyRow({ p, categories, canSetPolicy, busy, onEdit }) {
-  // `.num` right-aligns a decided money value only; "Not decided" lines up on the left.
-  const valueClass = p.kind === "money" && p.decided ? "num" : undefined;
-  const cells = [
-    h("td", { key: "label" }, p.label, h("div", { className: "hint" }, p.description)),
-    h("td", { key: "value", className: valueClass }, p.decided ? showValue(p, categories) : "Not decided"),
-    h("td", { key: "who" }, p.decided_by_email || ""),
-    h("td", { key: "when" }, p.decided_at ? new Date(p.decided_at).toLocaleDateString() : ""),
-    h("td", { key: "ref", className: "wrap-anywhere" }, p.decision_ref || ""),
+  const body = [
+    h("div", { key: "label", className: "step-title" }, p.label),
+    h("div", { key: "description", className: "step-message" }, p.description),
   ];
-  if (canSetPolicy) {
-    cells.push(
-      h(
-        "td",
-        { key: "action" },
-        p.waiting
-          ? h("span", { className: "hint" }, p.waiting)
-          : h(
-              "button",
-              { type: "button", className: "link-button", disabled: busy, onClick: () => onEdit(p.key) },
-              p.decided ? "Change" : "Decide",
-            ),
-      ),
+  if (p.decided) {
+    body.push(
+      h("div", { key: "value", className: "policy-value" }, showValue(p, categories)),
+      h("div", { key: "who", className: "cell-sub wrap-anywhere" }, decidedLine(p)),
     );
   }
-  return h("tr", null, ...cells);
+  if (canSetPolicy && p.waiting) body.push(h("div", { key: "waiting", className: "hint" }, p.waiting));
+  return h(
+    "li",
+    { className: "step" },
+    marker(p),
+    h("div", { className: "step-body" }, ...body),
+    status(p),
+    h(
+      "div",
+      { className: "step-action" },
+      canSetPolicy && !p.waiting
+        ? h(
+            "button",
+            { type: "button", className: "link-button", disabled: busy, onClick: () => onEdit(p.key) },
+            p.decided ? "Change" : "Decide",
+          )
+        : null,
+    ),
+  );
 }
 
 export function hasValue(kind, text, slots, items = [], none = false) {
@@ -140,11 +168,11 @@ export function EditPolicy({ p, categories, busy, onCancel, onSave }) {
   if (p.kind === "month") {
     control = h(
       "label",
-      { className: "label" },
-      "Month",
+      { className: "field" },
+      h("span", { className: "field-label" }, "Month"),
       h(
         "select",
-        { className: "input", value: text, onChange: (e) => setText(e.target.value), disabled: busy },
+        { className: "select", value: text, onChange: (e) => setText(e.target.value), disabled: busy },
         h("option", { value: "" }, "Choose…"),
         ...MONTHS.map((m, i) => h("option", { key: m, value: i + 1 }, m)),
       ),
@@ -153,11 +181,11 @@ export function EditPolicy({ p, categories, busy, onCancel, onSave }) {
     // The options and their labels come from the API (one mapping, on the server).
     control = h(
       "label",
-      { className: "label" },
-      p.kind === "timezone" ? "Time zone" : p.label,
+      { className: "field" },
+      h("span", { className: "field-label" }, p.kind === "timezone" ? "Time zone" : p.label),
       h(
         "select",
-        { className: "input", value: text, onChange: (e) => setText(e.target.value), disabled: busy },
+        { className: "select", value: text, onChange: (e) => setText(e.target.value), disabled: busy },
         h("option", { value: "" }, "Choose…"),
         ...(p.options || []).map((o) => h("option", { key: o.value, value: o.value }, o.label)),
       ),
@@ -165,26 +193,28 @@ export function EditPolicy({ p, categories, busy, onCancel, onSave }) {
   } else if (p.kind === "category_slots") {
     control = h(
       "fieldset",
-      { className: "label" },
+      { className: "checks" },
       h("legend", null, "Cost categories in the WIP basis"),
       h("div", { className: "hint" }, WIP_BASIS_HINT),
-      ...categories
-        .filter((c) => c.active)
-        .map((c) =>
-          h(
-            "label",
-            { key: c.id, className: "small" },
-            h("input", {
-              type: "checkbox",
-              checked: slots.includes(c.slot),
-              disabled: busy,
-              onChange: (e) => setSlots(e.target.checked ? [...slots, c.slot] : slots.filter((s) => s !== c.slot)),
-            }),
-            " ",
-            `${c.slot} ${c.name}`,
-            h("br"),
+      h(
+        "div",
+        { className: "check-grid" },
+        ...categories
+          .filter((c) => c.active)
+          .map((c) =>
+            h(
+              "label",
+              { key: c.id, className: "check" },
+              h("input", {
+                type: "checkbox",
+                checked: slots.includes(c.slot),
+                disabled: busy,
+                onChange: (e) => setSlots(e.target.checked ? [...slots, c.slot] : slots.filter((s) => s !== c.slot)),
+              }),
+              `${c.slot} ${c.name}`,
+            ),
           ),
-        ),
+      ),
     );
   } else if (itemKind) {
     const options = p.options || [];
@@ -194,32 +224,28 @@ export function EditPolicy({ p, categories, busy, onCancel, onSave }) {
       : [
           h(
             "label",
-            { key: "find", className: "label" },
-            FIND_ITEM_LABEL,
-            h("input", { className: "input", type: "search", value: query, onChange: (e) => setQuery(e.target.value), disabled: busy || none }),
+            { key: "find", className: "field" },
+            h("span", { className: "field-label" }, FIND_ITEM_LABEL),
+            h("input", { className: "control control-wide", type: "search", value: query, onChange: (e) => setQuery(e.target.value), disabled: busy || none }),
           ),
           h(
             "label",
-            { key: "inactive", className: "small" },
+            { key: "inactive", className: "check" },
             h("input", { type: "checkbox", checked: showInactive, disabled: busy || none, onChange: (e) => setShowInactive(e.target.checked) }),
-            " ",
             SHOW_INACTIVE_LABEL,
-            h("br"),
           ),
           ...(shown.length === 0 ? [h("div", { key: "nomatch", className: "hint" }, "No item is named like that.")] : []),
           ...shown.map((o) =>
             h(
               "label",
-              { key: o.value, className: "small" },
+              { key: o.value, className: "check" },
               h("input", {
                 type: "checkbox",
                 checked: items.includes(o.value),
                 disabled: busy || none,
                 onChange: (e) => toggleItem(o.value, e.target.checked),
               }),
-              " ",
               o.label,
-              h("br"),
             ),
           ),
         ];
@@ -232,10 +258,10 @@ export function EditPolicy({ p, categories, busy, onCancel, onSave }) {
       children.push(
         h(
           "label",
-          { className: "label" },
-          RATE_LABEL,
+          { className: "field" },
+          h("span", { className: "field-label" }, RATE_LABEL),
           h("input", {
-            className: "input",
+            className: "control",
             inputMode: "decimal",
             value: text,
             onChange: (e) => setText(e.target.value),
@@ -244,7 +270,7 @@ export function EditPolicy({ p, categories, busy, onCancel, onSave }) {
         ),
         h(
           "label",
-          { className: "small" },
+          { className: "check" },
           h("input", {
             type: "checkbox",
             checked: none,
@@ -257,19 +283,18 @@ export function EditPolicy({ p, categories, busy, onCancel, onSave }) {
               }
             },
           }),
-          " ",
           NO_SURCHARGE,
         ),
       );
     }
-    control = h("fieldset", { className: "label" }, ...children);
+    control = h("fieldset", { className: "checks" }, ...children);
   } else {
     control = h(
       "label",
-      { className: "label" },
-      p.kind === "money" ? "Amount" : "Value",
+      { className: "field" },
+      h("span", { className: "field-label" }, p.kind === "money" ? "Amount" : "Value"),
       h("input", {
-        className: "input",
+        className: "control",
         inputMode: p.kind === "money" ? "decimal" : "text",
         value: text,
         onChange: (e) => setText(e.target.value),
@@ -279,35 +304,42 @@ export function EditPolicy({ p, categories, busy, onCancel, onSave }) {
   }
 
   return h(
-    "tr",
-    null,
-    h("td", null, p.label, h("div", { className: "hint" }, p.description)),
-    h("td", null, control),
+    "li",
+    { className: "step step-editing" },
+    marker(p),
     h(
-      "td",
-      { colSpan: 3 },
+      "div",
+      { className: "step-body" },
+      h("div", { className: "step-title" }, p.label),
+      h("div", { className: "step-message" }, p.description),
       h(
-        "label",
-        { className: "label" },
-        REFERENCE_LABEL,
-        h("input", { className: "input", value: ref, onChange: (e) => setRef(e.target.value), disabled: busy }),
+        "div",
+        { className: "policy-form" },
+        control,
+        h(
+          "label",
+          { className: "field" },
+          h("span", { className: "field-label" }, REFERENCE_LABEL),
+          h("input", { className: "control control-wide", value: ref, onChange: (e) => setRef(e.target.value), disabled: busy }),
+        ),
+        h(
+          "span",
+          { className: "actions actions-row" },
+          h(
+            "button",
+            {
+              type: "button",
+              className: "button-primary",
+              disabled: busy || !hasValue(p.kind, text, slots, items, none),
+              onClick: () => onSave(p.key, value(), ref),
+            },
+            "Record decision",
+          ),
+          h("button", { type: "button", className: "link-button", disabled: busy, onClick: onCancel }, "Cancel"),
+        ),
       ),
     ),
-    h(
-      "td",
-      null,
-      h(
-        "button",
-        {
-          type: "button",
-          className: "button-primary",
-          disabled: busy || !hasValue(p.kind, text, slots, items, none),
-          onClick: () => onSave(p.key, value(), ref),
-        },
-        "Record decision",
-      ),
-      " ",
-      h("button", { type: "button", className: "link-button", disabled: busy, onClick: onCancel }, "Cancel"),
-    ),
+    status(p),
+    h("div", { className: "step-action" }),
   );
 }

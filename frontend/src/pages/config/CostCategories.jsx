@@ -7,6 +7,9 @@ const LOAD_FAILED = "The cost categories could not be loaded. Refresh the page."
 
 // The D-23 list, seeded per company. Categories are renamed or deactivated, never
 // deleted; adding one needs a decision, so there is no add form.
+//
+// Layout (F09.4): one sentence and the list in a table no wider than it needs; a row
+// being renamed is tinted; an inactive row is muted and still says "Inactive".
 export default function CostCategories({ me, canManage }) {
   const [rows, setRows] = useState(null);
   const [showInactive, setShowInactive] = useState(false); // F06.1: page state only
@@ -31,11 +34,12 @@ export default function CostCategories({ me, canManage }) {
   }
 
   if (!rows) return <p className="hint">{error || "Loading…"}</p>;
+  const shown = visibleRows(rows, showInactive);
   return (
-    <div>
-      <p className="hint">
-        The slot is the last two digits of a cost code. The list is fixed by decision D-23; a category
-        can be renamed or deactivated here.
+    <div className="config-narrow">
+      <p className="lead">
+        The slot is the last two digits of a cost code. The list is fixed; a category can be renamed or
+        deactivated here.
       </p>
       {error && <p className="error">{error}</p>}
       <ShowInactive
@@ -43,28 +47,29 @@ export default function CostCategories({ me, canManage }) {
         showing={showInactive}
         onToggle={() => setShowInactive((v) => !v)}
       />
-      <div className="table-wrap">
-        <table className="table">
-          <thead>
-            <tr>
-              <th className="num">Slot</th>
-              <th>Name</th>
-              <th>Status</th>
-              {canManage && <th></th>}
-            </tr>
-          </thead>
-          <tbody>
-            {visibleRows(rows, showInactive).length === 0 && (
+      {shown.length === 0 ? (
+        <div className="empty">
+          <strong>{emptyMessage(rows, "cost categories")}</strong>
+        </div>
+      ) : (
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
               <tr>
-                <td colSpan={canManage ? 4 : 3}>{emptyMessage(rows, "cost categories")}</td>
+                <th>Slot</th>
+                <th>Name</th>
+                <th>Status</th>
+                {canManage && <th></th>}
               </tr>
-            )}
-            {visibleRows(rows, showInactive).map((c) => (
-              <CategoryRow key={c.id} c={c} canManage={canManage} busy={busy} run={run} />
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {shown.map((c) => (
+                <CategoryRow key={c.id} c={c} canManage={canManage} busy={busy} run={run} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -73,14 +78,13 @@ function CategoryRow({ c, canManage, busy, run }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(c.name);
   return (
-    <tr>
-      <td className="num">{c.slot}</td>
+    <tr className={editing ? "row-editing" : c.active ? undefined : "row-off"}>
+      <td>
+        <span className="grid-code">{c.slot}</span>
+      </td>
       <td>
         {editing ? (
-          <label className="label">
-            Name
-            <input className="input" value={name} onChange={(e) => setName(e.target.value)} disabled={busy} />
-          </label>
+          <input className="control control-wide" aria-label="Name" value={name} onChange={(e) => setName(e.target.value)} disabled={busy} />
         ) : (
           c.name
         )}
@@ -89,7 +93,7 @@ function CategoryRow({ c, canManage, busy, run }) {
       {canManage && (
         <td>
           {editing ? (
-            <>
+            <span className="actions actions-row">
               <button
                 type="button"
                 className="button"
@@ -97,30 +101,27 @@ function CategoryRow({ c, canManage, busy, run }) {
                 onClick={() => run(() => api("PUT", `/api/config/cost-categories/${c.id}`, { name })).then(() => setEditing(false))}
               >
                 Save
-              </button>{" "}
+              </button>
               <button type="button" className="link-button" onClick={() => setEditing(false)}>
                 Cancel
               </button>
-            </>
+            </span>
           ) : (
-            <>
+            <span className="actions">
               <button type="button" className="link-button" disabled={busy} onClick={() => setEditing(true)}>
                 Rename
               </button>
               {c.active && (
-                <>
-                  {" · "}
-                  <button
-                    type="button"
-                    className="link-button"
-                    disabled={busy}
-                    onClick={() => run(() => api("POST", `/api/config/cost-categories/${c.id}/deactivate`))}
-                  >
-                    Deactivate
-                  </button>
-                </>
+                <button
+                  type="button"
+                  className="link-button"
+                  disabled={busy}
+                  onClick={() => run(() => api("POST", `/api/config/cost-categories/${c.id}/deactivate`))}
+                >
+                  Deactivate
+                </button>
               )}
-            </>
+            </span>
           )}
         </td>
       )}

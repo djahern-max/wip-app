@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api.js";
+import { decidedWords } from "../../config.js";
 import { EditPolicy, PolicyRow } from "../../policyRow.js";
 
 const LOAD_FAILED = "The policy settings could not be loaded. Refresh the page.";
@@ -7,6 +8,10 @@ const LOAD_FAILED = "The policy settings could not be loaded. Refresh the page."
 // Accounting-policy keys (F04, F04.1): each shows its value or "Not decided", who decided,
 // when, and the reference. No key has a default. Only a firm_admin sets one. A key whose
 // feature has not arrived shows what it waits for in place of "Decide".
+//
+// Layout (F09.4; D-47, point 3): the keys are a list a person works through, one
+// decision per row with its status in words and its one action, drawn with the
+// checklist's pieces from Home; deciding a key opens its form in place.
 export default function Policy({ me, canSetPolicy }) {
   const [rows, setRows] = useState(null);
   const [categories, setCategories] = useState([]);
@@ -36,34 +41,23 @@ export default function Policy({ me, canSetPolicy }) {
   if (!rows) return <p className="hint">{error || "Loading…"}</p>;
   return (
     <div>
-      <p className="hint">
-        These are the accounting decisions for this company. A key that has not been decided stays "Not decided";
-        nothing is assumed in its place.
-      </p>
-      {error && <p className="error">{error}</p>}
-      <div className="table-wrap">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Setting</th>
-              <th>Value</th>
-              <th>Decided by</th>
-              <th>When</th>
-              <th>Reference</th>
-              {canSetPolicy && <th></th>}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((p) =>
-              editing === p.key ? (
-                <EditPolicy key={p.key} p={p} categories={categories} busy={busy} onCancel={() => setEditing(null)} onSave={save} />
-              ) : (
-                <PolicyRow key={p.key} p={p} categories={categories} canSetPolicy={canSetPolicy} busy={busy} onEdit={setEditing} />
-              ),
-            )}
-          </tbody>
-        </table>
+      <div className="section-head">
+        <p className="muted">
+          These are the accounting decisions for this company. A key that has not been decided stays "Not decided";
+          nothing is assumed in its place.
+        </p>
+        <span className="muted">{decidedWords(rows)}</span>
       </div>
+      {error && <p className="error">{error}</p>}
+      <ul className="checklist checklist-spaced">
+        {rows.map((p) =>
+          editing === p.key ? (
+            <EditPolicy key={p.key} p={p} categories={categories} busy={busy} onCancel={() => setEditing(null)} onSave={save} />
+          ) : (
+            <PolicyRow key={p.key} p={p} categories={categories} canSetPolicy={canSetPolicy} busy={busy} onEdit={setEditing} />
+          ),
+        )}
+      </ul>
     </div>
   );
 }

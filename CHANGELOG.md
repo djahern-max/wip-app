@@ -15,6 +15,14 @@ Newest first. One entry per closed feature or decision. Format:
 
 ---
 
+## 2026-10-09 · F09.4 · Configuration: all six sections
+**What**: The six sections are tabs under an h1, the current one marked like the main navigation. Accounts shows the API's counts as figures, "Done." when none is unmapped, a labelled Show filter, the ledger type under the account, and an edit form across the row; "Confirm all suggestions" is drawn only when there is a suggestion. Divisions and Burden rates have their add form in one card. Cost codes mutes the cells with no account. Policy is a list of decisions with "n of m decided". Two sentences lose their decision numbers; two sentences are new.
+**Why**: The fourth design feature under D-47; the owner asked for it 2026-10-09 (the Show menu on Accounts was unstyled) and approved a mockup of all six sections first.
+**Migrations**: none.
+**Tests**: `config.test.js` (new); `policyRow.test.js` follows the list markup. `npm test` 88 pass. Backend suite not run in the build environment.
+**Decisions referenced / made**: D-22, D-47 referenced; none made.
+**Dependencies added**: none.
+
 ## 2026-10-08 · F09.3 · Imports page
 **What**: The upload form is one card with Source, File and "Upload file" on one line (stacked on a phone), the file control styled like the others, and one new sentence while a source or file is missing. The files list has a heading with a Refresh button, six columns (file with source and size, uploaded with the person) and an empty-state card; the phone cards sit on white.
 **Why**: The third design feature under D-47; the owner asked for it 2026-10-08.

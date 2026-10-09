@@ -9,6 +9,9 @@ import Policy from "./config/Policy.jsx";
 // Tenant configuration (F04). Read for firm roles and client_admin; write for firm
 // roles; policy keys for firm_admin. The server enforces every one of these; the
 // flags below only decide what to draw.
+//
+// Layout (F09.4): the six sections are a row of tabs under the heading; the current
+// one is marked the way the main navigation marks the current page (D-47).
 const SECTIONS = [
   ["accounts", "Accounts"],
   ["divisions", "Divisions"],
@@ -27,20 +30,20 @@ export default function Config({ me, target }) {
   const canSetPolicy = me.role === "firm_admin";
   return (
     <div>
-      <h2>Configuration</h2>
-      <ul className="subnav">
+      <h1>Configuration</h1>
+      <nav className="tabs" aria-label="Configuration sections">
         {SECTIONS.map(([key, label]) => (
-          <li key={key}>
-            {key === section ? (
-              <span className="current">{label}</span>
-            ) : (
-              <button type="button" className="link-button" onClick={() => setSection(key)}>
-                {label}
-              </button>
-            )}
-          </li>
+          <button
+            key={key}
+            type="button"
+            className="nav-link"
+            aria-current={key === section ? "page" : undefined}
+            onClick={() => setSection(key)}
+          >
+            {label}
+          </button>
         ))}
-      </ul>
+      </nav>
       {section === "accounts" && <Accounts me={me} canManage={canManage} />}
       {section === "divisions" && <Divisions me={me} canManage={canManage} />}
       {section === "categories" && <CostCategories me={me} canManage={canManage} />}

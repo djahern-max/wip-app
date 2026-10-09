@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { DEPOSIT_HINT, EditPolicy, FIND_ITEM_LABEL, NO_SURCHARGE, PolicyRow, RATE_LABEL, REFERENCE_LABEL, SHOW_INACTIVE_LABEL, SURCHARGE_HINT, WIP_BASIS_HINT, hasValue, itemValue, percentOfFraction, showValue, visibleOptions } from "./policyRow.js";
+import { DEPOSIT_HINT, EditPolicy, decidedLine, FIND_ITEM_LABEL, NO_SURCHARGE, PolicyRow, RATE_LABEL, REFERENCE_LABEL, SHOW_INACTIVE_LABEL, SURCHARGE_HINT, WIP_BASIS_HINT, hasValue, itemValue, percentOfFraction, showValue, visibleOptions } from "./policyRow.js";
 
-// F04.1: the Policy table asks only what a person can answer today, in words they know.
+// F04.1: the Policy list asks only what a person can answer today, in words they know.
+// F09.4: each key is a list item (a tick, the label, the status in words, one action).
 
 const ZONES = [
   ["America/New_York", "Eastern (America/New_York)"],
@@ -98,17 +99,22 @@ test("a waiting key draws its sentence and no Decide link; a settable key draws 
   assert.ok(stored.includes("Set with the billing reports (F08).") && !stored.includes("<button"));
   assert.ok(row(key()).includes(">Decide</button>"));
   assert.ok(row(key({ decided: true, value: "America/New_York", value_label: "Eastern (America/New_York)" })).includes(">Change</button>"));
-  assert.ok(!row(key({ waiting: "x" }), false).includes("x"));
+  assert.ok(!row(key({ waiting: "Waits for its feature." }), false).includes("Waits for its feature."));
 });
 
-test("Not decided carries no .num class; a decided money value does; a blank reference shows nothing", () => {
+test("a key is a list item: Not decided in words, a decided value with who and when, a blank reference shows nothing", () => {
   const money = key({ key: "small_job_threshold", label: "Small job threshold", kind: "money", options: null, waiting: "Not decided (D-08). Set when the WIP schedule arrives." });
   const undecided = row(money);
-  assert.ok(undecided.includes("<td>Not decided</td>"));
-  assert.ok(!undecided.includes('class="num"'));
+  assert.ok(undecided.startsWith('<li class="step">') && !undecided.includes("<td"));
+  assert.ok(undecided.includes('<span class="step-status">Not decided</span>'));
+  assert.ok(!undecided.includes("policy-value") && !undecided.includes("step-marker-done"));
   const decided = row({ ...money, decided: true, value: "25000.50" });
-  assert.ok(decided.includes('<td class="num">25,000.50</td>'));
-  assert.ok(row(key({ decided: true, value: "America/New_York", value_label: "Eastern (America/New_York)" })).includes('<td class="wrap-anywhere"></td>'));
+  assert.ok(decided.includes('<div class="policy-value">25,000.50</div>'));
+  assert.ok(decided.includes('<span class="step-status step-status-done">Decided</span>') && decided.includes("step-marker-done"));
+  const zone = row(key({ decided: true, value: "America/New_York", value_label: "Eastern (America/New_York)", decided_by_email: "a@example.test" }));
+  assert.ok(zone.includes("Decided by a@example.test") && !zone.includes("Reference"));
+  assert.equal(decidedLine({ decided_by_email: "a@example.test", decided_at: null, decision_ref: "D-04" }), "Decided by a@example.test \u00b7 Reference: D-04");
+  assert.equal(decidedLine({ decided_by_email: null, decided_at: null, decision_ref: null }), "Decided");
 });
 
 test("the WIP basis edit says what to tick and pre-ticks nothing", () => {
@@ -154,7 +160,7 @@ test("the item keys show the names of the ticked items, the rate as a percent, o
   assert.equal(showValue(surchargeKey({ decided: true, value: { item_ids: ["902"], rate: null } })), "Fuel surcharge (EX), rate not decided");
   assert.equal(showValue(surchargeKey({ decided: true, value: { item_ids: [], rate: null } })), NO_SURCHARGE);
   const html = row(depositKey());
-  assert.ok(html.includes("<td>Not decided</td>") && html.includes(">Decide</button>") && !html.includes("Set with the billing reports"));
+  assert.ok(html.includes(">Not decided</span>") && html.includes(">Decide</button>") && !html.includes("Set with the billing reports"));
 });
 
 test("the deposit edit is a pick-list of the company's items and needs one ticked", () => {

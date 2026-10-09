@@ -5,6 +5,9 @@ import ShowInactive from "./ShowInactive.jsx";
 
 const LOAD_FAILED = "The divisions could not be loaded. Refresh the page.";
 
+// Layout (F09.4): one sentence, the add form as one card with its fields on a line, the
+// list in a table no wider than it needs; a row being edited is tinted; an inactive row
+// is muted and still says "Inactive".
 export default function Divisions({ me, canManage }) {
   const [rows, setRows] = useState(null);
   const [showInactive, setShowInactive] = useState(false); // F06.1: page state only
@@ -43,25 +46,26 @@ export default function Divisions({ me, canManage }) {
   }
 
   if (!rows) return <p className="hint">{error || "Loading…"}</p>;
+  const shown = visibleRows(rows, showInactive);
   return (
-    <div>
-      <p className="hint">
-        A division is a line of business. Its code digit is the first character of a cost code (D-23);
-        a division without one has no cost codes.
+    <div className="config-narrow">
+      <p className="lead">
+        A division is a line of business. Its code digit is the first character of a cost code; a division
+        without one has no cost codes.
       </p>
       {canManage && (
-        <form onSubmit={add} className="inline-form">
-          <label className="label">
-            Code
-            <input className="input" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} required disabled={busy} />
+        <form onSubmit={add} className="form-card">
+          <label className="field">
+            <span className="field-label">Code</span>
+            <input className="control control-short" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} required disabled={busy} />
           </label>
-          <label className="label">
-            Name
-            <input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required disabled={busy} />
+          <label className="field field-grow">
+            <span className="field-label">Name</span>
+            <input className="control control-wide" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required disabled={busy} />
           </label>
-          <label className="label">
-            Code digit
-            <input className="input" value={form.code_digit} maxLength={1} onChange={(e) => setForm({ ...form, code_digit: e.target.value })} disabled={busy} />
+          <label className="field">
+            <span className="field-label">Code digit</span>
+            <input className="control control-short" value={form.code_digit} maxLength={1} onChange={(e) => setForm({ ...form, code_digit: e.target.value })} disabled={busy} />
           </label>
           <button type="submit" className="button-primary" disabled={busy || !form.code || !form.name}>
             Add division
@@ -74,29 +78,30 @@ export default function Divisions({ me, canManage }) {
         showing={showInactive}
         onToggle={() => setShowInactive((v) => !v)}
       />
-      <div className="table-wrap">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Code</th>
-              <th>Name</th>
-              <th className="num">Code digit</th>
-              <th>Status</th>
-              {canManage && <th></th>}
-            </tr>
-          </thead>
-          <tbody>
-            {visibleRows(rows, showInactive).length === 0 && (
+      {shown.length === 0 ? (
+        <div className="empty">
+          <strong>{emptyMessage(rows, "divisions")}</strong>
+        </div>
+      ) : (
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
               <tr>
-                <td colSpan={canManage ? 5 : 4}>{emptyMessage(rows, "divisions")}</td>
+                <th>Code</th>
+                <th>Name</th>
+                <th className="num">Code digit</th>
+                <th>Status</th>
+                {canManage && <th></th>}
               </tr>
-            )}
-            {visibleRows(rows, showInactive).map((d) => (
-              <DivisionRow key={d.id} d={d} canManage={canManage} busy={busy} run={run} />
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {shown.map((d) => (
+                <DivisionRow key={d.id} d={d} canManage={canManage} busy={busy} run={run} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -107,59 +112,58 @@ function DivisionRow({ d, canManage, busy, run }) {
   const [digit, setDigit] = useState(d.code_digit || "");
   if (editing) {
     return (
-      <tr>
-        <td>{d.code}</td>
+      <tr className="row-editing">
         <td>
-          <label className="label">
-            Name
-            <input className="input" value={name} onChange={(e) => setName(e.target.value)} disabled={busy} />
-          </label>
+          <strong>{d.code}</strong>
+        </td>
+        <td>
+          <input className="control control-wide" aria-label="Name" value={name} onChange={(e) => setName(e.target.value)} disabled={busy} />
         </td>
         <td className="num">
-          <label className="label">
-            Code digit
-            <input className="input" value={digit} maxLength={1} onChange={(e) => setDigit(e.target.value)} disabled={busy} />
-          </label>
+          <input className="control control-short" aria-label="Code digit" value={digit} maxLength={1} onChange={(e) => setDigit(e.target.value)} disabled={busy} />
         </td>
         <td>{d.active ? "Active" : "Inactive"}</td>
         <td>
-          <button
-            type="button"
-            className="button"
-            disabled={busy}
-            onClick={() =>
-              run(() =>
-                api("PUT", `/api/config/divisions/${d.id}`, {
-                  name,
-                  code_digit: digit || null,
-                  clear_digit: digit === "",
-                }),
-              ).then(() => setEditing(false))
-            }
-          >
-            Save
-          </button>{" "}
-          <button type="button" className="link-button" onClick={() => setEditing(false)}>
-            Cancel
-          </button>
+          <span className="actions actions-row">
+            <button
+              type="button"
+              className="button"
+              disabled={busy}
+              onClick={() =>
+                run(() =>
+                  api("PUT", `/api/config/divisions/${d.id}`, {
+                    name,
+                    code_digit: digit || null,
+                    clear_digit: digit === "",
+                  }),
+                ).then(() => setEditing(false))
+              }
+            >
+              Save
+            </button>
+            <button type="button" className="link-button" onClick={() => setEditing(false)}>
+              Cancel
+            </button>
+          </span>
         </td>
       </tr>
     );
   }
   return (
-    <tr>
-      <td>{d.code}</td>
+    <tr className={d.active ? undefined : "row-off"}>
+      <td>
+        <strong>{d.code}</strong>
+      </td>
       <td>{d.name}</td>
-      <td className="num">{d.code_digit || ""}</td>
+      <td className="num">{d.code_digit || <span className="muted">none</span>}</td>
       <td>{d.active ? "Active" : "Inactive"}</td>
       {canManage && (
         <td>
-          <button type="button" className="link-button" disabled={busy} onClick={() => setEditing(true)}>
-            Edit
-          </button>
-          {d.active && (
-            <>
-              {" · "}
+          <span className="actions">
+            <button type="button" className="link-button" disabled={busy} onClick={() => setEditing(true)}>
+              Edit
+            </button>
+            {d.active && (
               <button
                 type="button"
                 className="link-button"
@@ -168,8 +172,8 @@ function DivisionRow({ d, canManage, busy, run }) {
               >
                 Deactivate
               </button>
-            </>
-          )}
+            )}
+          </span>
         </td>
       )}
     </tr>

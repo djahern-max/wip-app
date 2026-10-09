@@ -1,5 +1,11 @@
 # current-feature.md
 
+**F09.4 · Configuration: all six sections is built** (2026-10-09, one commit, no migration,
+no decision; frontend only, no figure, no API response and no behaviour changed; **ROADMAP
+F09.4 ◐; the owner's pass on jobcost.dev, tenant `rye-beach`, is open**; the brief is
+`docs/briefs/F09.4.md`, with the owner's choices, where the build differs from the mockup,
+what was not verified and the Discovered list).
+
 **F09.3 · Imports page is built** (2026-10-08, one commit, no migration, no decision;
 frontend only, no API response and no upload behaviour changed; **ROADMAP F09.3 ◐; the
 owner's pass on jobcost.dev, tenant `rye-beach`, is open**; the brief is

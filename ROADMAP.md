@@ -129,6 +129,10 @@ Design only: a page head with a count sentence, labelled filters, a seven-column
 Design only: the upload form on one line in a card, the files list with six columns and a Refresh button, an empty state. No API response and no upload behaviour changed.
 **Accept**: a real upload, a repeated upload and a failed file read as before; Download works; no sideways page scroll at 1280 px and 390 px; one primary action.
 
+### F09.4 · Configuration: all six sections  ◐ (built 2026-10-09, no migration, no decision; the owner's pass on jobcost.dev is open; see `docs/briefs/F09.4.md`)
+Design only: section tabs, Accounts with its counts as figures and a labelled Show filter, add forms as cards, Policy as a list of decisions. No figure, no API response and no behaviour changed.
+**Accept**: every section reads and edits as before; no sideways page scroll at 1280 px and 390 px; at most one primary action per screen.
+
 > **Release B**: you can answer "who has paid a deposit, what is billed, what is left to bill" for every sold job, with backlog by division and estimator.
 
 ---

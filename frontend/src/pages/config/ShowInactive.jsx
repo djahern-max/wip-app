@@ -5,7 +5,7 @@ import { inactiveLabel } from "../../inactive.js";
 export default function ShowInactive({ count, showing, onToggle }) {
   if (count === 0 && !showing) return null;
   return (
-    <p>
+    <p className="show-inactive">
       <button type="button" className="link-button" aria-pressed={showing} onClick={onToggle}>
         {inactiveLabel(count, showing)}
       </button>
