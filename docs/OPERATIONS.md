@@ -1482,11 +1482,24 @@ clears the tokens (F05); the privacy page promises exactly that.
   twelve legacy COGS and five legacy income lines to be numbered or deactivated before F10
   and F13; the Customer Deposits liability held for D-02; the two loans get 27xx numbers in
   the chart update; bank account 219 to be merged with or deactivated beside 1010.
-- **History start (F05.3, D-48)**: set by the owner on Configuration, Policy to
-  2026-01-01 (date and the new backfill's counts and duration to be recorded here on the
-  owner's pass). The step-1 proof ran on the real company on 2026-10-15: all ten
+- **Rebuild and history start, 2026-10-15 (F05.3, D-48)**: the owner rebuilt production by
+  dropping the database (delete_tenant.py waited silently on the append-only lock while
+  the services ran; Discovered in `docs/briefs/F05.3.md`) and deployed f2fb590. The
+  step-1 proof had run on the real company that morning (05:06 local): all ten
   transactional entities accepted the `TxnDate` grammar and each count equalled its page
-  total; no entity sat at a page boundary; Purchase paged over three pages.
+  total; no entity sat at a page boundary; Purchase paged over three pages. The firm admin
+  recorded the history start 2026-01-01 on Configuration, Policy, then connected; the
+  backfill from it ended `succeeded` between 11:32 and 11:39 local (duration from
+  `sync_run`: to be pasted). Records held: Account 492, Customer 3946, Vendor 2358, Item
+  389 (whole); Invoice 885, Payment 953, CreditMemo 4, SalesReceipt 1, Deposit 335, Bill
+  819, VendorCredit 15, Purchase 2041, JournalEntry 264, TimeActivity 0; "Before history
+  start" 0 on every transactional entity (against 93,529 records and 27 minutes for the
+  whole ledger on 2026-09-23). Month totals start at 2026-01 with no earlier month;
+  invoices Jan–Oct equal the company's own billed total. A change poll succeeded at 11:45
+  and a webhook arrived at 11:40. Changing the history start after the backfill was
+  refused with the sentence. The cost-side counts rose by 22 between the proof and the
+  backfill (Deposit +1, Bill +4, Purchase +12, JournalEntry +5): documents entered that
+  morning.
 - **Open**: the owner's phone pass line in `docs/briefs/F05.1.md` (the memo-edit and
   Disconnect/Reconnect checks are done). S-01 question 4 is answered ("Spike S-01").
 

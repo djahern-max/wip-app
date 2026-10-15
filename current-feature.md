@@ -1,73 +1,67 @@
-# F05.3 · History start: the copy begins at a date the firm sets
+# current-feature.md
 
-**Roadmap phase**: A · **Blueprint refs**: §3 (principles 2 and 4), §6.2, §8.5 · **Decisions**: D-48 (made here); D-20, D-28, D-37, D-46, D-47 referenced; D-18 unaffected
-**Status**: drafted 2026-10-15 by the owner's design partner; built 2026-10-15 (see Progress); the owner's pass on jobcost.dev is open. A patch under F05; it adds one policy key and no table; it changes no accounting treatment and no figure on any job. It narrows what the sync holds to transactions dated on or after a per-company date.
+_No feature in flight (2026-10-15)._ **F05.3 · History start is closed** (built 2026-10-15,
+commit f2fb590; D-48 appended; **the owner's pass on jobcost.dev, tenant `rye-beach`,
+passed 2026-10-15 after a full database rebuild; ROADMAP ☑**). The brief, with the Plan,
+the six picks, the step-1 proof, the build notes, the pass record and the Discovered
+list, is `docs/briefs/F05.3.md`. What it changed: each company has one `history_start`
+(a calendar date on Configuration, Policy, no default, first on the list and first in
+`REQUIRED_POLICY_KEYS`); QuickBooks cannot be connected and nothing is pulled until it
+is set (connect, Sync now and a fresh backfill answer 409 with one sentence; Connections
+offers "Set history start"; a poll or nightly check on a company connected before the
+key ends `failed` with `history_start_not_set` and no successor); reference entities are
+held whole and transactional entities are paged and counted with `TxnDate >=` the start
+(`fetch.py`, the date read once onto `sync_run.detail`); a pre-start record arriving by
+poll is stored raw, skipped by its normalizer and counted under "Before history start";
+a held record re-dated before the start gets `deleted_at`; the key cannot change after
+the first completed backfill. Rye Beach's history start is 2026-01-01; its backfill from
+it held 885 invoices, 953 payments, 2,041 purchases, 819 bills, 335 deposits, 264 journal
+entries (every entity's counts in the brief and in OPERATIONS.md "Rye Beach connection
+record"), with the exact duration still to be read from `sync_run` and pasted there, and
+the ten proof lines still to be pasted into the brief's Progress. Nothing in `app/wip/`,
+`app/domain/jobs/` or `figures.py`; no figure changed; no migration. The proof script
+was deleted at close-out (CLAUDE.md, Code conventions).
 
-### Goal
-The first backfill of a company pulls its whole ledger (93,529 records, 27 minutes, on Rye Beach 2026-09-23) and holds years the WIP schedule will never report on. After this patch a firm admin sets a **history start** for the company on Configuration, Policy before connecting QuickBooks; the sync holds reference records whole and transactions dated on or after that date; every tie-out exists from that month. Nothing is hard-coded: the date is data in `tenant_policy`, with no default, so the platform serves any company. While the date is not decided, the Connections page says so in a sentence and nothing is pulled; a sync never fails silently for want of it.
+Open passes carried: **F09.4** (`docs/briefs/F09.4.md`), **F09.3** (`docs/briefs/F09.3.md`),
+**F09.2** (`docs/briefs/F09.2.md`), **F07.3** (`docs/briefs/F07.3.md`), **F07.2**
+(`docs/briefs/F07.2.md`; deploying it runs migration 0012), **F07.1**
+(`docs/briefs/F07.1.md`) and **F07** (the pass job by job; 67 Elm Street passed
+2026-10-01). Production was rebuilt from an empty database on 2026-10-15, so `rye-beach`
+holds no job yet: the F07 passes need the estimates uploaded again first. D-08 is still
+open. Retainage is owed as a later feature with its own decision before any tenant that
+holds it (D-43; a Later line in ROADMAP). The "who the product is for" decision (D-17
+extended) is drafted outside the repo and takes D-49 when its brief comes.
 
-### In scope
-**The key** (`app/domain/config/policy.py`)
-- `history_start` joins `POLICY_KEYS`: type `date` (ISO `YYYY-MM-DD`, stored as a string, read back as `date`), description "History start: the first transaction date the platform holds for this company (D-48)." No default, no waiting sentence; set, audited and shown exactly as the other keys (F04, F04.1). The Policy screen edit control is a date field.
-- `history_start` joins `REQUIRED_POLICY_KEYS` so Home's set-up sentence names it as the next step while it is unset (F07.3). On the Policy list it sits first, before the time zone, because it is the first thing a new company needs.
-- Once a backfill has **completed** on the company, `PUT /api/config/policy/history_start` is refused with one sentence: "The history start cannot change after the first backfill. Delete and set the company up again (D-28)." (Plan question 1 asks whether a later patch should allow a move.)
+Next per ROADMAP: **F10 · GL cost sync**: Bills, Vendor Credits, Purchases (card, check,
+cash) and Journal Entries to `ledger_line` at line level with job reference, account and
+vendor; `account_map` applied; `COST_UNASSIGNED` and `COST_DIVISION_MISMATCH` exceptions
+(F09 queues them once they exist: a registry row each with its severity, §10); accept:
+GL-direct job cost + unassigned = QuickBooks P&L cost of goods sold by account for each
+closed month; a Ramp-synced expense with a Customer/Job value lands on the right job with
+its receipt link. Every cost-side entity is held from the history start (D-48), so the
+first tie-out runs from 2026-01. Not started; the owner supplies the brief. Copy it here,
+expand it, and restate the acceptance criteria before coding.
 
-**Connecting** (`app/api/qbo.py`, `app/integrations/qbo/schedule.py`, `frontend/src/pages/Connections.jsx`)
-- `POST /api/qbo/connect`, `POST /api/qbo/backfill` and `POST /api/qbo/sync` are refused (409) while `history_start` is not decided, with one sentence: "Set the history start on Configuration, Policy before connecting QuickBooks." `after_connect` never starts a backfill without it.
-- The Connections page, firm reader (D-17): while the key is unset and no connection exists, the primary action is "Set history start" (a link to Configuration, Policy) in place of "Connect to QuickBooks", and the card says the sentence above. While the key is unset and a connection exists (a company connected before this patch), "Needs attention" carries "History start not decided: nothing is pulled until it is set." and "Sync now" / "Start fresh backfill" are disabled with that sentence. Once set, the card shows "History start: 2026-01-01" under the company name.
+Standing state from F07 to F09.4 and F05.3: the job is the reporting unit; matching is
+by alias (`job_alias`), never by name. The original contract, approved change orders,
+revised contract, unapproved change orders, EAC and every billing figure are computed on
+read (`app/domain/jobs/contract.py`, `app/domain/billing/figures.py`, `board.py`,
+`work_areas.py`, `pay_applications.py`), never stored; the rows written by F07.4, F08.1
+and F09 are approvals and withdrawals (`change_order_approval`), assignments and clears
+(`billing_line_work_area`, both append-only), the pay applications with their schedule as
+it stood at issue and the three figures frozen at issue (`pay_application`,
+`pay_application_line`; a draft is edited until issued, or discarded, F08.3; never voided),
+and the exceptions with their history (`exception`, `exception_event` append-only; the
+sentence and detail as last raised, never the truth); nothing in `app/wip/` has been
+touched. Billed to date is total − sales tax − fuel surcharge lines, the deposit invoice
+counted from its date; per work area it is the tied lines and the pay applications (D-45).
+Collected to date is cash (D-41). The copy and every month tie-out begin at the history
+start (D-48). `REQUIRED_POLICY_KEYS` holds the six keys read today, the history start
+first. The interface follows D-47 (F09.1 to F09.4: header, Home, Estimates, Imports,
+Configuration); Connections, Customers, Jobs and Exceptions are later design features.
 
-**Backfill** (`app/integrations/qbo/fetch.py`, `tasks.py`)
-- Entities split in `entities.py`: `REFERENCE` = Account, Customer, Vendor, Item, Preferences, CompanyInfo (pulled whole, as today); `TRANSACTIONAL` = Invoice, CreditMemo, SalesReceipt, Payment, Deposit, Bill, VendorCredit, Purchase, JournalEntry, TimeActivity.
-- `page_after` for a transactional entity: `SELECT * FROM {entity} WHERE TxnDate >= '{history_start}' AND Id > '{after_id}' ORDERBY Id MAXRESULTS 1000`. `count` for a transactional entity carries the same `TxnDate` clause. The `Active IN (true, false)` clause on name lists is unchanged. The history start is read once per run and recorded in `sync_run.detail["history_start"]`.
-- Step 1 of the build (before any normalizer change): run one page and one count with the `TxnDate` clause against the real company and record in this brief's Progress that QuickBooks accepted the grammar and the count matched the page total. If QuickBooks refuses the combined clause, stop and ask.
-
-**Change poll** (`tasks.py`, the normalizers, `app/domain/billing/report.py`)
-- CDC is not filtered. A transactional record dated before the history start that arrives by poll is stored raw (insert-only, D-20) and **skipped by its normalizer**, with no canonical row; a later version dated on or after the start is normalized as usual. A record already held that a poll re-dates to before the start sets `deleted_at` on its canonical row (it leaves every total, as a delete does) and keeps the raw versions.
-- The Connections page gains one row under "Records held" per transactional entity: **Before history start**, derived from the latest non-deleted raw payload's `TxnDate`, counted apart from "Could not be read" (the skipped-payload derivation in `report.py` excludes them).
-- The nightly drift check compares QuickBooks' `COUNT(*) … WHERE TxnDate >= history_start` with the platform's current records on or after the start; `raw_month_totals` leaves out payloads dated before the start. A clean night ends `succeeded` as today.
-
-**Month totals and tie-out**: unchanged in form. The Connections month totals and the F08 tie-out (jobs + not on a job = month totals, every month) simply begin at the history start month. A 2026 payment applied to a 2025 invoice the copy does not hold already counts on the payment's own customer row (OPERATIONS.md, the payment rule); no new rule.
-
-**Docs**
-- `docs/DECISIONS.md`: append D-48 word for word from the Close-out; `backend/tests/test_decisions.py` asserts the order and that D-48 is last.
-- BLUEPRINT §6.2: one sentence after "Initial backfill by entity": "Transactional entities are pulled from the company's history start (D-48); reference entities whole." §8.5: "Every check runs from the history start." §14: no change.
-- CLAUDE.md Vocabulary gains **history start**: "the first transaction date the platform holds for a company; a policy key, no default (D-48)". Integrations: "Sync incrementally (CDC + webhooks) from the history start."
-- OPERATIONS.md "New client set-up": set the history start first; "Backfill, change polling, nightly check": the `TxnDate` clause, the Before-history-start count, the refusal to change the key after a backfill. The Rye Beach log gains the date set and the new backfill's counts and duration.
-- ROADMAP: an `F05.3` line directly under F05.2 with its status; F18's line gains "including jobs sold before the history start". Nothing else moves.
-- `docs/briefs/F05.md`: one dated note under the backfill acceptance criterion: "Amended by F05.3 (D-48, 2026-10-15): transactional entities from the history start."
-
-**Dependencies**: none new. Check `docs/briefs/F05.2.md` for anything it changed in `fetch.py`, `schedule.py` or the Connections page and build on it; if it conflicts with the above, stop and ask.
-
-### Out of scope
-Any default date. Scoping the copy to projects or customers (rejected, D-48 Reasoning). Opening balances for jobs begun before the history start (F18). Dropping any entity. Changing the CDC look-back rule (29 days) or webhooks. Any change in `app/wip/`, `app/domain/jobs/`, `app/domain/billing/figures.py` or any figure. Moving the history start after a completed backfill (Plan question 1). Any sentence on a job about its `sold_on` against the history start (owner, 2026-10-15: not wanted).
-
-### Acceptance criteria
-- [x] `history_start` is in `POLICY_KEYS` with type `date`, in `REQUIRED_POLICY_KEYS`, first on the Policy list; `tests/test_policy.py`'s static test still finds no default anywhere, and the literal `2026-01-01` appears in no module under `backend/app/` or `backend/alembic/` (a test asserts it). (2026-10-15: `test_history_start_is_a_date_key_first_and_required_with_no_default_and_no_literal`.)
-- [x] With the key unset: connect, backfill and sync routes answer 409 with the one sentence; the Connections page shows "Set history start" as its only primary action; Home's set-up sentence names the history start as the next step.
-- [x] Against the `tests/fixtures/qbo_sandbox/` fixtures with `history_start` set after the earliest transactional fixture date: the backfill stores every reference record and only transactional records with `TxnDate` on or after the start; every page query for a transactional entity carries `TxnDate >=` and `Id >`; the month totals equal `oracle_month_totals` for the months from the start and no earlier month exists.
-- [x] A CDC poll delivering a transactional record dated before the start stores it raw, builds no canonical row, and the Connections page counts it under "Before history start" with "Could not be read" unchanged; a later version dated on or after the start is normalized.
-- [x] A poll re-dating a held invoice to before the start sets its `deleted_at`; the month total of its original month falls by its amount.
-- [x] The nightly drift check's count queries carry the `TxnDate` clause for transactional entities and none for name lists; with pre-start records held raw, a clean night ends `succeeded`.
-- [x] After a completed backfill, `PUT /api/config/policy/history_start` is refused with the sentence; before one, it is accepted and audited as any key. (2026-10-15: `test_history_start_cannot_change_after_a_completed_backfill`; a failed backfill is not a completed one.)
-- [x] D-48 is the last entry of `docs/DECISIONS.md` and `tests/test_decisions.py` says so; BLUEPRINT §6.2 and §8.5, CLAUDE.md Vocabulary, OPERATIONS.md and ROADMAP carry the changes above.
-- [ ] The owner's pass on jobcost.dev, tenant `rye-beach`: the Connections page refused to connect until the history start was set; set to 2026-01-01 on Configuration, Policy; connected; the backfill ended `succeeded` with its counts and duration logged in OPERATIONS.md; the month totals table starts at 2026-01; no month before it; Jan–Sep 2026 invoices, credit memos, sales receipts and payments equal QuickBooks' own reports to the cent; 6115758's figures equal the pilot sheet (billed 288,618.87; collected 250,293.87; open A/R 38,325.00).
-
-### Progress
-- **2026-10-15, before the step-1 proof** (owner's go-ahead on the plan and its six picks): the key (`date` kind, first on the list, `policy.history_start(db)` reader), `REQUIRED_POLICY_KEYS` with it first, Home's QuickBooks line naming it while unset, the three 409s, `after_connect` returning `history_start_needed` without a backfill, `start_backfill` reading the date once onto `sync_run.detail`, the refusal of the key after a completed backfill, the `history_start_needed` attention item and `history_start` on the status, a scheduled poll or check without the key ending `failed` with `history_start_not_set` and no successor, the Policy page's date control. Entities split (`REFERENCE` / `TRANSACTIONAL`). `backend/scripts/history_start_proof.py` written (read-only; the date is an argument). Tests written first: `test_policy.py` (2 new), `test_qbo_api.py` (2 new; every connecting test decides the key first), `test_home.py` (six required keys), `test_qbo_tasks.py` (5 new, of which 4 are red on purpose until the proof: the filtered backfill, the pre-start poll record, the re-date rule, the nightly clause), `qbo_helpers.py` (the stand-in understands `TxnDate >=`), `test_roles.py` (connect on tenant A is 409), `policyRow.test.js` (1 new). Green: policy, home, qbo_api, roles, billing tie-out, customers, delete-tenant, webhooks, tokens, connections, hygiene, product-name, frontend scans; `npm test` 89. **No normalizer, fetch, report or Connections-page change yet.** Nothing deployed.
-- **Step-1 proof, 2026-10-15, on the real company (owner ran `scripts/history_start_proof.py` on the droplet with `--history-start 2026-01-01`)**: all ten transactional entities accepted the `TxnDate` grammar (page query with `TxnDate >=` and `Id >`, count query with the same clause); every count equalled its page total; no entity sat at a page boundary; Purchase paged correctly over three pages. No amount, document number or name was printed. The ten output lines are to be pasted here by the owner, as they are:
-  ```
-  (ten lines: <entity>: grammar accepted; page total n (k pages); count n; matched)
-  ```
-- **2026-10-15, after the proof**: `fetch.py` (`_txn_date_clause` beside `_active_clause`; the date passed in to `page_after` and `count`), `tasks.py` (the backfill page reads the date from the run; the normalize task reads it once and refuses without it; the nightly check counts and re-sums from it), `sync.py` (`apply_raw` takes the date; a pre-start transactional payload is skipped with reason `before_history_start`; a held record re-dated before the start gets `deleted_at` and keeps its raw versions; unlinked deposit lines from the start), `report.py` (`current_counts`, `skipped_counts`, `raw_month_totals` from the start; `before_start_counts`), `status.py` (the "Before history start" figure per transactional entity), the Connections page ("Set history start" as the one primary action while unset, the date under the company name, the attention sentence with Sync now, fresh backfill and Reconnect disabled on a company connected before the key, the new column). The four red task tests are green; the whole backend suite passes (1008; one F07.4 test now decides the key first) and `npm test` 89. D-48 appended; `test_decisions.py` asserts it last; BLUEPRINT §6.2 and §8.5, CLAUDE.md, OPERATIONS.md, ROADMAP, the F05 brief and the CHANGELOG carry the changes.
-
-### Plan (questions the brief leaves to Claude Code)
-1. **Moving the history start later.** This patch refuses a change after a completed backfill. Say in the plan what a move earlier (fresh backfill fills the gap) and a move later (canonical rows before the new date must leave every total) would each need, so the owner can decide whether a later patch allows it.
-2. **The `date` policy type.** If the registry has no date type, add one with the same validation shape as `timezone` (a string checked on set); do not widen the money or choice types.
-3. **Where the clause is built.** Keep the `TxnDate` clause in `fetch.py` beside `_active_clause`, with the date passed in, never read from the database inside `fetch.py` (nothing there stores or reads).
-4. **A company connected before this patch** (none on production after the 2026-10-09 wipe; the dev tenant may be): confirm the attention item and disabled buttons read as written, and that no backfill starts from the worker's start-up hook without the key.
-5. **TimeActivity** has `TxnDate`; confirm Deposit and JournalEntry filter on `TxnDate` in the query grammar as the sales forms do, in the step 1 proof.
-
-### Discovered
+## Discovered
+Carried from `docs/briefs/F05.3.md` (copied unchanged 2026-10-15; nothing is dropped):
 Carried from F09.4 (copy the Discovered list of `docs/briefs/F09.4.md` here word for word; the design partner could read only these items):
 - The Policy descriptions come from the server and read like notes for a developer: "Period boundaries are tenant-local months.", "1 = January … 12 = December.", "(BLUEPRINT §8.3)", and the decision numbers in four of them. Backend copy in `backend/app/domain/config/policy.py`; the page-side hint for the WIP basis (`WIP_BASIS_HINT` in `policyRow.js`) repeats "(BLUEPRINT §8.3)" and was left to change with them.
 - The count called "Unmapped" includes accounts that carry a suggestion, and the Show filter's "Unmapped" lists them too, while each such row's own status reads "Suggested". Wording for the owner to decide (for example "Not confirmed"); the API field and the Home checklist sentence use the same word.
@@ -79,14 +73,9 @@ Carried from F09.4 (copy the Discovered list of `docs/briefs/F09.4.md` here word
 - T&M_930 line 6 on 6115758 has service date 2023-09-22 in QuickBooks; the owner's to correct.
 New from this brief:
 - The "who the product is for" decision (D-17 extended) is drafted outside the repo and takes D-49 when its brief comes.
-
-### Close-out
-Append to `docs/DECISIONS.md`, word for word:
-
-## D-48 · 2026-10-15 · The copy begins at a per-company history start
-**Decision**: Each company has one `history_start`, a calendar date in `tenant_policy` set by a firm admin, with no default; while it is not decided, QuickBooks cannot be connected and nothing is pulled, and the Connections page says so in a sentence. The sync holds reference entities whole and transactional entities dated on or after that date; the backfill, the nightly count and the raw re-sum carry the same filter. A transactional record dated before the history start that reaches the copy through a change poll is stored raw, skipped by its normalizer and counted on the Connections page as "before the history start". Every month tie-out and every §8.5 check exists only from that month; a job sold before the history start carries activity from that date until F18 gives it opening balances. The history start cannot change after the first completed backfill. QuickBooks itself is unchanged. Rye Beach: 2026-01-01, set by the owner.
-**Reasoning**: The ledger carries years the WIP schedule will never report on; pulling them makes the first backfill long and the copy large for nothing the product does. Scoping to projects instead was considered and rejected: §3 principle 2 and §8.5 need the unassigned side of every tie-out, which cannot be computed from documents never fetched, and the job reference on bills and purchases is on the line (S-01 (b)), which the query API cannot filter on. A date is the one filter that preserves "jobs + unassigned = GL" for the months it covers. The date is data per company, never code, so the platform is not written for one client.
-**Affected**: F05.3. BLUEPRINT §6.2, §8.5. CLAUDE.md Vocabulary (history start), Integrations. OPERATIONS.md "New client set-up", "Backfill, change polling, nightly check". ROADMAP F05.3; F18. `tests/test_decisions.py`.
-
-### CHANGELOG (close-out note, not part of D-48)
-CHANGELOG entry: what was built, the real-company proof from step 1 (grammar accepted, count equal to the page total; no amount, no name), the test count, and the Rye Beach backfill's counts and duration once the owner's pass is done. ROADMAP F05.3 to ◐ on build, ☑ on the owner's pass.
+From the owner's pass of 2026-10-15:
+- During a backfill, Connections showed "Payloads that could not be read: Customer: 1000" while the customers' normalizer had not yet run; it read 0 after the run. A count should not say "could not be read" for a payload the run has not reached.
+- delete_tenant.py waits silently on the append-only lock while wip-worker and wip-api run; the runbook should say to stop both first, or the script should say it is waiting. The owner rebuilt by dropping the database instead.
+- After a completed backfill, Policy still offers Change on the history start; the refusal sentence shows at the top of the page in red, and the form stays open with Record decision enabled. Offer no Change link and put the sentence in its place (D-47; an F09.4-style patch).
+- The backend suite took 37 minutes on 2026-10-15 (1,008 tests). Find what is slow.
+- The cost-side counts rose by 22 between the 05:06 proof and the 11:32 backfill (Deposit +1, Bill +4, Purchase +12, JournalEntry +5): documents entered in QuickBooks that morning. Expected; noted so F10's first tie-out is not surprised.
