@@ -1489,8 +1489,8 @@ clears the tokens (F05); the privacy page promises exactly that.
   transactional entities accepted the `TxnDate` grammar and each count equalled its page
   total; no entity sat at a page boundary; Purchase paged over three pages. The firm admin
   recorded the history start 2026-01-01 on Configuration, Policy, then connected; the
-  backfill from it ended `succeeded` between 11:32 and 11:39 local (duration from
-  `sync_run`: to be pasted). Records held: Account 492, Customer 3946, Vendor 2358, Item
+  backfill from it ran 2026-10-15T15:31:24Z to 15:36:11Z (11:31:24 to 11:36:11 local,
+  UTC-4), 4 min 47 s, `succeeded` (from `sync_run`). Records held: Account 492, Customer 3946, Vendor 2358, Item
   389 (whole); Invoice 885, Payment 953, CreditMemo 4, SalesReceipt 1, Deposit 335, Bill
   819, VendorCredit 15, Purchase 2041, JournalEntry 264, TimeActivity 0; "Before history
   start" 0 on every transactional entity (against 93,529 records and 27 minutes for the
