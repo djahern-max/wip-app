@@ -164,7 +164,7 @@ Rules:
 ### 6.2 QBO (the only live API in v1)
 
 - OAuth2 with refresh-token rotation; tokens per tenant; reconnect flow when refresh fails.
-- Initial backfill by entity, then **Change Data Capture** polling plus **webhooks** for near-real-time. Nightly light reconciliation (counts and totals by account) to catch drift.
+- Initial backfill by entity, then **Change Data Capture** polling plus **webhooks** for near-real-time. Nightly light reconciliation (counts and totals by account) to catch drift. Transactional entities are pulled from the company's history start (D-48); reference entities whole.
 - Entities: Account, Customer (incl. projects/sub-customers), Vendor, Item, Invoice, Payment, CreditMemo, Deposit, SalesReceipt, Bill, VendorCredit, Purchase (expenses/checks/card), JournalEntry, TimeActivity (if used), Preferences, CompanyInfo.
 - Reports API: TrialBalance and ProfitAndLoss by period, used **only** for tie-outs.
 - Job assignment is read per **line** (`CustomerRef` on expense/bill lines; header `CustomerRef`/`ProjectRef` on sales forms).
@@ -252,7 +252,7 @@ Overbilled jobs (sum):   DR 4190 WIP Adjustment - LS
 Using separate 4x90 adjustment accounts keeps billed revenue visible and makes the adjustment obvious on the P&L. v1 produces a formatted entry (screen, CSV, PDF). v2 posts it through the API **only** from an approved period and records the QBO JE id on the snapshot.
 
 ### 8.5 Tie-outs that gate approval
-A period cannot move to `approved` unless each of these passes or is explicitly waived with a note:
+A period cannot move to `approved` unless each of these passes or is explicitly waived with a note. Every check runs from the history start (D-48).
 
 1. **Revenue**: billed-in-period across all jobs + unassigned income = GL income accounts for the period. Fuel surcharge billed (D-39) and T&M revenue (D-24) are revenue outside the schedule and are shown as such; F08 ties the billing side month by month: jobs + not on a job = the QuickBooks month totals for billed (invoices − credit memos + sales receipts, tax and surcharge included) and for collected (payments + sales receipts), to the cent; collected to date is cash (D-41), so a credit applied through a payment never enters it.
 2. **Cost**: GL-direct job cost + unassigned COGS = GL 5xxx for the period.

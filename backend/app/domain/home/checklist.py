@@ -13,6 +13,7 @@ from app.domain.config.policy import (
     CHANGE_ORDER_EVIDENCE,
     DEPOSIT_IDENTIFICATION,
     FUEL_SURCHARGE_TREATMENT,
+    HISTORY_START,
     TIMEZONE,
     WIP_BASIS,
 )
@@ -22,11 +23,13 @@ from app.domain.estimates.totals import BURDEN_SLOT
 # it here (owner, 2026-10-04): F07 reads the time zone (Sold on, the estimate dates); F06
 # reads the WIP basis (EAC in the basis); F08 reads the deposit items (D-02) and the fuel
 # surcharge items (D-39) for billed to date; F07.4 reads the change order evidence key
-# (D-42) before an approval. The other keys are decided when their features arrive and
+# (D-42) before an approval; F05.3 reads the history start (D-48) before anything is
+# pulled, so it comes first. The other keys are decided when their features arrive and
 # never block a first job. The names come from the registry's
 # constants: a key is a string literal only in ``app/domain/config/policy.py``
 # (tests/test_policy.py).
 REQUIRED_POLICY_KEYS: tuple[str, ...] = (
+    HISTORY_START,
     TIMEZONE,
     WIP_BASIS,
     DEPOSIT_IDENTIFICATION,
@@ -88,6 +91,14 @@ def quickbooks(f: SetupFacts) -> Line | None:
     label = "QuickBooks"
     link = Link("connections")
     if f.connection_status is None or f.connection_status == "disconnected":
+        if HISTORY_START not in f.decided_keys:  # F05.3 (D-48): connecting is refused until then
+            return Line(
+                "quickbooks",
+                label,
+                False,
+                "Set the history start on Configuration, Policy before connecting QuickBooks.",
+                Link("config", "policy"),
+            )
         return Line("quickbooks", label, False, "Connect to QuickBooks.", link)
     codes = dict(f.attention)
     if "needs_reconnect" in codes:

@@ -3,7 +3,7 @@ tasks, against the recorded sandbox company served by the stand-in. The worker i
 the real one; nothing reaches the network."""
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import httpx
 import pytest
@@ -502,3 +502,224 @@ def test_a_chart_loaded_after_the_backfill_attaches_without_any_account_change(
     assert items["chart_attached"] == "24 of 25 chart accounts"
     assert items["numbered_not_in_chart"] == "6150" and items["chart_not_in_quickbooks"] == "1400"
     assert items["accounts_without_number"] == "64 of 89 active accounts"
+
+
+# --- F05.3 (D-48): the copy begins at the history start ------------------------------------
+
+START = date(2026, 7, 1)  # inside the fixtures' range (2026-04-09 to 2026-09-18)
+
+
+def _on_or_after(entity: str, day: date) -> list[dict]:
+    return [r for r in records(entity) if str(r.get("TxnDate", "")) >= day.isoformat()]
+
+
+@pytest.fixture
+def company_from_july(fresh_tenant: uuid.UUID, rw_engine: Engine):
+    """A connected tenant whose history start is inside the fixtures' range, backfilled."""
+    fake = FakeIntuit()
+    served = FixtureCompany().serve(fake)
+    with installed(fake):
+        cid = connect_directly(rw_engine, fresh_tenant, fake, history_start=START)
+        with tenant_session(rw_engine, fresh_tenant) as db:
+            run = start_backfill(db, fresh_tenant, db.get(Connection, cid))
+            assert run is not None and run.detail["history_start"] == START.isoformat()
+        _drain(rw_engine, fresh_tenant)
+        yield fresh_tenant, cid, fake, served
+
+
+def _entity_of(query: str) -> str:
+    return query.split(" FROM ")[1].split(" ")[0]
+
+
+def _poll(engine: Engine, tenant: uuid.UUID, cid: uuid.UUID, served: FixtureCompany, body: dict):
+    served.cdc_body = {"CDCResponse": [{"QueryResponse": [body]}], "time": "x"}
+    with tenant_session(engine, tenant) as db:
+        schedule.enqueue_cdc_poll(db, tenant, cid, slot=None)
+    _drain(engine, tenant)
+
+
+def _held(client) -> dict:
+    body = client.get("/api/qbo/status").json()["held"]
+    return {e["entity"]: e for e in body["entities"]} | {"_attention": body["attention"]}
+
+
+def test_backfill_holds_reference_records_whole_and_transactional_records_from_the_start(
+    company_from_july, rw_engine: Engine
+) -> None:
+    from app.integrations.qbo.entities import NAME_LISTS, REFERENCE, SINGLETONS, TRANSACTIONAL
+    from tests.qbo_helpers import HOLD_EVERYTHING
+
+    tenant, cid, fake, served = company_from_july
+    (run,) = _runs(rw_engine, tenant, "backfill")
+    assert run.outcome == "succeeded"
+    with tenant_session(rw_engine, tenant) as db:
+        for entity in ENTITIES:
+            expected = records(entity) if entity in REFERENCE else _on_or_after(entity, START)
+            n = db.execute(
+                text("SELECT count(*) FROM raw_record WHERE entity_type = :e"), {"e": entity}
+            ).scalar_one()
+            assert n == len(expected), entity
+        assert run.records_stored == sum(
+            len(records(e)) if e in REFERENCE else len(_on_or_after(e, START)) for e in ENTITIES
+        )
+        totals = {t.month: t for t in month_totals(db, tenant)}
+    oracle = [o for o in fixture("oracle_month_totals") if o["month"] >= START.isoformat()[:7]]
+    assert oracle and sorted(totals) == [o["month"] for o in oracle]  # no earlier month exists
+    for o in oracle:
+        got = totals[o["month"]]
+        for column in ("invoices", "credit_memos", "sales_receipts", "payments"):
+            assert f"{getattr(got, column):.2f}" == o[column], (o["month"], column)
+    # Every page query for a transactional entity carries both clauses; a name list
+    # carries its Active clause and no date; a singleton has no WHERE.
+    pages = [q for q in served.queries if q.startswith("SELECT *")]
+    assert pages
+    for q in pages:
+        entity = _entity_of(q)
+        if entity in TRANSACTIONAL:
+            assert f"WHERE TxnDate >= '{START.isoformat()}' AND Id > '" in q, q
+            assert "ORDERBY Id MAXRESULTS" in q
+        elif entity in NAME_LISTS:
+            assert "Active IN (true, false) AND Id > '" in q and "TxnDate" not in q, q
+        else:
+            assert entity in SINGLETONS and " WHERE " not in q, q
+    assert HOLD_EVERYTHING < START  # the ordinary fixture holds everything; this one does not
+
+
+def test_a_pre_start_record_arriving_by_poll_is_held_raw_skipped_and_counted_apart(
+    company_from_july, rw_engine: Engine, login_as
+) -> None:
+    """Raw before normalized: the payload is stored (D-20), no canonical row is built,
+    and the page counts it under "Before history start", not "Could not be read"; a
+    later version dated on or after the start is normalized as usual."""
+    tenant, cid, fake, served = company_from_july
+    admin = login_as(ADMIN_KEY, tenant=tenant)
+    old = next(r for r in records("Invoice") if str(r["TxnDate"]) < START.isoformat())
+    with installed(fake):
+        before = _held(admin)
+        assert before["Invoice"]["before_history_start"] == 0
+        assert before["Bill"]["before_history_start"] == 0
+        assert before["Account"]["before_history_start"] is None  # a reference entity
+        _poll(rw_engine, tenant, cid, served, {"Invoice": [old]})
+        (run,) = _runs(rw_engine, tenant, "cdc")
+        assert run.outcome == "succeeded" and run.records_stored == 1
+        with tenant_session(rw_engine, tenant) as db:
+            raw = db.execute(
+                select(RawRecord).where(
+                    RawRecord.entity_type == "Invoice", RawRecord.external_id == old["Id"]
+                )
+            ).scalar_one()
+            assert raw.version == 1 and raw.payload["TxnDate"] == old["TxnDate"]
+            assert (
+                db.execute(select(Billing).where(Billing.external_id == old["Id"])).first() is None
+            )
+            month = old["TxnDate"][:7]
+            assert month not in {t.month for t in month_totals(db, tenant)}
+        after = _held(admin)
+        assert after["Invoice"]["before_history_start"] == 1
+        assert after["Invoice"]["current"] == before["Invoice"]["current"]
+        assert after["Invoice"]["skipped"] == before["Invoice"]["skipped"] == 0
+        assert "skipped" not in {a["code"] for a in after["_attention"]}
+        # A later version dated on the start is normalized; the count falls to 0.
+        moved = dict(old) | {"TxnDate": START.isoformat(), "SyncToken": "9"}
+        _poll(rw_engine, tenant, cid, served, {"Invoice": [moved]})
+        with tenant_session(rw_engine, tenant) as db:
+            row = db.execute(select(Billing).where(Billing.external_id == old["Id"])).scalar_one()
+            assert row.txn_date == START and row.deleted_at is None
+            versions = db.execute(
+                select(RawRecord.version)
+                .where(RawRecord.entity_type == "Invoice", RawRecord.external_id == old["Id"])
+                .order_by(RawRecord.version)
+            ).scalars()
+            assert list(versions) == [1, 2]
+        latest = _held(admin)
+        assert latest["Invoice"]["before_history_start"] == 0
+        assert latest["Invoice"]["current"] == before["Invoice"]["current"] + 1
+
+
+def test_a_poll_that_re_dates_a_held_invoice_to_before_the_start_removes_it_from_its_month(
+    company_from_july, rw_engine: Engine, login_as
+) -> None:
+    tenant, cid, fake, served = company_from_july
+    admin = login_as(ADMIN_KEY, tenant=tenant)
+    held = next(r for r in records("Invoice") if str(r["TxnDate"]) >= START.isoformat())
+    month = held["TxnDate"][:7]
+    with installed(fake):
+        with tenant_session(rw_engine, tenant) as db:
+            before = next(t for t in month_totals(db, tenant) if t.month == month).invoices
+            assert (
+                db.execute(select(Billing).where(Billing.external_id == held["Id"]))
+                .scalar_one()
+                .deleted_at
+                is None
+            )
+        moved = dict(held) | {"TxnDate": (START - timedelta(days=1)).isoformat(), "SyncToken": "9"}
+        _poll(rw_engine, tenant, cid, served, {"Invoice": [moved]})
+        with tenant_session(rw_engine, tenant) as db:
+            row = db.execute(select(Billing).where(Billing.external_id == held["Id"])).scalar_one()
+            assert row.deleted_at is not None
+            after = next((t.invoices for t in month_totals(db, tenant) if t.month == month), 0)
+            assert before - after == held["TotalAmt"]
+            versions = db.execute(
+                select(RawRecord.version, RawRecord.is_deleted)
+                .where(RawRecord.entity_type == "Invoice", RawRecord.external_id == held["Id"])
+                .order_by(RawRecord.version)
+            ).all()
+            assert versions == [(1, False), (2, False)]  # kept; not a source delete
+        status = _held(admin)
+        assert status["Invoice"]["before_history_start"] == 1 and status["Invoice"]["skipped"] == 0
+
+
+def test_the_nightly_count_carries_the_date_clause_for_transactional_entities_only_and_stays_clean(
+    company_from_july, rw_engine: Engine
+) -> None:
+    from app.integrations.qbo.entities import NAME_LISTS, TRANSACTIONAL
+
+    tenant, cid, fake, served = company_from_july
+    old = next(r for r in records("Invoice") if str(r["TxnDate"]) < START.isoformat())
+    with installed(fake):
+        _poll(rw_engine, tenant, cid, served, {"Invoice": [old]})  # held raw, before the start
+        queries_before = len(served.queries)
+        _due_drift(rw_engine, tenant)
+        _drain(rw_engine, tenant)
+    (run,) = _runs(rw_engine, tenant, "drift")
+    assert run.outcome == "succeeded", run.detail
+    assert run.detail["counts"] == {} and run.detail["months"] == {}
+    counts = [q for q in served.queries[queries_before:] if q.startswith("SELECT COUNT(*)")]
+    counted = {e for e in ENTITIES if e not in ("Preferences", "CompanyInfo")}
+    assert {_entity_of(q) for q in counts} == counted
+    for q in counts:
+        entity = _entity_of(q)
+        if entity in TRANSACTIONAL:
+            assert q == f"SELECT COUNT(*) FROM {entity} WHERE TxnDate >= '{START.isoformat()}'", q
+        elif entity in NAME_LISTS:
+            assert q == f"SELECT COUNT(*) FROM {entity} WHERE Active IN (true, false)", q
+        else:
+            assert "TxnDate" not in q, q
+
+
+def test_a_scheduled_poll_and_check_on_a_company_without_a_history_start_pull_nothing_and_say_so(
+    fresh_tenant: uuid.UUID, rw_engine: Engine
+) -> None:
+    """A company connected before F05.3: the start-up hook still seeds the chains, a
+    seeded poll or check ends its run ``failed`` with the reason (never silently), asks
+    Intuit nothing and enqueues no successor."""
+    fake = FakeIntuit()
+    served = FixtureCompany().serve(fake)
+    with installed(fake):
+        connect_directly(rw_engine, fresh_tenant, fake, history_start=None)
+        with tenant_session(rw_engine, fresh_tenant) as db:
+            ensure_scheduled(db, fresh_tenant)  # the start-up hook, as the worker runs it
+        with tenant_session(rw_engine, fresh_tenant) as db:
+            assert len(_tasks(rw_engine, fresh_tenant)) == 2  # one poll, one check
+            db.execute(text("UPDATE task SET run_after = now()"))
+        _drain(rw_engine, fresh_tenant)
+    assert not served.cdc_calls and not served.queries
+    runs = {r.kind: r for r in _runs(rw_engine, fresh_tenant, "cdc")} | {
+        r.kind: r for r in _runs(rw_engine, fresh_tenant, "drift")
+    }
+    assert {k: (r.outcome, r.error) for k, r in runs.items()} == {
+        "cdc": ("failed", "history_start_not_set"),
+        "drift": ("failed", "history_start_not_set"),
+    }
+    assert not [t for t in _tasks(rw_engine, fresh_tenant) if t.status in ("queued", "running")]
+    assert not _tasks(rw_engine, fresh_tenant, BACKFILL_PAGE_KIND)

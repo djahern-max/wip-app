@@ -254,3 +254,18 @@ test("a choice key shows the chosen value's words and offers its options", () =>
   assert.ok(html.includes("None required") && html.includes("A reference is required"));
   assert.ok(html.includes("<select"));
 });
+
+test("a date key is a date control sending YYYY-MM-DD and shows the decided date as written", () => {
+  const p = key({ key: "history_start", label: "History start", kind: "date", description: "History start: the first transaction date the platform holds for this company (D-48).", options: null });
+  const html = edit(p);
+  assert.ok(html.includes('type="date"'));
+  assert.ok(html.includes("History start"));
+  assert.ok(!html.includes("<select"));
+  assert.ok(recordButton(html).includes("disabled"));
+  const decided = key({ ...p, decided: true, value: "2026-01-01", decided_by_email: "a@example.test", decided_at: "2026-10-15T12:00:00Z", decision_ref: "D-48" });
+  assert.equal(showValue(decided, []), "2026-01-01");
+  assert.ok(edit(decided).includes('value="2026-01-01"'));
+  assert.ok(!recordButton(edit(decided)).includes("disabled"));
+  assert.ok(row(decided).includes("2026-01-01"));
+  assert.ok(hasValue("date", "2026-01-01", []) && !hasValue("date", "", []));
+});

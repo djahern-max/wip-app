@@ -304,8 +304,11 @@ class QboConnectOut(_Out):
 
 class QboEntityCountOut(_Out):
     entity: str
-    current: int  # current, non-deleted raw records
+    current: int  # current, non-deleted raw records (transactional: on or after the start)
     skipped: int | None  # payloads the normalizer could not read (normalized entities only)
+    # F05.3 (D-48): current raw records dated before the history start, held raw and
+    # skipped (transactional entities only; None for a reference entity).
+    before_history_start: int | None = None
 
 
 class QboMonthTotalsOut(_Out):
@@ -370,6 +373,9 @@ class QboStatusOut(_Out):
     # the last 24 hours (0 when none, or when no company is connected).
     last_webhook_at: str | None = None
     webhooks_24h: int = 0
+    # F05.3 (D-48): the company's history start as decided on Configuration, Policy
+    # (``YYYY-MM-DD``), or None while it is not decided (nothing is pulled then).
+    history_start: str | None = None
 
 
 class QboSyncRequestOut(_Out):

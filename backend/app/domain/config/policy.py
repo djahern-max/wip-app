@@ -23,10 +23,18 @@ sync holds (``app.domain.config.items``); a name is never stored.
 F07.4 (D-42): ``change_order_evidence`` is a ``choice`` between two values the registry
 names with their words, "None required" and "A reference is required"; no default. The
 approval of a change order is refused while it is undecided.
+
+F05.3 (D-48): ``history_start`` is a ``date``, the first transaction date the platform
+holds for the company: accepted and stored as ``YYYY-MM-DD``, read back as a ``date`` by
+``history_start``. No default: while it is undecided QuickBooks cannot be connected and
+nothing is pulled. It sits first on the list because it is the first thing a new
+company needs, and it cannot change after the first completed backfill (the route
+refuses; ``set_policy`` itself stays usable by seeds and tests).
 """
 
+import re
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -62,7 +70,8 @@ class PolicyWaiting(LookupError):
 class PolicyKey:
     key: str
     label: str
-    kind: str  # timezone | month | category_slots | money | text | item_ids | surcharge | choice
+    # date | timezone | month | category_slots | money | text | item_ids | surcharge | choice
+    kind: str
     description: str
     waiting: str | None = None  # F04.1: why the key cannot be set on the screen yet
     choices: tuple[tuple[str, str], ...] | None = None  # F07.4: a choice kind's (value, words)
@@ -70,6 +79,7 @@ class PolicyKey:
 
 # Key names other modules may import (tests/test_policy.py: a key name is a string
 # literal only in this file).
+HISTORY_START = "history_start"  # F05.3 (D-48)
 WIP_BASIS = "wip_basis"
 TIMEZONE = "timezone"
 DEPOSIT_IDENTIFICATION = "deposit_identification"  # F08 (D-02)
@@ -83,6 +93,7 @@ EVIDENCE_CHOICES: tuple[tuple[str, str], ...] = (
 )
 ITEM_KINDS: frozenset[str] = frozenset({"item_ids", "surcharge"})  # the two item pickers
 RATE_PLACES = Decimal("0.0001")
+ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")  # a date kind's one accepted shape
 
 # F04.1: the United States time zones offered on the screen, zone name to plain words.
 # One mapping for the label and the stored value (D-22): the API returns the options
@@ -121,6 +132,12 @@ def time_zone_options(stored: str | None) -> list[tuple[str, str]]:
 POLICY_KEYS: dict[str, PolicyKey] = {
     k.key: k
     for k in (
+        PolicyKey(
+            HISTORY_START,
+            "History start",
+            "date",
+            "History start: the first transaction date the platform holds for this company (D-48).",
+        ),
         PolicyKey(TIMEZONE, "Time zone", "timezone", "Period boundaries are tenant-local months."),
         PolicyKey(
             "fiscal_year_start_month",
@@ -232,6 +249,13 @@ def validate_value(db: Session, key: str, value, *, tenant_id: UUID | None = Non
                 "that this company charges no fuel surcharge"
             )
         return {"item_ids": ids, "rate": rate}
+    if spec.kind == "date":
+        if not isinstance(value, str) or ISO_DATE.fullmatch(value.strip()) is None:
+            raise PolicyValueError("a calendar date written YYYY-MM-DD")
+        try:
+            return date.fromisoformat(value.strip()).isoformat()
+        except ValueError:
+            raise PolicyValueError("a calendar date written YYYY-MM-DD") from None
     if spec.kind == "timezone":
         if not isinstance(value, str) or not value:
             raise PolicyValueError("a time zone name such as America/New_York")
@@ -370,6 +394,21 @@ def surcharge_treatment(db: Session) -> SurchargeTreatment | None:
         item_ids=frozenset(str(i) for i in row.value.get("item_ids") or ()),
         rate=Decimal(str(rate)) if rate is not None else None,
     )
+
+
+# --- F05.3: what the sync reads ---------------------------------------------------------------
+
+
+def history_start(db: Session) -> date | None:
+    """D-48: the first transaction date the platform holds for this company, or None
+    when the key is not decided (nothing is pulled then; never a default)."""
+    row = get_policy(db, HISTORY_START)
+    if row is None or not isinstance(row.value, str):
+        return None
+    try:
+        return date.fromisoformat(row.value)
+    except ValueError:
+        return None
 
 
 # --- F07.4: what approving a change order reads -----------------------------------------------

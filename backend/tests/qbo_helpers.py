@@ -13,6 +13,7 @@ import secrets
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from datetime import date
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -155,14 +156,42 @@ def state_from(authorization_url: str) -> str:
     return state
 
 
-def connect_directly(engine, tenant_id, fake: FakeIntuit, *, access_valid_for: int = 3600):
+# F05.3 (D-48): a connected company has decided its history start; the recorded
+# fixtures run from 2026-04-09, so this date holds every record, as the pre-patch
+# behaviour did. A test that filters picks a later date.
+HOLD_EVERYTHING = date(2026, 1, 1)
+
+
+def decide_history_start(engine, tenant_id, day: date = HOLD_EVERYTHING) -> None:
+    """Set ``history_start`` as a firm admin would on Configuration, Policy."""
+    from app.core.db import tenant_session
+    from app.domain.config.audit import Actor
+    from app.domain.config.policy import HISTORY_START, set_policy
+
+    with tenant_session(engine, tenant_id) as db:
+        set_policy(
+            db, tenant_id, HISTORY_START, day.isoformat(), decision_ref="D-48 (test)", actor=Actor()
+        )
+
+
+def connect_directly(
+    engine,
+    tenant_id,
+    fake: FakeIntuit,
+    *,
+    access_valid_for: int = 3600,
+    history_start: date | None = HOLD_EVERYTHING,
+):
     """A connected ``connection`` row holding tokens the fake will honour, without the
-    browser flow. Returns the connection id."""
+    browser flow, on a company that has decided its history start (``None``: a company
+    connected before F05.3, which has not). Returns the connection id."""
     from datetime import UTC, datetime, timedelta
 
     from app.core.db import tenant_session
     from app.ingest.connections import get_or_create_connection, set_connection_tokens
 
+    if history_start is not None:
+        decide_history_start(engine, tenant_id, history_start)
     issued = fake._issue()
     now = datetime.now(UTC)
     with tenant_session(engine, tenant_id) as db:
@@ -243,6 +272,9 @@ class FixtureCompany:
                     ]
                 elif (k := re.fullmatch(r"Id = '(\d+)'", clause)) is not None:
                     rows = [r for r in rows if r["Id"] == k.group(1)]
+                elif (k := re.fullmatch(r"TxnDate >= '(\d{4}-\d{2}-\d{2})'", clause)) is not None:
+                    # F05.3: the history start; a record with no TxnDate is not held.
+                    rows = [r for r in rows if str(r.get("TxnDate", "")) >= k.group(1)]
                 else:
                     return httpx.Response(400, content=b'{"Fault":{"type":"ValidationFault"}}')
         if entity in ("Account", "Customer", "Vendor", "Item") and not active_asked:

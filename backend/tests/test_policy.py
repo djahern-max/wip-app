@@ -499,3 +499,132 @@ def test_a_choice_key_takes_one_of_its_values_and_nothing_else(
             s, fresh_tenant, policy.CHANGE_ORDER_EVIDENCE, "reference", actor=Actor(user_id=None)
         )
         assert policy.evidence_required(s) is True
+
+
+# --- F05.3 (D-48): the history start ---------------------------------------------------------
+
+
+HISTORY_START_SENTENCE = (
+    "The history start cannot change after the first backfill. "
+    "Delete and set the company up again (D-28)."
+)
+
+
+def test_history_start_is_a_date_key_first_and_required_with_no_default_and_no_literal(
+    seed: Seed, rw_engine: Engine, login_as: Callable[..., TestClient], fresh_tenant
+) -> None:
+    """F05.3 (D-48): ``history_start`` is a ``date`` key, first on the list, required by
+    Home, with no default and no waiting sentence; the Rye Beach date is data, never a
+    literal under ``app/`` or ``alembic/``."""
+    from datetime import date
+
+    from app.domain.home.checklist import REQUIRED_POLICY_KEYS
+
+    spec = policy.POLICY_KEYS[policy.HISTORY_START]
+    assert next(iter(policy.POLICY_KEYS)) == policy.HISTORY_START
+    assert (spec.kind, spec.label) == ("date", "History start")
+    assert spec.waiting is None and spec.choices is None
+    assert spec.description == (
+        "History start: the first transaction date the platform holds for this company (D-48)."
+    )
+    assert REQUIRED_POLICY_KEYS[0] == policy.HISTORY_START
+    files = sorted((BACKEND / "app").rglob("*.py")) + sorted((BACKEND / "alembic").rglob("*.py"))
+    for p in files:
+        assert "2026-01-01" not in p.read_text(), str(p.relative_to(BACKEND))
+
+    admin = login_as("rotate_me", tenant=fresh_tenant)
+    listed = admin.get("/api/config/policy").json()
+    assert listed[0]["key"] == policy.HISTORY_START
+    row = listed[0]
+    assert (row["decided"], row["value"], row["options"], row["value_label"], row["waiting"]) == (
+        False,
+        None,
+        None,
+        None,
+        None,
+    )
+    with tenant_session(rw_engine, fresh_tenant) as s:
+        assert policy.history_start(s) is None
+    # Refused in words: anything that is not a calendar date written YYYY-MM-DD.
+    bad_values = (
+        "2026-13-01",
+        "2026-02-30",
+        "01/01/2026",
+        "20260101",
+        "2026-1-1",
+        "",
+        " ",
+        20260101,
+        None,
+        ["2026-01-01"],
+        "2026-01-01T00:00:00",
+    )
+    for bad in bad_values:
+        status, body = _put(admin, policy.HISTORY_START, bad)
+        assert status == 422, bad
+        assert body["detail"] == "History start needs a calendar date written YYYY-MM-DD.", bad
+    with tenant_session(rw_engine, fresh_tenant) as s:
+        assert policy.history_start(s) is None and not _audit_rows(s, policy.HISTORY_START)
+    # Set, audited and shown exactly as the other keys; stored as a string, read as a date.
+    status, body = _put(admin, policy.HISTORY_START, "2026-01-01", "D-48")
+    assert status == 200, body
+    assert (body["decided"], body["value"], body["decision_ref"]) == (True, "2026-01-01", "D-48")
+    assert body["decided_by_email"] == seed.users["rotate_me"].email and body["decided_at"]
+    with tenant_session(rw_engine, fresh_tenant) as s:
+        assert policy.history_start(s) == date(2026, 1, 1)
+        assert policy.require_policy(s, policy.HISTORY_START) == "2026-01-01"
+        typ = s.execute(
+            text("SELECT jsonb_typeof(value) FROM tenant_policy WHERE key = :k"),
+            {"k": policy.HISTORY_START},
+        ).scalar_one()
+        assert typ == "string"
+    status, body = _put(admin, policy.HISTORY_START, "2025-12-01", "owner")
+    assert status == 200 and body["value"] == "2025-12-01"
+    with tenant_session(rw_engine, fresh_tenant) as s:
+        audits = _audit_rows(s, policy.HISTORY_START)
+    assert len(audits) == 2
+    assert "before" not in audits[0] and audits[0]["after"] == {
+        "value": "2026-01-01",
+        "decision_ref": "D-48",
+    }
+    assert audits[1]["before"] == {"value": "2026-01-01", "decision_ref": "D-48"}
+    assert audits[1]["after"] == {"value": "2025-12-01", "decision_ref": "owner"}
+
+
+def test_history_start_cannot_change_after_a_completed_backfill(
+    seed: Seed, rw_engine: Engine, login_as: Callable[..., TestClient], fresh_tenant
+) -> None:
+    """F05.3 (D-48): once a backfill has completed on the company the key is refused with
+    one sentence; a failed backfill is not a completed one; before any, it is accepted
+    and audited as any key; the other keys are unaffected."""
+    from datetime import date
+
+    from app.ingest.connections import get_or_create_connection
+    from app.ingest.sync_runs import finish_sync_run, start_sync_run
+
+    admin = login_as("rotate_me", tenant=fresh_tenant)
+    status, body = _put(admin, policy.HISTORY_START, "2026-01-01", "D-48")
+    assert status == 200, body
+    with tenant_session(rw_engine, fresh_tenant) as s:
+        connection = get_or_create_connection(s, fresh_tenant, "qbo")
+        run = start_sync_run(s, fresh_tenant, connection.id, "backfill")
+        finish_sync_run(s, run, outcome="failed", error="needs_reconnect")
+    status, body = _put(admin, policy.HISTORY_START, "2026-02-01")
+    assert status == 200 and body["value"] == "2026-02-01"  # a failed backfill is not completed
+    with tenant_session(rw_engine, fresh_tenant) as s:
+        connection = get_or_create_connection(s, fresh_tenant, "qbo")
+        run = start_sync_run(s, fresh_tenant, connection.id, "backfill")
+        cursor = {"realm_id": "r", "changed_since": "2026-02-01T00:00:00Z"}
+        finish_sync_run(s, run, outcome="succeeded", cursor=cursor)
+        before = len(_audit_rows(s, policy.HISTORY_START))
+    status, body = _put(admin, policy.HISTORY_START, "2026-03-01", "later")
+    assert status == 409 and body["detail"] == HISTORY_START_SENTENCE
+    status, body = _put(admin, policy.HISTORY_START, "2026-02-01")  # even the same value
+    assert status == 409 and body["detail"] == HISTORY_START_SENTENCE
+    rows = {p["key"]: p for p in admin.get("/api/config/policy").json()}
+    assert rows[policy.HISTORY_START]["value"] == "2026-02-01"
+    with tenant_session(rw_engine, fresh_tenant) as s:
+        assert len(_audit_rows(s, policy.HISTORY_START)) == before
+        assert policy.history_start(s) == date(2026, 2, 1)
+    status, body = _put(admin, "timezone", "America/New_York")
+    assert status == 200  # the refusal is this key's alone

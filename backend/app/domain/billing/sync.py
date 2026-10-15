@@ -14,12 +14,19 @@ A payload the normalizer cannot read is skipped (``Outcome.skipped`` with the
 reason); the canonical row, if any, keeps pointing at the version it was built from,
 which is how the Connections page counts skipped payloads without a counter.
 
+F05.3 (D-48): a transactional payload dated before the company's history start builds
+no canonical row (``skipped``, reason ``before_history_start``; the page counts it apart
+from the unreadable ones by its date). A record already held that a later version dates
+before the start gets ``deleted_at`` on its canonical rows, as a source delete does, and
+keeps every raw version. ``apply_raw`` takes the date from its caller (the task reads it
+once); it never reads the policy itself.
+
 Every function requires ``app.tenant_id`` on the session (RLS).
 """
 
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -41,7 +48,7 @@ from app.ingest.raw import latest_raw_versions, raw_history
 from app.integrations.qbo.normalize import Unreadable
 from app.integrations.qbo.normalize.billing import BillingRow, normalize_billing
 from app.integrations.qbo.normalize.customer import normalize_customer
-from app.integrations.qbo.normalize.money import ZERO
+from app.integrations.qbo.normalize.money import ZERO, iso_date
 from app.integrations.qbo.normalize.payment import (
     PaymentRow,
     normalize_payment,
@@ -287,10 +294,13 @@ def _apply_payment(db: Session, tenant_id: UUID, raw: RawRecord) -> Outcome:
 # --- deletes ---------------------------------------------------------------------------------
 
 
-def _apply_delete(db: Session, tenant_id: UUID, raw: RawRecord) -> Outcome:
+def _apply_delete(
+    db: Session, tenant_id: UUID, raw: RawRecord, *, reason: str = "deleted"
+) -> Outcome:
     """The source deleted the record: ``deleted_at`` on the rows we hold (a stub for a
     record never held changes nothing). ``deleted_at`` is when the platform learned
-    of it; the stub says no more than that."""
+    of it; the stub says no more than that. D-48: a held record re-dated to before the
+    history start leaves the totals the same way (``reason`` names it)."""
     when = raw.fetched_at or datetime.now(UTC)
     touched = 0
     kind = BILLING_KIND_BY_ENTITY.get(raw.entity_type)
@@ -317,19 +327,42 @@ def _apply_delete(db: Session, tenant_id: UUID, raw: RawRecord) -> Outcome:
             )
             .values(deleted_at=when, raw_record_id=raw.id)
         ).rowcount
-    return Outcome(raw.entity_type, raw.external_id, "deleted" if touched else "ignored")
+    if touched:
+        return Outcome(raw.entity_type, raw.external_id, "deleted", reason)
+    return Outcome(raw.entity_type, raw.external_id, "ignored", None)
+
+
+BEFORE_HISTORY_START = "before_history_start"
+
+
+def before_history_start(payload, history_start: date) -> bool:
+    """D-48: whether a transactional payload is dated before the history start. A
+    payload with no readable ``TxnDate`` is not (its normalizer refuses it instead)."""
+    if not isinstance(payload, dict):
+        return False
+    try:
+        return iso_date(payload.get("TxnDate"), field="txn_date") < history_start
+    except Unreadable:
+        return False
 
 
 # --- entry point ---------------------------------------------------------------------------
 
 
-def apply_raw(db: Session, tenant_id: UUID, raw: RawRecord) -> Outcome:
+def apply_raw(db: Session, tenant_id: UUID, raw: RawRecord, *, history_start: date) -> Outcome:
     """``raw`` must be the latest version of its record (the caller checks; an older
-    version is ignored so a late task can never overwrite a newer one)."""
+    version is ignored so a late task can never overwrite a newer one). ``history_start``
+    (D-48) is the company's; a transactional record dated before it builds no row."""
     if raw.source != SOURCE:
         return Outcome(raw.entity_type, raw.external_id, "ignored", "not_qbo")
     if raw.is_deleted:
         return _apply_delete(db, tenant_id, raw)
+    transactional = raw.entity_type in BILLING_KIND_BY_ENTITY or raw.entity_type == "Payment"
+    if transactional and before_history_start(raw.payload, history_start):
+        outcome = _apply_delete(db, tenant_id, raw, reason=BEFORE_HISTORY_START)
+        if outcome.result == "deleted":
+            return outcome  # a held record re-dated to before the start leaves the totals
+        return Outcome(raw.entity_type, raw.external_id, "skipped", BEFORE_HISTORY_START)
     try:
         if raw.entity_type == "Customer":
             return _apply_customer(db, tenant_id, raw)
@@ -453,12 +486,18 @@ def attach_account_ids(db: Session, tenant_id: UUID) -> AccountAttach:
     )
 
 
-def unlinked_deposit_lines(db: Session, tenant_id: UUID) -> tuple[int, Decimal]:
+def unlinked_deposit_lines(
+    db: Session, tenant_id: UUID, *, history_start: date | None = None
+) -> tuple[int, Decimal]:
     """Deposit lines with no ``LinkedTxn`` (owner answer 4): money received without a
-    document. Count and total, from the latest raw versions; nothing is normalized."""
+    document. Count and total, from the latest raw versions; nothing is normalized.
+    D-48: a deposit dated before the history start (held raw from a poll) is left out;
+    ``None`` is a company that has not decided its start, where nothing is left out."""
     count, total = 0, ZERO
     for raw in latest_raw_versions(db, tenant_id, SOURCE, "Deposit"):
         if raw.is_deleted or not isinstance(raw.payload, dict):
+            continue
+        if history_start is not None and before_history_start(raw.payload, history_start):
             continue
         for line in raw.payload.get("Line") or []:
             if isinstance(line, dict) and not line.get("LinkedTxn"):

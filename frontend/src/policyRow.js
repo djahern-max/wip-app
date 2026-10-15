@@ -61,6 +61,7 @@ export function showValue(p, categories) {
     return names.length ? names.join(", ") : p.value.join(", ");
   }
   if (p.kind === "timezone") return p.value_label || String(p.value);
+  if (p.kind === "date") return String(p.value); // F05.3 (D-48): YYYY-MM-DD, as decided
   if (p.kind === "choice") return p.value_label || String(p.value); // F07.4: the words come from the API
   if (p.kind === "item_ids") return itemNames(p, p.value.item_ids || []);
   if (p.kind === "surcharge") {
@@ -215,6 +216,15 @@ export function EditPolicy({ p, categories, busy, onCancel, onSave }) {
             ),
           ),
       ),
+    );
+  } else if (p.kind === "date") {
+    // F05.3 (D-48): the history start is a calendar date; the browser's date control
+    // sends YYYY-MM-DD, which is what the server stores.
+    control = h(
+      "label",
+      { className: "field" },
+      h("span", { className: "field-label" }, p.label),
+      h("input", { className: "control", type: "date", value: text, onChange: (e) => setText(e.target.value), disabled: busy }),
     );
   } else if (itemKind) {
     const options = p.options || [];

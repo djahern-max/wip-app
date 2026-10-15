@@ -17,12 +17,13 @@ from sqlalchemy import Engine, select, text
 from app.audit.models import AuditLog
 from app.core.db import tenant_session, untenanted_session
 from app.domain.billing.models import Customer
-from app.domain.billing.sync import apply_raw
+from app.domain.billing.sync import apply_raw as _apply_raw
 from app.ingest.raw import RawOrigin, store_raw
 from app.tenancy.models import Membership
 from app.tenancy.models import Tenant as TenantRow
 from tests.conftest import CSRF, Seed
 from tests.job_helpers import CUSTOMERS, ELM_ID, Tenant, make_tenant, seed_customers
+from tests.qbo_helpers import HOLD_EVERYTHING
 
 OCEAN = "1701 Ocean Boulevard"
 DUNBARTON_SENTENCE = (
@@ -81,7 +82,7 @@ def _apply(t: Tenant, payload: dict) -> None:
             db, t.id, "qbo", "Customer", payload["Id"], payload, RawOrigin(sync_run_id=run_id)
         )
         assert stored.record is not None
-        apply_raw(db, t.id, stored.record)
+        _apply_raw(db, t.id, stored.record, history_start=HOLD_EVERYTHING)  # D-48
 
 
 def _flag(t: Tenant, key: str) -> tuple:

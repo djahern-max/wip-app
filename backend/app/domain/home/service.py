@@ -20,7 +20,7 @@ from app.domain.config.models import (
     GlAccount,
     TenantPolicy,
 )
-from app.domain.config.policy import POLICY_KEYS, WIP_BASIS
+from app.domain.config.policy import POLICY_KEYS, WIP_BASIS, history_start
 from app.domain.config.service import unmapped_count
 from app.domain.estimates.exceptions import Issue
 from app.domain.estimates.models import Estimate
@@ -65,7 +65,7 @@ def _connection_facts(
         return None, ()
     if row.realm_id is None:
         return row.status, ()
-    held = copy_status(db, tenant_id, row)
+    held = copy_status(db, tenant_id, row, history_start=history_start(db))
     return row.status, tuple((a.code, a.detail or a.label) for a in held.attention)
 
 

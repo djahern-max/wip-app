@@ -59,7 +59,7 @@ The owner is a CPA and the domain expert. When accounting treatment is unclear, 
 
 ### Integrations
 - QBO: core Accounting REST API only. Do **not** depend on the Projects GraphQL API (partner-tier gated). Projects are read as customer records; job refs are read at line level.
-- Sync incrementally (CDC + webhooks). No scheduled full re-pulls; API reads are metered. Respect rate limits with backoff.
+- Sync incrementally (CDC + webhooks) from the history start. No scheduled full re-pulls; API reads are metered. Respect rate limits with backoff.
 - LMN and isolved are file imports behind `EstimateSource` / `LaborSource` protocols. New sources implement the protocol; they do not add branches to domain code.
 
 ### Code conventions
@@ -95,6 +95,7 @@ The owner is a CPA and the domain expert. When accounting treatment is unclear, 
 - **Pay application**: the customer's statement of earned to date by work area and the amount due; the invoice refers to it (D-36).
 - **Schedule of values**: the kept, approved work areas and their prices (D-36).
 - **Tracked**: a QuickBooks customer, sub-customer or project a person has picked to work on, or one linked to a job; the screens show tracked rows only (D-37).
+- **History start**: the first transaction date the platform holds for a company; a policy key, no default (D-48).
 - **Fuel surcharge**: a line on an invoice on one of the tenant's fuel surcharge items (D-39); outside the contract, outside billed to date, shown as "Fuel surcharge billed"; recognised by item id, never by description or amount.
 - **Deposit**: one advance invoice numbered `<estimate number>_DEP` whose lines, other than fuel surcharge lines, are on the tenant's deposit items (D-02); both marks are needed. It counts in billed to date from its date. **Unapplied payment**: money received on a job's customer rows and applied to no invoice; not billed or collected to date (D-02).
 - **Billed to date**: Σ over a job's invoices, credit memos and sales receipts of total − sales tax − fuel surcharge lines (§8.2 column 10). Per work area (D-45): pay applications, then "#n" lines, then a person's assignment; a line with no tie counts in the job's figure and in no work area's; "not assigned to a work area" is the difference. **Collected to date**: cash only (D-41): a payment's cash is its total less its unapplied amount; its invoice and sales receipt lines count for the document's job and its credit memo lines against it, dated by the payment; the net of its lines of any other type (a journal entry, a deposit) is the payment's **remainder**, counted on the payment's own customer row, so every payment adds exactly its cash; a sales receipt collects itself once. **Other credits applied**: a payment's remainder where it is a credit (an invoice settled by something other than cash), shown on the same row; billed − collected − other credits applied = open A/R (D-41). **Remaining to bill**: revised contract − billed to date, fixed-price jobs only. All computed on read; nothing stored (F08).

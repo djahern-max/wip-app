@@ -1,11 +1,18 @@
 """Reads with a shape (F05): one page of an entity by keyset, the two singletons,
-a count, and one Change Data Capture request. Nothing here stores anything."""
+a count, and one Change Data Capture request. Nothing here stores anything.
+
+F05.3 (D-48): a transactional entity is paged and counted from the company's history
+start, ``TxnDate >= 'YYYY-MM-DD'``, which the caller passes in (read once per run, never
+here). The grammar was accepted by QuickBooks on the real company on 2026-10-15 for all
+ten transactional entities, with the count equal to the page total each time. CDC and
+its overflow fallback are not filtered: a pre-start record that arrives by poll is
+stored raw and skipped by its normalizer."""
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
-from app.integrations.qbo.entities import NAME_LISTS, SINGLETONS
+from app.integrations.qbo.entities import NAME_LISTS, SINGLETONS, TRANSACTIONAL
 from app.integrations.qbo.reader import CompanyReader
 
 # MAXRESULTS caps at 1,000 (query) and CDC returns at most 1,000 objects per entity.
@@ -19,11 +26,19 @@ def _active_clause(entity: str) -> str:
     return "Active IN (true, false) AND " if entity in NAME_LISTS else ""
 
 
-def page_after(reader: CompanyReader, entity: str, after_id: str) -> list[dict]:
+def _txn_date_clause(entity: str, history_start: date) -> str:
+    """D-48: transactional entities from the history start; nothing else is dated."""
+    return f"TxnDate >= '{history_start.isoformat()}' AND " if entity in TRANSACTIONAL else ""
+
+
+def page_after(
+    reader: CompanyReader, entity: str, after_id: str, *, history_start: date
+) -> list[dict]:
     """The next page by Id (compared as a number by QuickBooks, S-01 extra 3): a
     delete during the backfill cannot shift a record past a page boundary."""
     statement = (
-        f"SELECT * FROM {entity} WHERE {_active_clause(entity)}Id > '{after_id}' "
+        f"SELECT * FROM {entity} WHERE {_active_clause(entity)}"
+        f"{_txn_date_clause(entity, history_start)}Id > '{after_id}' "
         f"ORDERBY Id MAXRESULTS {PAGE_SIZE}"
     )
     rows = reader.query(statement, operation=entity).get(entity, [])
@@ -39,10 +54,13 @@ def singleton(reader: CompanyReader, entity: str, realm_id: str) -> list[dict]:
     return [r for r in rows if isinstance(r, dict)]
 
 
-def count(reader: CompanyReader, entity: str) -> int | None:
+def count(reader: CompanyReader, entity: str, *, history_start: date) -> int | None:
+    """QuickBooks' own count of what the copy should hold: a name list with its
+    inactive rows, a transactional entity from the history start."""
     if entity in SINGLETONS:
         return None
-    where = f" WHERE {_active_clause(entity).removesuffix(' AND ')}" if entity in NAME_LISTS else ""
+    clauses = _active_clause(entity) + _txn_date_clause(entity, history_start)
+    where = f" WHERE {clauses.removesuffix(' AND ')}" if clauses else ""
     body = reader.query(f"SELECT COUNT(*) FROM {entity}{where}", operation=f"{entity} count")
     total = body.get("totalCount")
     return total if isinstance(total, int) and not isinstance(total, bool) else None

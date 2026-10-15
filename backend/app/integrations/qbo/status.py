@@ -2,7 +2,7 @@
 month totals, the last runs. Reads only; money leaves as strings."""
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from uuid import UUID
 
 from sqlalchemy import select
@@ -15,11 +15,11 @@ from app.api.schemas import (
     QboMonthTotalsOut,
     QboSyncRunOut,
 )
-from app.domain.billing.report import current_counts, skipped_counts
+from app.domain.billing.report import before_start_counts, current_counts, skipped_counts
 from app.domain.billing.sync import chart_match, unlinked_deposit_lines
 from app.domain.billing.totals import month_totals
 from app.ingest.models import Connection, SyncRun
-from app.integrations.qbo.entities import ENTITIES
+from app.integrations.qbo.entities import ENTITIES, TRANSACTIONAL
 from app.integrations.qbo.schedule import cursor_too_old, open_backfill, resume_cursor
 
 KIND_LABELS = {"backfill": "Backfill", "cdc": "Change poll", "drift": "Nightly check"}
@@ -33,6 +33,10 @@ FAILURE_MESSAGES = {
     "needs_reconnect": "QuickBooks stopped accepting this connection; reconnect it.",
     "cursor_too_old": "The copy is more than 29 days behind QuickBooks; start a fresh backfill.",
     "no_cursor": "No backfill has completed for this company; start one.",
+    "history_start_not_set": (
+        "The history start is not decided; set it on Configuration, Policy. "
+        "Nothing is pulled until it is."
+    ),
     "unavailable": "QuickBooks could not be reached; it will be tried again.",
 }
 
@@ -87,14 +91,30 @@ def _latest_run(db: Session, connection_id: UUID, *kinds: str) -> SyncRun | None
     ).scalar_one_or_none()
 
 
-def copy_status(db: Session, tenant_id: UUID, connection: Connection) -> QboCopyOut:
-    counts = current_counts(db, tenant_id)
-    skipped = skipped_counts(db, tenant_id)
+def copy_status(
+    db: Session, tenant_id: UUID, connection: Connection, *, history_start: date | None = None
+) -> QboCopyOut:
+    counts = current_counts(db, tenant_id, history_start=history_start)
+    skipped = skipped_counts(db, tenant_id, history_start=history_start)
+    before = before_start_counts(db, tenant_id, history_start=history_start)
     entities = [
-        QboEntityCountOut(entity=e, current=counts.get(e, 0), skipped=skipped.get(e))
+        QboEntityCountOut(
+            entity=e,
+            current=counts.get(e, 0),
+            skipped=skipped.get(e),
+            before_history_start=before.get(e, 0) if e in TRANSACTIONAL else None,
+        )
         for e in ENTITIES
     ]
     attention: list[QboAttentionOut] = []
+    if history_start is None:  # F05.3 (D-48): a company connected before the key existed
+        attention.append(
+            QboAttentionOut(
+                code="history_start_needed",
+                label="History start not decided",
+                detail="nothing is pulled until it is set.",
+            )
+        )
     if connection.status == "needs_reconnect":
         attention.append(
             QboAttentionOut(
@@ -180,7 +200,9 @@ def copy_status(db: Session, tenant_id: UUID, connection: Connection) -> QboCopy
                 detail=", ".join(match.chart_only),
             )
         )
-    deposit_count, deposit_total = unlinked_deposit_lines(db, tenant_id)
+    deposit_count, deposit_total = unlinked_deposit_lines(
+        db, tenant_id, history_start=history_start
+    )
     if deposit_count:
         attention.append(
             QboAttentionOut(

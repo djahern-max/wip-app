@@ -13,9 +13,11 @@ import { addMoney, formatMoney } from "../money.js";
 // Connecting leaves this page for QuickBooks; the browser comes back to
 // /connections?result=…, which Shell hands over as `result`.
 //
-// One primary action: "Connect to QuickBooks" until a company is connected, then
-// "Sync now". Reconnect, Disconnect and a fresh backfill are secondary.
-export default function Connections({ me, result }) {
+// One primary action: "Set history start" until the company's history start is decided
+// (F05.3, D-48: nothing is pulled before it), then "Connect to QuickBooks" until a company
+// is connected, then "Sync now". Reconnect, Disconnect and a fresh backfill are secondary.
+// `onOpen` is Shell's link opener (the same one Home uses), for the Policy section.
+export default function Connections({ me, result, onOpen }) {
   const [status, setStatus] = useState(null);
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -98,6 +100,22 @@ export default function Connections({ me, result }) {
   const needsReconnect = status.status === "needs_reconnect";
   const resultFailed = status.result && status.result !== "connected";
   const held = status.held;
+  // F05.3 (D-48): the server refuses connect, Sync now and a fresh backfill without it.
+  const needsHistoryStart = !status.history_start;
+  const historyStartSentence = "Set the history start on Configuration, Policy before connecting QuickBooks.";
+  const openPolicy = () => onOpen && onOpen({ page: "config", section: "policy" });
+  let primaryLabel;
+  let primaryAction;
+  if (connected) {
+    primaryLabel = busy ? "Working…" : "Sync now";
+    primaryAction = syncNow;
+  } else if (needsHistoryStart) {
+    primaryLabel = "Set history start";
+    primaryAction = openPolicy;
+  } else {
+    primaryLabel = busy ? "Working…" : "Connect to QuickBooks";
+    primaryAction = connect;
+  }
 
   return (
     <div>
@@ -109,7 +127,12 @@ export default function Connections({ me, result }) {
           {status.company_name ? ` · ${status.company_name}` : ""}
           {status.environment === "sandbox" ? " · sandbox company" : ""}
         </p>
+        {status.history_start && <p className="hint">History start: {status.history_start}</p>}
         {status.message && <p className={needsReconnect ? "error" : "hint"}>{status.message}</p>}
+        {needsHistoryStart && !connected && <p className="hint">{historyStartSentence}</p>}
+        {needsHistoryStart && connected && (
+          <p className="hint">History start not decided: nothing is pulled until it is set. {historyStartSentence}</p>
+        )}
         {status.result_message && (
           <p className={resultFailed ? "error" : "hint"}>{status.result_message}</p>
         )}
@@ -139,10 +162,10 @@ export default function Connections({ me, result }) {
               <button
                 type="button"
                 className="button-primary"
-                onClick={connected ? syncNow : connect}
-                disabled={busy}
+                onClick={primaryAction}
+                disabled={busy || (connected && needsHistoryStart)}
               >
-                {busy ? "Working…" : connected ? "Sync now" : "Connect to QuickBooks"}
+                {primaryLabel}
               </button>
             )}
             {connected && held && held.backfill_needed && !confirming && (
@@ -150,14 +173,14 @@ export default function Connections({ me, result }) {
                 type="button"
                 className="button"
                 onClick={() => request("/api/qbo/backfill", "The backfill was not started. Check your connection and try again.")}
-                disabled={busy}
+                disabled={busy || needsHistoryStart}
               >
                 Start fresh backfill
               </button>
             )}
             {(connected || needsReconnect) && !confirming && (
               <>
-                <button type="button" className="button" onClick={connect} disabled={busy}>
+                <button type="button" className="button" onClick={connect} disabled={busy || needsHistoryStart}>
                   {busy ? "Opening QuickBooks…" : "Reconnect"}
                 </button>
                 <button type="button" className="button" onClick={() => setConfirming(true)} disabled={busy}>
@@ -217,6 +240,7 @@ export default function Connections({ me, result }) {
                 <tr>
                   <th>Record</th>
                   <th className="num">Current</th>
+                  <th className="num">Before history start</th>
                   <th className="num">Could not be read</th>
                 </tr>
               </thead>
@@ -225,6 +249,7 @@ export default function Connections({ me, result }) {
                   <tr key={e.entity}>
                     <td>{e.entity}</td>
                     <td className="num">{e.current}</td>
+                    <td className="num">{e.before_history_start === null ? "held whole" : e.before_history_start}</td>
                     <td className="num">{e.skipped === null ? "not read in this feature" : e.skipped}</td>
                   </tr>
                 ))}

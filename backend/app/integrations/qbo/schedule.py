@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.core.audit import RequestMeta, TenantEvent, write_tenant_audit
 from app.core.config import get_settings
+from app.domain.config.policy import HISTORY_START, history_start
 from app.ingest.models import Connection, SyncRun
 from app.ingest.sync_runs import iso_utc, latest_successful_cursor, start_sync_run
 from app.integrations.qbo import SYSTEM
@@ -147,10 +148,36 @@ def open_backfill(db: Session, connection_id: UUID) -> SyncRun | None:
     ).scalar_one_or_none()
 
 
+def completed_backfill(db: Session, connection_id: UUID) -> bool:
+    """F05.3 (D-48): whether a backfill has ever succeeded on this connection; the
+    history start cannot change after one."""
+    return (
+        db.execute(
+            select(SyncRun.id)
+            .where(
+                SyncRun.connection_id == connection_id,
+                SyncRun.kind == "backfill",
+                SyncRun.outcome == "succeeded",
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+        is not None
+    )
+
+
+class HistoryStartNotSet(LookupError):
+    """F05.3 (D-48): nothing is pulled until the history start is decided."""
+
+
 def start_backfill(db: Session, tenant_id: UUID, connection: Connection) -> SyncRun | None:
     """One task per entity to fetch its first page. The CDC watermark is taken
     **before** page 1 (minus an overlap), so anything changed during the backfill is
-    picked up by the first poll. ``None`` when a backfill is already running."""
+    picked up by the first poll. ``None`` when a backfill is already running. The
+    history start (D-48) is read once here and travels on the run; a backfill never
+    starts without it."""
+    start = history_start(db)
+    if start is None:
+        raise HistoryStartNotSet()
     if open_backfill(db, connection.id) is not None:
         return None
     now = datetime.now(UTC)
@@ -158,6 +185,7 @@ def start_backfill(db: Session, tenant_id: UUID, connection: Connection) -> Sync
     run.detail = {
         "realm_id": connection.realm_id,
         "changed_since": iso_utc(now - BACKFILL_OVERLAP),
+        HISTORY_START: start.isoformat(),  # the key name is a literal only in the registry
         "entities": {entity: {"pages": 0, "done": False} for entity in ENTITIES},
     }
     db.flush()
@@ -181,7 +209,10 @@ def start_backfill(db: Session, tenant_id: UUID, connection: Connection) -> Sync
 def after_connect(db: Session, tenant_id: UUID, connection: Connection) -> str:
     """A first connection starts a backfill; a reconnect with a usable cursor resumes
     polling; a reconnect whose cursor is too old waits for the admin to ask for a
-    fresh backfill (never silently). Returns what was done."""
+    fresh backfill (never silently). Returns what was done. Without a history start
+    (D-48) nothing starts: the Connections page says so."""
+    if history_start(db) is None:
+        return "history_start_needed"
     cursor = resume_cursor(db, connection)
     if cursor is None:
         start_backfill(db, tenant_id, connection)

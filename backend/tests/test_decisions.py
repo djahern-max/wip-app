@@ -88,13 +88,29 @@ def test_d46_is_in_decisions_once_directly_after_d45_word_for_word() -> None:
     )
 
 
-def test_d47_is_in_decisions_once_directly_after_d46_and_last() -> None:
+def test_d47_is_in_decisions_once_directly_after_d46() -> None:
     """F09.1: D-47 (2026-10-08) amends D-22 without editing it; it is the one decision
-    after D-46 and names what stays."""
+    after D-46 and names what stays (D-48 follows it since F05.3)."""
     decisions = DECISIONS.read_text()
     order = [m.group(1) for m in re.finditer(r"^## (D-\d+[a-z]?) ·", decisions, re.M)]
     assert order.count("D-47") == 1
-    assert order.index("D-47") == order.index("D-46") + 1 == len(order) - 1
+    assert order.index("D-47") == order.index("D-46") + 1
     entry = _entry(decisions, "D-47")
     assert "D-22 stands except as follows" in entry
     assert "no gradients, shadows or animations" in entry
+
+
+def test_d48_is_in_decisions_once_directly_after_d47_last_and_word_for_word() -> None:
+    """F05.3: D-48 (2026-10-15) is appended from the brief word for word; it is the one
+    decision after D-47 and the last; the order from D-38 on is unbroken."""
+    decisions = DECISIONS.read_text()
+    order = [m.group(1) for m in re.finditer(r"^## (D-\d+[a-z]?) ·", decisions, re.M)]
+    assert order.count("D-48") == 1
+    assert order.index("D-48") == order.index("D-47") + 1 == len(order) - 1
+    run = [f"D-{n}" for n in range(38, 49)]
+    assert order[order.index("D-38") :] == run
+    brief = _brief("D-48", "F05.3.md")
+    assert _entry(decisions, "D-48") == _entry(brief, "D-48")
+    entry = _entry(decisions, "D-48")
+    assert "history_start" in entry and "no default" in entry
+    assert "cannot change after the first completed backfill" in entry

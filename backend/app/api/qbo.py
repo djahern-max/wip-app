@@ -35,6 +35,7 @@ from app.core.authz import can_manage_connections, can_view_connections
 from app.core.config import MissingSettings, get_settings
 from app.core.db import AppEngine, untenanted_session
 from app.core.throttle import MemoryThrottle
+from app.domain.config.policy import history_start
 from app.ingest.models import CONNECTION_STATUS_LABELS, Connection
 from app.integrations.qbo import SYSTEM
 from app.integrations.qbo.connect import (
@@ -72,6 +73,11 @@ WEBHOOK_THROTTLE = MemoryThrottle()
 
 Manager = Annotated[Principal, Depends(can_manage_connections)]
 Viewer = Annotated[Principal, Depends(can_view_connections)]
+
+# F05.3 (D-48): nothing is pulled until the history start is decided.
+HISTORY_START_SENTENCE = (
+    "Set the history start on Configuration, Policy before connecting QuickBooks."
+)
 
 STATUS_MESSAGES: dict[str, str | None] = {
     "disconnected": "QuickBooks is not connected for this company.",
@@ -118,8 +124,9 @@ def _status_out(
     known_result = result if result in RESULT_MESSAGES else None
     held = None
     webhooks_24h = 0
+    start = history_start(db) if db is not None else None
     if db is not None and connection is not None and connection.realm_id is not None:
-        held = copy_status(db, principal.active_tenant_id, connection)
+        held = copy_status(db, principal.active_tenant_id, connection, history_start=start)
         webhooks_24h = deliveries_in_window(db, connection.realm_id, utcnow())
     message = STATUS_MESSAGES.get(status)
     if connection is not None and connection.last_error in REASON_MESSAGES:
@@ -147,7 +154,15 @@ def _status_out(
             else None
         ),
         webhooks_24h=webhooks_24h,
+        history_start=start.isoformat() if start is not None else None,
     )
+
+
+def _require_history_start(db: TenantSession) -> None:
+    """F05.3 (D-48): connect, sync and backfill are refused in one sentence until the
+    history start is decided."""
+    if history_start(db) is None:
+        raise HTTPException(status_code=409, detail=HISTORY_START_SENTENCE)
 
 
 def _connection(db: TenantSession) -> Connection | None:
@@ -163,6 +178,7 @@ def status(principal: Viewer, db: TenantSession, result: str | None = None) -> Q
 
 @router.post("/connect", response_model=QboConnectOut)
 def connect(request: Request, principal: Manager, db: TenantSession) -> QboConnectOut:
+    _require_history_start(db)
     try:
         url = start_connect(
             db,
@@ -197,6 +213,7 @@ SYNC_MESSAGES = {
 
 
 def _sync(request: Request, principal: Manager, db: TenantSession, kind: str) -> QboSyncRequestOut:
+    _require_history_start(db)
     connection = _connection(db)
     if connection is None or connection.status != "connected":
         raise HTTPException(status_code=409, detail="QuickBooks is not connected for this company.")

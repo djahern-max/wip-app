@@ -123,7 +123,9 @@ def _routes() -> list[Route]:
         # F05: the QuickBooks connection. Tenant A has none, so connect only stores a
         # pending state and disconnect has nothing to revoke: neither reaches Intuit.
         Route("GET", "/api/qbo/status", frozenset({FA, FS, CA})),
-        Route("POST", "/api/qbo/connect", frozenset({FA})),
+        # F05.3 (D-48): tenant A has not decided its history start, so a firm admin's
+        # connect is let through the guard and refused by the route (409).
+        Route("POST", "/api/qbo/connect", frozenset({FA}), also_ok=frozenset({409})),
         Route("POST", "/api/qbo/disconnect", frozenset({FA})),
         Route("POST", "/api/qbo/sync", frozenset({FA}), also_ok=frozenset({409})),
         Route("POST", "/api/qbo/backfill", frozenset({FA}), also_ok=frozenset({409})),

@@ -248,7 +248,7 @@ export default function Shell({ me, onChanged, onLogout }) {
         ) : active && view === "config" && canConfig ? (
           <Config me={me} target={configTarget} />
         ) : active && view === "connections" && canConnections ? (
-          <Connections me={me} result={returned ? returned.result : ""} />
+          <Connections me={me} result={returned ? returned.result : ""} onOpen={openLink} />
         ) : active ? (
           <Home me={me} companyName={active.name} onOpen={openLink} />
         ) : (

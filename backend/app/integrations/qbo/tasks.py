@@ -14,10 +14,16 @@ normalized: a page or a poll stores payloads through ``store_raw`` /
 A connection that needs reconnecting ends the task without retries
 (``PermanentTaskError``); the worker keeps running. Log lines carry ids, entity
 names, counts and codes; never a payload or a name.
+
+F05.3 (D-48): a poll or a nightly check on a company whose history start is not
+decided (one connected before the key existed) ends its run ``failed`` with reason
+``history_start_not_set``, asks Intuit nothing and enqueues no successor; the
+Connections page says so. The chains are seeded again by a fresh backfill, a
+reconnect or a worker restart once the key is set.
 """
 
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import Engine, select
@@ -26,6 +32,7 @@ from app.core.db import tenant_session
 from app.domain.billing.report import current_counts, raw_month_totals
 from app.domain.billing.sync import apply_raw, attach_account_ids
 from app.domain.billing.totals import month_totals
+from app.domain.config.policy import HISTORY_START, history_start
 from app.ingest.models import Connection, RawRecord, SyncRun
 from app.ingest.raw import RawOrigin, latest_raw, store_delete, store_raw
 from app.ingest.sync_runs import finish_sync_run, iso_utc, start_sync_run
@@ -55,6 +62,7 @@ log = logging.getLogger("app.qbo")
 
 CDC_ENTITIES = ENTITIES  # all sixteen are accepted (S-01 (c))
 NORMALIZE_BATCH = 200
+HISTORY_START_NOT_SET = "history_start_not_set"
 
 
 def _connection(db, connection_id: UUID) -> Connection | None:
@@ -110,12 +118,14 @@ def backfill_page(
         if connection.status != "connected":
             raise PermanentTaskError("needs_reconnect")
         realm_id = connection.realm_id or ""
+        # D-48: the history start was read once when the run started and travels on it.
+        start = _run_history_start(run)
     reader = CompanyReader(engine, tenant_id, cid)
     try:
         if entity in SINGLETONS:
             rows = fetch.singleton(reader, entity, realm_id)
         else:
-            rows = fetch.page_after(reader, entity, after_id)
+            rows = fetch.page_after(reader, entity, after_id, history_start=start)
     except NeedsReconnect as exc:
         _fail_run(engine, tenant_id, rid, "needs_reconnect", tid=exc.tid)
         raise PermanentTaskError("needs_reconnect") from exc
@@ -181,6 +191,15 @@ def backfill_page(
             log.info("qbo backfill finished run=%s tenant=%s", rid, tenant_id)
 
 
+def _run_history_start(run: SyncRun) -> date:
+    """The date a backfill run was started with (``start_backfill`` put it there); a
+    run without one predates F05.3 and cannot continue."""
+    value = (run.detail or {}).get(HISTORY_START)
+    if not isinstance(value, str):
+        raise PermanentTaskError(HISTORY_START_NOT_SET)
+    return date.fromisoformat(value)
+
+
 def _fail_run(
     engine: Engine, tenant_id: UUID, run_id: UUID, error: str, *, tid: str | None = None
 ) -> None:
@@ -215,6 +234,16 @@ def cdc_poll(tenant_id: UUID, *, engine: Engine, connection_id: str, slot: str |
         if connection is None or connection.status != "connected":
             log.info("qbo poll skipped connection=%s tenant=%s (not connected)", cid, tenant_id)
             return  # the chain ends here; reconnect seeds it again
+        if history_start(db) is None:  # F05.3 (D-48): nothing is pulled until it is set
+            run = start_sync_run(db, tenant_id, cid, "cdc")
+            finish_sync_run(db, run, outcome="failed", error=HISTORY_START_NOT_SET)
+            log.warning(
+                "qbo poll stopped connection=%s tenant=%s reason=%s",
+                cid,
+                tenant_id,
+                HISTORY_START_NOT_SET,
+            )
+            return  # no successor: the key being set re-seeds nothing by itself
         cursor = resume_cursor(db, connection)
         if cursor is None or cursor_too_old(cursor, now):
             run = start_sync_run(db, tenant_id, cid, "cdc")
@@ -293,6 +322,9 @@ def normalize(
 ) -> None:
     applied = skipped = stale = 0
     with tenant_session(engine, tenant_id) as db:
+        start = history_start(db)
+        if start is None:  # D-48: never normalize without the date; the task says so
+            raise PermanentTaskError(HISTORY_START_NOT_SET)
         for raw_id in raw_record_ids:
             raw = db.get(RawRecord, UUID(str(raw_id)))
             if raw is None:
@@ -301,7 +333,7 @@ def normalize(
             if current is None or current.id != raw.id:
                 stale += 1  # a newer version exists; its own task applies it
                 continue
-            outcome = apply_raw(db, tenant_id, raw)
+            outcome = apply_raw(db, tenant_id, raw, history_start=start)
             if outcome.result == "skipped":
                 skipped += 1
             elif outcome.result in ("applied", "deleted"):
@@ -342,6 +374,17 @@ def drift_check(tenant_id: UUID, *, engine: Engine, connection_id: str, slot: st
         connection = _connection(db, cid)
         if connection is None or connection.status != "connected":
             return
+        start = history_start(db)
+        if start is None:  # F05.3 (D-48): nothing to compare, no successor
+            run = start_sync_run(db, tenant_id, cid, "drift")
+            finish_sync_run(db, run, outcome="failed", error=HISTORY_START_NOT_SET)
+            log.warning(
+                "qbo drift check stopped connection=%s tenant=%s reason=%s",
+                cid,
+                tenant_id,
+                HISTORY_START_NOT_SET,
+            )
+            return
         own = datetime.fromisoformat(slot.replace("Z", "+00:00"))
         enqueue_drift_check(
             db, tenant_id, cid, next_drift_slot(max(now, own) + timedelta(minutes=1))
@@ -353,7 +396,7 @@ def drift_check(tenant_id: UUID, *, engine: Engine, connection_id: str, slot: st
     try:
         for entity in ENTITIES:
             if entity not in SINGLETONS:
-                quickbooks[entity] = fetch.count(reader, entity)
+                quickbooks[entity] = fetch.count(reader, entity, history_start=start)
     except NeedsReconnect as exc:
         _fail_run(engine, tenant_id, run_id, "needs_reconnect", tid=exc.tid)
         raise PermanentTaskError("needs_reconnect") from exc
@@ -362,14 +405,14 @@ def drift_check(tenant_id: UUID, *, engine: Engine, connection_id: str, slot: st
         raise
     with tenant_session(engine, tenant_id) as db:
         run = db.get(SyncRun, run_id)
-        platform = current_counts(db, tenant_id)
+        platform = current_counts(db, tenant_id, history_start=start)
         counts = {
             e: {"quickbooks": q, "platform": platform.get(e, 0)}
             for e, q in quickbooks.items()
             if q is not None and q != platform.get(e, 0)
         }
         normalized = {m.month: m for m in month_totals(db, tenant_id)}
-        raw = {m.month: m for m in raw_month_totals(db, tenant_id)}
+        raw = {m.month: m for m in raw_month_totals(db, tenant_id, history_start=start)}
         months: dict[str, dict[str, dict[str, str]]] = {}
         for month in sorted(set(normalized) | set(raw)):
             for column in ("invoices", "credit_memos", "sales_receipts", "payments"):

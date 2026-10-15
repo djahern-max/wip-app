@@ -13,7 +13,9 @@ from app.domain.billing.amounts import signed_amount, signed_application
 from app.domain.billing.models import Billing, BillingLine, Customer, Payment, PaymentApplication
 from app.domain.billing.report import current_counts, raw_month_totals, skipped_counts
 from app.domain.billing.sync import (
-    apply_raw,
+    apply_raw as _apply_raw,
+)
+from app.domain.billing.sync import (
     attach_account_ids,
     unlinked_deposit_lines,
 )
@@ -23,6 +25,7 @@ from app.ingest.models import Connection, RawRecord
 from app.ingest.raw import RawOrigin, latest_raw_versions, store_delete, store_raw
 from app.ingest.sync_runs import start_sync_run
 from tests.qbo_fixtures import cdc_records, fixture, record, records
+from tests.qbo_helpers import HOLD_EVERYTHING
 
 D = Decimal
 
@@ -36,6 +39,12 @@ def tenant(fresh_tenant: uuid.UUID, rw_engine: Engine) -> uuid.UUID:
         run = start_sync_run(db, fresh_tenant, c.id, "backfill")
         db.expunge(run)
     return fresh_tenant
+
+
+def apply_raw(db, tenant_id, raw):
+    """F05.3 (D-48): the writer takes the company's history start from its caller; these
+    tests hold everything the fixtures carry."""
+    return _apply_raw(db, tenant_id, raw, history_start=HOLD_EVERYTHING)
 
 
 def _store(db, tenant_id, entity, payload, *, deleted=False) -> RawRecord:

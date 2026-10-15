@@ -437,11 +437,11 @@ data" above for the exact commands).
 
 | # | Step | Done when | Not done: what Home says and where it sends you |
 |---|---|---|---|
-| 1 | QuickBooks | A connection is `connected` and a backfill has succeeded (no `backfill_needed` or `needs_reconnect` attention). | "Connect to QuickBooks." → Connections (`POST /api/qbo/connect`, firm_admin). After a reconnect or a stale copy: the Connections sentence, "Run a backfill on Connections." Shown to roles that can view connections. |
+| 1 | QuickBooks | A connection is `connected` and a backfill has succeeded (no `backfill_needed` or `needs_reconnect` attention). | **Set the history start first** (F05.3, D-48): while `history_start` is not decided the line reads "Set the history start on Configuration, Policy before connecting QuickBooks." → Policy, Connections offers only "Set history start", and connect, Sync now and a fresh backfill answer 409 with that sentence. Then "Connect to QuickBooks." → Connections (`POST /api/qbo/connect`, firm_admin). After a reconnect or a stale copy: the Connections sentence, "Run a backfill on Connections." Shown to roles that can view connections. |
 | 2 | Suggestion rules | At least one active `account_suggest_rule`. | "No suggestion rules are loaded…": the firm loads the client's rules file with `scripts/load_suggest_rules.py` or `PUT /api/config/suggest-rules` ("Editing suggestion rules" below). No link: there is no screen. |
 | 3 | Chart of accounts | Active `gl_account` rows exist. | "Upload the chart of accounts." → Imports ("Loading a chart of accounts" below). |
 | 4 | Account mapping | No active account lacks a confirmed mapping (the Accounts page's unmapped count). | "n of m accounts to confirm; k have a suggestion." → Configuration, Accounts: "Confirm all suggestions", then map the rest by hand. A chart loaded before the rules leaves every account unmapped with no suggestion; load the rules and "Re-run suggestions". |
-| 5 | Policy | `timezone`, `wip_basis`, `deposit_identification` and `fuel_surcharge_treatment` decided (the keys a feature reads today; `REQUIRED_POLICY_KEYS` in `app/domain/home/checklist.py`, extended by each feature that starts reading a key; F08 added the two item keys). | "n of 4 policy keys needed now are not decided: …" → Configuration, Policy (firm_admin): choose the time zone from the list (Eastern, Central, Mountain, Arizona, Pacific, Alaska, Hawaii); tick the cost categories in the WIP basis; tick the deposit items and the fuel surcharge items with the rate, or record that the company charges no fuel surcharge (F08; the items must exist in QuickBooks and a backfill must have run, "The Sold Jobs Board" below); the reference is optional (F04.1). Two keys (`small_job_threshold`, `fiscal_year_start_month`) wait for their features. Done reads with a note of the keys that wait for their features. |
+| 5 | Policy | `history_start`, `timezone`, `wip_basis`, `deposit_identification`, `fuel_surcharge_treatment` and `change_order_evidence` decided (the keys a feature reads today; `REQUIRED_POLICY_KEYS` in `app/domain/home/checklist.py`, extended by each feature that starts reading a key; F08 added the two item keys, F07.4 the evidence key, F05.3 the history start, which comes first). | "n of 6 policy keys needed now are not decided: …" → Configuration, Policy (firm_admin): set the history start (a calendar date; D-48; it cannot change after the first backfill); choose the time zone from the list (Eastern, Central, Mountain, Arizona, Pacific, Alaska, Hawaii); tick the cost categories in the WIP basis; tick the deposit items and the fuel surcharge items with the rate, or record that the company charges no fuel surcharge (F08; the items must exist in QuickBooks and a backfill must have run, "The Sold Jobs Board" below); the reference is optional (F04.1). Two keys (`small_job_threshold`, `fiscal_year_start_month`) wait for their features. Done reads with a note of the keys that wait for their features. |
 | 6 | Burden rates | Every active division with a cost-code digit has a rate in force on the company's today (a tenant-wide row counts for all). Done with a note when Labor Burden is not in a decided WIP basis. | While the basis is undecided: "Burden rates are set after the WIP basis is decided." → Policy. Else: "No burden rate in force today for EX, SNOW." → Configuration, Burden rates ("Burden rates" below). |
 
 Below the list Home shows the jobs: "n sold estimates to review" (→ Review sold
@@ -528,7 +528,10 @@ Configuration → Policy (firm_admin only): each key shows its value or "Not dec
 who decided, when, and the reference. Decide or Change → value, and a reference if
 there is one (optional since F04.1: where the decision is written down, e.g. D-04 or
 the engagement letter) → Record decision. Who and when are always recorded. Keys set
-today: `timezone` (a list of the United States zones in plain words; a zone off the
+today: `history_start` (F05.3, D-48: the first transaction date the platform holds for
+the company, a calendar date with no default, first on the list; QuickBooks cannot be
+connected until it is set, and it is refused with one sentence once a backfill has
+completed: delete the tenant and set the company up again, D-28), `timezone` (a list of the United States zones in plain words; a zone off the
 list set through the API is shown by its name and kept), `fiscal_year_start_month`,
 `wip_basis` (tick the cost categories counted in both cost to date and EAC; nothing is
 pre-ticked), `deposit_identification` (F08, D-02: tick every QuickBooks item a deposit
@@ -1236,11 +1239,25 @@ accounts without a number, numbers used twice in QuickBooks, numbers in QuickBoo
 chart row, and chart rows whose number QuickBooks does not use. Deposits
 and the cost-side entities are stored raw and read by later features.
 
+- **History start** (F05.3, D-48): `history_start` on Configuration, Policy is the first
+  transaction date the copy holds. Reference entities (Account, Customer, Vendor, Item,
+  Preferences, CompanyInfo) are held whole; transactional entities (Invoice, CreditMemo,
+  SalesReceipt, Payment, Deposit, Bill, VendorCredit, Purchase, JournalEntry, TimeActivity)
+  are paged and counted with `WHERE TxnDate >= '<history start>'` (`fetch.py`; the grammar
+  was accepted by QuickBooks on the real company on 2026-10-15, counts equal to the page
+  totals). The date is read once when a backfill starts and recorded on
+  `sync_run.detail.history_start`. Nothing is pulled while the key is unset: connect, Sync
+  now and a fresh backfill answer 409, a scheduled poll or nightly check on a company
+  connected before the key existed ends `failed` with `history_start_not_set` and no
+  successor (the page says so; a fresh backfill or a worker restart re-seeds the chains
+  once it is set). `PUT /api/config/policy/history_start` is refused once a backfill has
+  completed on the company.
 - **Backfill** (`sync_run.kind = backfill`): starts on the first connection, or from
-  "Start fresh backfill". One worker task per page and entity (1,000 records, paged by Id);
-  every page stores raw first, then queues the normalizer for those records. The run ends
-  `succeeded` when every entity is done and seeds the change poll and the nightly check.
-  The Connections page shows "Backfill, running" until then; refresh to follow it.
+  "Start fresh backfill". One worker task per page and entity (1,000 records, paged by Id,
+  transactional entities from the history start); every page stores raw first, then queues
+  the normalizer for those records. The run ends `succeeded` when every entity is done and
+  seeds the change poll and the nightly check. The Connections page shows "Backfill,
+  running" until then; refresh to follow it.
 - **Change poll** (`kind = cdc`): every `QBO_CDC_POLL_MINUTES` (default 15) once a backfill
   has completed. One Change Data Capture request for all entities since the last successful
   run (minus two minutes of overlap; identical payloads store nothing). A delete arrives as a
@@ -1248,8 +1265,10 @@ and the cost-side entities are stored raw and read by later features.
   every total. Each poll queues its successor first, so a failed poll cannot end the chain.
   "Sync now" queues one extra poll; pressing it twice queues one.
 - **Nightly check** (`kind = drift`, about 02:00–03:00 Eastern): QuickBooks' own `COUNT(*)`
-  per entity against the platform's current records, and the month totals of the normalized
-  rows against a re-sum of the raw payloads. A difference ends the run `drift`; the
+  per entity (with the `TxnDate` clause for a transactional entity, the `Active` clause for
+  a name list) against the platform's current records on or after the history start, and
+  the month totals of the normalized rows against a re-sum of the raw payloads dated on or
+  after it. A difference ends the run `drift`; the
   Connections page names the entity and both counts, or the month and both amounts. Nothing
   is re-pulled. What to do: "Sync now" first (a change may simply not have been polled
   yet); if the difference stays, "Start fresh backfill"; if it stays after that, read the
@@ -1261,6 +1280,14 @@ and the cost-side entities are stored raw and read by later features.
   whose totals do not add up, or that is in another currency is stored raw, counted per
   entity on the page, and skipped; the rest of the page loads. A later version that reads
   clears the count.
+- **Before history start** (F05.3, D-48): the change poll is not filtered, so a
+  transactional record dated before the history start can arrive by poll. It is stored raw
+  (insert-only, D-20), skipped by its normalizer with no canonical row, and counted in the
+  "Before history start" column of "Records held", apart from "Could not be read"; a later
+  version dated on or after the start is normalized as usual. A record already held that a
+  poll re-dates to before the start gets `deleted_at` on its rows (it leaves every total, as
+  a delete does) and keeps its raw versions. Month totals and the F08 tie-out begin at the
+  history start month.
 - The worker re-seeds the poll and check chains of every connected company when it starts
   (`STARTUP_HOOKS`), one tenant per transaction, so a restart never leaves a company unpolled.
 
@@ -1455,6 +1482,11 @@ clears the tokens (F05); the privacy page promises exactly that.
   twelve legacy COGS and five legacy income lines to be numbered or deactivated before F10
   and F13; the Customer Deposits liability held for D-02; the two loans get 27xx numbers in
   the chart update; bank account 219 to be merged with or deactivated beside 1010.
+- **History start (F05.3, D-48)**: set by the owner on Configuration, Policy to
+  2026-01-01 (date and the new backfill's counts and duration to be recorded here on the
+  owner's pass). The step-1 proof ran on the real company on 2026-10-15: all ten
+  transactional entities accepted the `TxnDate` grammar and each count equalled its page
+  total; no entity sat at a page boundary; Purchase paged over three pages.
 - **Open**: the owner's phone pass line in `docs/briefs/F05.1.md` (the memo-edit and
   Disconnect/Reconnect checks are done). S-01 question 4 is answered ("Spike S-01").
 

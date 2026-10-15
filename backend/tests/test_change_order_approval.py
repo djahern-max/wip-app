@@ -23,6 +23,7 @@ from tests.config_helpers import run_until_quiet
 from tests.conftest import CSRF, Seed
 from tests.estimate_helpers import ELM, build_workbook, fixture_rows, upload_template
 from tests.job_helpers import ELM_ID, MONEY, TURLEY_ID, Tenant, make_tenant, money_values, policy
+from tests.qbo_helpers import decide_history_start
 
 D = Decimal
 CONFIRM_ALL = "work-areas/kinds/confirm-suggested"
@@ -479,6 +480,7 @@ def test_the_evidence_key_has_no_default_and_gates_home(
 ) -> None:
     t = make_tenant(seed, rw_engine, login_as, fresh_tenant, load=False)  # time zone and basis set
     billing_policy(rw_engine, seed, fresh_tenant)  # the two F08 keys
+    decide_history_start(rw_engine, fresh_tenant)  # F05.3 (D-48): the sixth required key
     rows = {p["key"]: p for p in t.get("/api/config/policy")}
     key = rows[CHANGE_ORDER_EVIDENCE]
     assert key["decided"] is False and key["kind"] == "choice" and key["waiting"] is None
@@ -490,7 +492,7 @@ def test_the_evidence_key_has_no_default_and_gates_home(
     home = t.get("/api/home")
     line = next(ln for ln in home["setup"] if ln["code"] == "policy")
     assert line["done"] is False
-    assert line["message"] == "1 of 5 policy key needed now is not decided: Change order evidence."
+    assert line["message"] == "1 of 6 policy key needed now is not decided: Change order evidence."
     seen = t.audit_rows()
     r = t.client.put(
         f"/api/config/policy/{CHANGE_ORDER_EVIDENCE}", json={"value": "signed"}, headers=CSRF

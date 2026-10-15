@@ -10,7 +10,7 @@ from decimal import Decimal
 from sqlalchemy import Engine, select
 
 from app.core.db import tenant_session
-from app.domain.billing.sync import apply_raw
+from app.domain.billing.sync import apply_raw as _apply_raw
 from app.domain.config.policy import set_policy
 from app.ingest.models import Connection, SyncRun
 from app.ingest.raw import RawOrigin, latest_raw_versions, store_raw
@@ -146,6 +146,15 @@ def apply_payloads(
             if entity != "Item":
                 outcome = apply_raw(s, tenant_id, raw)
                 assert outcome.result in ("applied", "deleted"), outcome
+
+
+def apply_raw(s, tenant_id: uuid.UUID, raw):
+    """F05.3 (D-48): the tests' documents are dated 2026; the company's history start
+    (set by the test, else a date before every one) is passed as the task passes it."""
+    from app.domain.config.policy import history_start
+    from tests.qbo_helpers import HOLD_EVERYTHING
+
+    return _apply_raw(s, tenant_id, raw, history_start=history_start(s) or HOLD_EVERYTHING)
 
 
 def seed_items(engine: Engine, tenant_id: uuid.UUID, items: dict[str, str] | None = None) -> None:

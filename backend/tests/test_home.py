@@ -43,6 +43,7 @@ ORDER = [
 ]
 BACKLOG = "Backlog: sold, no money moved yet (D-35). Nothing needed."
 KEYS = (
+    "history_start",
     "timezone",
     "fiscal_year_start_month",
     "wip_basis",
@@ -52,6 +53,7 @@ KEYS = (
     "change_order_evidence",
 )
 LABELS = {
+    "history_start": "History start",
     "timezone": "Time zone",
     "wip_basis": "WIP basis",
     "deposit_identification": "Deposit identification",
@@ -60,15 +62,17 @@ LABELS = {
 }
 # F08: the four keys read today (owner's go-ahead, 2026-10-06: these seven assertions
 # moved from two keys to four; nothing else in this file changed). F07.4 (D-42): five,
-# with the change order evidence key; the same assertions, nothing else.
+# with the change order evidence key; the same assertions, nothing else. F05.3 (D-48):
+# six, with the history start first; the same assertions, nothing else.
 FOUR = (
-    "5 of 5 policy keys needed now are not decided: Time zone, WIP basis, "
+    "6 of 6 policy keys needed now are not decided: History start, Time zone, WIP basis, "
     "Deposit identification, Fuel surcharge treatment, Change order evidence."
 )
 THREE = (
-    "4 of 5 policy keys needed now are not decided: WIP basis, Deposit identification, "
-    "Fuel surcharge treatment, Change order evidence."
+    "5 of 6 policy keys needed now are not decided: History start, WIP basis, "
+    "Deposit identification, Fuel surcharge treatment, Change order evidence."
 )
+HISTORY_START_FIRST = "Set the history start on Configuration, Policy before connecting QuickBooks."
 
 
 def _facts(**over) -> SetupFacts:
@@ -113,7 +117,10 @@ def test_a_fresh_company_has_six_not_done_lines_in_order_and_one_primary_action(
     assert [line.code for line in lines] == ORDER
     assert all(not line.done for line in lines)
     assert [line.primary for line in lines] == [True, False, False, False, False, False]
-    assert lines[0].message == "Connect to QuickBooks." and lines[0].link == Link("connections")
+    # F05.3 (D-48): the first thing a new company needs is its history start.
+    assert lines[0].message == HISTORY_START_FIRST and lines[0].link == Link("config", "policy")
+    decided = setup_lines(_facts(decided_keys=frozenset({"history_start"})))
+    assert decided[0].message == "Connect to QuickBooks." and decided[0].link == Link("connections")
     assert lines[1].link is None and "no screen" in lines[1].message
     assert lines[2].message == "Upload the chart of accounts." and lines[2].link == Link("imports")
     assert lines[3].message == "Account mapping waits for the chart of accounts."
@@ -146,6 +153,7 @@ def test_the_quickbooks_line_follows_the_connection_and_its_attention() -> None:
 
 def test_policy_needs_the_two_keys_read_today_and_then_notes_the_rest() -> None:
     assert REQUIRED_POLICY_KEYS == (
+        "history_start",
         "timezone",
         "wip_basis",
         "deposit_identification",
@@ -153,7 +161,7 @@ def test_policy_needs_the_two_keys_read_today_and_then_notes_the_rest() -> None:
         "change_order_evidence",
     )
     one = setup_lines(_facts(decided_keys=frozenset({"timezone"})))[4]
-    assert (one.done, one.message, one.count, one.total) == (False, THREE, 4, 5)
+    assert (one.done, one.message, one.count, one.total) == (False, THREE, 5, 6)
     both = setup_lines(
         _facts(decided_keys=frozenset(REQUIRED_POLICY_KEYS), wip_basis=frozenset(D05_BASIS))
     )[4]
@@ -515,10 +523,11 @@ def test_policy_and_burden_lines_follow_the_owners_answers(
 
     billing_policy(rw_engine, seed, fresh_tenant)  # F08: the two keys the board reads
     policy(rw_engine, seed, fresh_tenant, "change_order_evidence", "none")  # F07.4 (D-42)
+    policy(rw_engine, seed, fresh_tenant, "history_start", "2026-01-01")  # F05.3 (D-48)
     home = _home(admin)
     pol, bur = _line(home, "policy"), _line(home, "burden_rates")
     assert pol["done"] and pol["note"] == "2 more keys are decided when their features arrive."
-    assert sum(p["decided"] for p in _get(admin, "/api/config/policy")) == 5
+    assert sum(p["decided"] for p in _get(admin, "/api/config/policy")) == 6
     assert bur["done"] and bur["note"] == "Labor Burden is not in the WIP basis."
     policy(rw_engine, seed, fresh_tenant, "wip_basis", D05_BASIS)
     bur = _line(_home(admin), "burden_rates")

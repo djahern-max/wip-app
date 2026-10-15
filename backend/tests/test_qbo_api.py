@@ -15,14 +15,25 @@ from app.ingest.connections import get_connection_tokens
 from app.ingest.models import Connection
 from app.integrations.qbo.oauth import state_sha256
 from app.tenancy.models import Membership, Tenant
-from tests.conftest import APP_ORIGIN, CSRF, Seed, make_client
-from tests.qbo_helpers import FakeIntuit, installed, state_from
+from tests.conftest import APP_ORIGIN, CSRF, Seed, make_client, new_fresh_tenant
+from tests.qbo_helpers import FakeIntuit, decide_history_start, installed, state_from
 
 ADMIN = "rotate_me"  # firm_admin with an entry row in every fresh tenant
+HISTORY_START_SENTENCE = (
+    "Set the history start on Configuration, Policy before connecting QuickBooks."
+)
+
+
+@pytest.fixture(autouse=True)
+def _history_start_decided(request: pytest.FixtureRequest, rw_engine: Engine) -> None:
+    """F05.3 (D-48): connecting is refused until the history start is set, so every test
+    here that connects a fresh tenant does so on a company that has set it."""
+    if "fresh_tenant" in request.fixturenames:
+        decide_history_start(rw_engine, request.getfixturevalue("fresh_tenant"))
 
 
 @pytest.fixture
-def new_tenant(seed: Seed, owner_engine: Engine) -> Callable[[], uuid.UUID]:
+def new_tenant(seed: Seed, owner_engine: Engine, rw_engine: Engine) -> Callable[[], uuid.UUID]:
     def make() -> uuid.UUID:
         marker = uuid.uuid4().hex[:8]
         with untenanted_session(owner_engine) as s:
@@ -32,6 +43,7 @@ def new_tenant(seed: Seed, owner_engine: Engine) -> Callable[[], uuid.UUID]:
             tid = t.id
         with tenant_session(owner_engine, tid) as s:
             s.add(Membership(tenant_id=tid, user_id=seed.users[ADMIN].id, role=None))
+        decide_history_start(rw_engine, tid)
         return tid
 
     return make
@@ -481,3 +493,76 @@ def test_sync_and_backfill_need_a_connected_company(login_as, fresh_tenant: uuid
     for path in ("/api/qbo/sync", "/api/qbo/backfill"):
         r = admin.post(path, headers=CSRF)
         assert r.status_code == 409 and "not connected" in r.json()["detail"]
+
+
+# --- F05.3 (D-48): nothing is pulled until the history start is decided ---------------------
+
+
+def test_connect_sync_and_backfill_are_refused_until_the_history_start_is_set(
+    login_as, seed: Seed, owner_engine: Engine, rw_engine: Engine
+) -> None:
+    """With the key unset the three routes answer 409 with the one sentence and store
+    nothing; the status says the key is not decided; once set, connect proceeds and the
+    other two refuse only for want of a connection."""
+    from datetime import date
+
+    tenant = new_fresh_tenant(seed, owner_engine)  # no autouse: the key stays unset
+    admin = login_as(ADMIN, tenant=tenant)
+    for path in ("/api/qbo/connect", "/api/qbo/sync", "/api/qbo/backfill"):
+        r = admin.post(path, headers=CSRF)
+        assert r.status_code == 409 and r.json()["detail"] == HISTORY_START_SENTENCE, path
+    assert _connection(rw_engine, tenant) is None and _audit(rw_engine, tenant) == []
+    with tenant_session(rw_engine, tenant) as db:
+        requested = text("SELECT count(*) FROM audit_log WHERE action = 'sync_requested'")
+        assert db.execute(requested).scalar_one() == 0
+    status = admin.get("/api/qbo/status").json()
+    assert status["history_start"] is None and status["status"] == "disconnected"
+    decide_history_start(rw_engine, tenant, date(2026, 1, 1))
+    assert admin.get("/api/qbo/status").json()["history_start"] == "2026-01-01"
+    with installed(FakeIntuit()):
+        assert _start(admin)  # connect now proceeds to Intuit
+    for path in ("/api/qbo/sync", "/api/qbo/backfill"):
+        r = admin.post(path, headers=CSRF)
+        assert r.status_code == 409 and "not connected" in r.json()["detail"]
+
+
+def test_a_company_connected_before_the_history_start_is_told_so_and_pulls_nothing(
+    login_as, seed: Seed, owner_engine: Engine, rw_engine: Engine
+) -> None:
+    """A company connected before F05.3 (none on production; the case is covered here):
+    "Needs attention" carries the sentence, Sync now and a fresh backfill are refused
+    with it, and the status carries the date once it is set."""
+    from datetime import date
+
+    from app.integrations.qbo.schedule import after_connect
+    from tests.qbo_helpers import connect_directly
+
+    tenant = new_fresh_tenant(seed, owner_engine)
+    admin = login_as(ADMIN, tenant=tenant)
+    fake = FakeIntuit()
+    with installed(fake):
+        cid = connect_directly(rw_engine, tenant, fake, history_start=None)
+        body = admin.get("/api/qbo/status").json()
+        assert body["status"] == "connected" and body["history_start"] is None
+        items = {a["code"]: a for a in body["held"]["attention"]}
+        assert items["history_start_needed"]["label"] == "History start not decided"
+        assert items["history_start_needed"]["detail"] == "nothing is pulled until it is set."
+        assert list(items)[0] == "history_start_needed"  # first, before "backfill needed"
+        for path in ("/api/qbo/sync", "/api/qbo/backfill"):
+            r = admin.post(path, headers=CSRF)
+            assert r.status_code == 409 and r.json()["detail"] == HISTORY_START_SENTENCE, path
+        with tenant_session(rw_engine, tenant) as db:
+            assert after_connect(db, tenant, db.get(Connection, cid)) == "history_start_needed"
+            backfills = text("SELECT count(*) FROM sync_run WHERE kind = 'backfill'")
+            assert db.execute(backfills).scalar_one() == 0
+            assert (
+                db.execute(
+                    text("SELECT count(*) FROM task WHERE kind LIKE 'qbo.backfill%'")
+                ).scalar_one()
+                == 0
+            )
+        decide_history_start(rw_engine, tenant, date(2026, 1, 1))
+        body = admin.get("/api/qbo/status").json()
+        assert body["history_start"] == "2026-01-01"
+        assert "history_start_needed" not in {a["code"] for a in body["held"]["attention"]}
+        assert [a["code"] for a in body["held"]["attention"]] == ["backfill_needed"]

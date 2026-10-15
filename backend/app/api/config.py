@@ -429,6 +429,18 @@ def deactivate_burden_rate(request: Request, m: Manager, db: TenantSession, rate
 
 # --- policy -----------------------------------------------------------------------------------
 
+HISTORY_START_FIXED = (
+    "The history start cannot change after the first backfill. "
+    "Delete and set the company up again (D-28)."
+)
+
+
+def _backfill_completed(db: TenantSession, tenant_id) -> bool:
+    from app.integrations.qbo.schedule import completed_backfill, qbo_connection
+
+    connection = qbo_connection(db, tenant_id)
+    return connection is not None and completed_backfill(db, connection.id)
+
 
 def _item_options(items: list[QboItem]) -> list[PolicyOptionOut]:
     """F08: the picker for the two item keys; an inactive or deleted item is said so in
@@ -508,6 +520,9 @@ def set_policy(request: Request, p: PolicySetter, db: TenantSession, key: str, b
     except policy.PolicyWaiting as exc:
         # F04.1: the key's feature has not arrived; the sentence is the screen's.
         raise HTTPException(status_code=409, detail=str(exc)) from None
+    if key == policy.HISTORY_START and _backfill_completed(db, p.active_tenant_id):
+        # F05.3 (D-48): the copy was built from this date; it cannot move.
+        raise HTTPException(status_code=409, detail=HISTORY_START_FIXED)
     try:
         row = policy.set_policy(
             db,
