@@ -137,6 +137,10 @@ Design only: the upload form on one line in a card, the files list with six colu
 Design only: section tabs, Accounts with its counts as figures and a labelled Show filter, add forms as cards, Policy as a list of decisions. No figure, no API response and no behaviour changed.
 **Accept**: every section reads and edits as before; no sideways page scroll at 1280 px and 390 px; at most one primary action per screen.
 
+### F09.5 · Jobs: the Sold Jobs Board  ◐ (built 2026-10-16, no migration, D-49; the owner's pass on jobcost.dev is open; see `docs/briefs/F09.5.md`)
+Design only: page head with the one primary action, the tie-out line in the status colour when every month ties, labelled filters, the board in its box with the not-on-a-job explanation under the table, the pool form as a card. No figure, no API response and no behaviour changed.
+**Accept**: every filter, export and action works as before; no sideways page scroll at 1280 px and 390 px; one primary action.
+
 > **Release B**: you can answer "who has paid a deposit, what is billed, what is left to bill" for every sold job, with backlog by division and estimator.
 
 ---

@@ -257,3 +257,21 @@ test("F08.3: Enter in a field sends nothing; the button still submits", async ()
   assert.equal(tab.prevented, false);
   assert.equal(blockEnter(null), false);
 });
+
+test("the board's sentence, the totals row's count and the tie-out's colour (F09.5, D-49)", async () => {
+  const { boardSentence, jobsListedWords, tieOutDone } = await import("./jobs.js");
+  assert.equal(
+    boardSentence({ tenant_name: "Sample Landscaping", as_of: "2026-10-16" }),
+    "Sample Landscaping. Figures to date as of 2026-10-16, from QuickBooks.",
+  );
+  assert.equal(jobsListedWords(1), "1 job listed");
+  assert.equal(jobsListedWords(0), "0 jobs listed");
+  assert.equal(jobsListedWords(5), "5 jobs listed");
+  // The colour follows the API's `balanced` over at least one month, not the words: an
+  // unanswered or failed check, a month off, and nothing to tie out yet carry none.
+  assert.equal(tieOutDone(null), false);
+  assert.equal(tieOutDone(false), false);
+  assert.equal(tieOutDone({ status: "Does not tie in 1 of 10 months: 2026-03.", balanced: false }), false);
+  assert.equal(tieOutDone({ status: "Nothing to tie out yet: no billing or payments held.", balanced: true, months: 0 }), false);
+  assert.equal(tieOutDone({ status: "Ties to the cent to the QuickBooks month totals (10 months).", balanced: true, months: 10 }), true);
+});

@@ -72,7 +72,7 @@ The owner is a CPA and the domain expert. When accounting treatment is unclear, 
 
 ### Interface conventions
 - Plain and quiet. Semantic HTML and one small hand-written stylesheet. No CSS framework, component library, icon set, or chart library without a decision (new dependencies already require one).
-- System font stack. One accent colour, used only for the primary action, links, the current navigation item, the next set-up step and the focus ring (D-47). One status colour, for "done", always beside its word (D-47). No gradients, shadows, animations, or decorative imagery.
+- System font stack. One accent colour, used only for the primary action, links, the current navigation item, the next set-up step and the focus ring (D-47). One status colour, for "done" and for a tie-out that ties, always beside its word (D-47, D-49). No gradients, shadows, animations, or decorative imagery.
 - One primary action per screen. Labels say what happens ("Upload file", "Approve period"), in the vocabulary of this file. No jargon the owner would not use with a client.
 - Data is shown in tables; a list of steps a person works through is a list (D-47). A role is shown in words, never as its code (D-47). Numbers are right-aligned with tabular figures; money always shows cents; negatives are in parentheses, never a minus sign; zero is shown as 0.00, never a dash or blank. Totals rows are visually distinct. Columns use the names in BLUEPRINT §8.2 exactly.
 - Every report shows its period, tenant name, and the tie-out status on screen, and the legend (§8.7) on every export.

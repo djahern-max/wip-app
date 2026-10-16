@@ -100,17 +100,33 @@ def test_d47_is_in_decisions_once_directly_after_d46() -> None:
     assert "no gradients, shadows or animations" in entry
 
 
-def test_d48_is_in_decisions_once_directly_after_d47_last_and_word_for_word() -> None:
+def test_d48_is_in_decisions_once_directly_after_d47_and_word_for_word() -> None:
     """F05.3: D-48 (2026-10-15) is appended from the brief word for word; it is the one
-    decision after D-47 and the last; the order from D-38 on is unbroken."""
+    decision after D-47 (D-49 follows it since F09.5)."""
     decisions = DECISIONS.read_text()
     order = [m.group(1) for m in re.finditer(r"^## (D-\d+[a-z]?) ·", decisions, re.M)]
     assert order.count("D-48") == 1
-    assert order.index("D-48") == order.index("D-47") + 1 == len(order) - 1
-    run = [f"D-{n}" for n in range(38, 49)]
-    assert order[order.index("D-38") :] == run
+    assert order.index("D-48") == order.index("D-47") + 1
     brief = _brief("D-48", "F05.3.md")
     assert _entry(decisions, "D-48") == _entry(brief, "D-48")
     entry = _entry(decisions, "D-48")
     assert "history_start" in entry and "no default" in entry
     assert "cannot change after the first completed backfill" in entry
+
+
+def test_d49_is_in_decisions_once_directly_after_d48_last_and_word_for_word() -> None:
+    """F09.5: D-49 (2026-10-16) extends D-47 point 2 by one use of the status colour;
+    appended from the brief word for word; it is the one decision after D-48 and the
+    last; the order from D-38 on is unbroken."""
+    decisions = DECISIONS.read_text()
+    order = [m.group(1) for m in re.finditer(r"^## (D-\d+[a-z]?) ·", decisions, re.M)]
+    assert order.count("D-49") == 1
+    assert order.index("D-49") == order.index("D-48") + 1 == len(order) - 1
+    run = [f"D-{n}" for n in range(38, 50)]
+    assert order[order.index("D-38") :] == run
+    brief = _brief("D-49", "F09.5.md")
+    assert _entry(decisions, "D-49") == _entry(brief, "D-49")
+    entry = _entry(decisions, "D-49")
+    assert "D-47 point 2 is extended by one use" in entry
+    assert "never carries meaning alone" in entry
+    assert "does not tie" in entry and "still not allowed" in entry

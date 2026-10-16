@@ -289,3 +289,22 @@ export function blockEnter(event) {
   event.preventDefault();
   return true;
 }
+
+// --- F09.5: the Jobs board's design -------------------------------------------------
+
+// The sentence under the heading: the company and the as-of date the figures carry.
+export function boardSentence(data) {
+  return `${data.tenant_name}. Figures to date as of ${data.as_of}, from QuickBooks.`;
+}
+
+// The totals row's first cell: how many jobs the board lists under the filter.
+export function jobsListedWords(total) {
+  return total === 1 ? "1 job listed" : `${total} jobs listed`;
+}
+
+// The tie-out line carries the status colour only when every month ties (D-49): the
+// API's `balanced` over at least one month, never a reading of the sentence. Unanswered,
+// failed, or nothing to tie out yet: no colour.
+export function tieOutDone(tie) {
+  return Boolean(tie && tie.balanced === true && tie.months > 0);
+}

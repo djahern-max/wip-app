@@ -1,5 +1,13 @@
 # current-feature.md
 
+**F09.5 · Jobs: the Sold Jobs Board** (design; built 2026-10-16, no migration, D-49 appended;
+the owner's pass on jobcost.dev is open; `docs/briefs/F09.5.md`). The Jobs page under
+the F09.1 paint: page head with the one primary action, the tie-out line in the status
+colour when every month ties, labelled filters, the board in its box with the
+not-on-a-job explanation under the table, the pool form as a card. No figure, request or
+action changed. The Review queue, Unapproved change orders and the job page are the next
+design features.
+
 _No feature in flight (2026-10-15)._ **F05.3 · History start is closed** (built 2026-10-15,
 commit f2fb590; D-48 appended; **the owner's pass on jobcost.dev, tenant `rye-beach`,
 passed 2026-10-15 after a full database rebuild; ROADMAP ☑**). The brief, with the Plan,
@@ -22,7 +30,7 @@ the ten proof lines still to be pasted into the brief's Progress. Nothing in `ap
 `app/domain/jobs/` or `figures.py`; no figure changed; no migration. The proof script
 was deleted at close-out (CLAUDE.md, Code conventions).
 
-Open passes carried: **F09.4** (`docs/briefs/F09.4.md`), **F09.3** (`docs/briefs/F09.3.md`),
+Open passes carried: **F09.5** (`docs/briefs/F09.5.md`), **F09.4** (`docs/briefs/F09.4.md`), **F09.3** (`docs/briefs/F09.3.md`),
 **F09.2** (`docs/briefs/F09.2.md`), **F07.3** (`docs/briefs/F07.3.md`), **F07.2**
 (`docs/briefs/F07.2.md`; deploying it runs migration 0012), **F07.1**
 (`docs/briefs/F07.1.md`) and **F07** (the pass job by job; 67 Elm Street passed
@@ -30,7 +38,8 @@ Open passes carried: **F09.4** (`docs/briefs/F09.4.md`), **F09.3** (`docs/briefs
 holds no job yet: the F07 passes need the estimates uploaded again first. D-08 is still
 open. Retainage is owed as a later feature with its own decision before any tenant that
 holds it (D-43; a Later line in ROADMAP). The "who the product is for" decision (D-17
-extended) is drafted outside the repo and takes D-49 when its brief comes.
+extended) is drafted outside the repo and takes D-50 when its brief comes (D-49 went to
+F09.5's tie-out colour on 2026-10-16).
 
 Next per ROADMAP: **F10 · GL cost sync**: Bills, Vendor Credits, Purchases (card, check,
 cash) and Journal Entries to `ledger_line` at line level with job reference, account and
@@ -72,7 +81,8 @@ Carried from F09.4 (copy the Discovered list of `docs/briefs/F09.4.md` here word
 - The nine ledge days on 6115758 are expected to move to a time-and-materials job (D-24); the owner decides with the project manager.
 - T&M_930 line 6 on 6115758 has service date 2023-09-22 in QuickBooks; the owner's to correct.
 New from this brief:
-- The "who the product is for" decision (D-17 extended) is drafted outside the repo and takes D-49 when its brief comes.
+- The "who the product is for" decision (D-17 extended) is drafted outside the repo and takes D-50 when its brief comes (D-49 went to
+F09.5's tie-out colour on 2026-10-16).
 From the owner's pass of 2026-10-15:
 - During a backfill, Connections showed "Payloads that could not be read: Customer: 1000" while the customers' normalizer had not yet run; it read 0 after the run. A count should not say "could not be read" for a payload the run has not reached.
 - delete_tenant.py waits silently on the append-only lock while wip-worker and wip-api run; the runbook should say to stop both first, or the script should say it is waiting. The owner rebuilt by dropping the database instead.

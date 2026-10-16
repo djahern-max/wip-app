@@ -1125,3 +1125,46 @@ h3 {
     width: 100%;
   }
 }
+
+/* --- F09.5: Jobs, the Sold Jobs Board -------------------------------------------------------
+   The page head carries the one primary action; the tie-out is one line under it, in
+   the status colour beside its words when every month ties (D-49). The board keeps the
+   table pattern; its totals row is distinct as before and the not-on-a-job row is a
+   tinted aside, with its explanation under the table rather than in a cell. The two
+   text columns at the right (QuickBooks, Attention) wrap within a bounded width. */
+
+.tie-line {
+  margin: 0 0 1rem;
+}
+
+.tie-words {
+  font-size: 14px;
+}
+
+.tie-words-done {
+  font-weight: 600;
+  color: var(--done); /* every month ties; the words say so (D-49) */
+}
+
+.table tr.aside td {
+  background: var(--surface-alt);
+}
+
+.table td.cell-text {
+  min-width: 14rem;
+  max-width: 20rem;
+  white-space: normal;
+}
+
+.table-note {
+  margin: 0.5rem 0 0;
+  max-width: 52rem;
+}
+
+.filters .upload-note {
+  margin: 0;
+}
+
+.table .link-button {
+  text-align: left; /* a job name that wraps in the held column starts at its left edge */
+}
