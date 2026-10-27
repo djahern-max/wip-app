@@ -1168,3 +1168,36 @@ h3 {
 .table .link-button {
   text-align: left; /* a job name that wraps in the held column starts at its left edge */
 }
+
+/* --- F09.6: the job page for a client (D-50) -------------------------------------------- */
+
+/* The one line a firm user sees under the head: the set-up counts and the link to the
+   set-up view. A client role never sees it. */
+.firm-line {
+  margin: -0.5rem 0 1.25rem;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* The attention block: a plain left rule, no status colour (D-47 point 2 is not extended). */
+.attn {
+  margin: 1.25rem 0;
+  padding: 0.25rem 0 0.25rem 1rem;
+  border-left: 3px solid var(--rule);
+}
+
+.attn h3 {
+  margin-top: 0;
+}
+
+.facts .fact-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* A table whose first column is the work area number: held, and narrow at every width,
+   so the name beside it is read on a phone. */
+.table.table-numbered th:first-child,
+.table.table-numbered td:first-child {
+  min-width: 3.5rem;
+  max-width: 3.5rem;
+}

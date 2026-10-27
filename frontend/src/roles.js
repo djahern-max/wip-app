@@ -16,3 +16,12 @@ export function roleWords(role) {
   const words = String(role).replaceAll("_", " ");
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
+
+// F09.6 (D-50): the firm's roles. The set-up view of a job is drawn for these only; every
+// other role is a client role on the screens, whatever the API still lets it do. Compared,
+// never shown.
+export const FIRM_ROLES = ["firm_admin", "firm_staff"];
+
+export function isFirmRole(role) {
+  return FIRM_ROLES.includes(role);
+}

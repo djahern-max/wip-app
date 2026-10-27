@@ -275,3 +275,169 @@ test("the board's sentence, the totals row's count and the tie-out's colour (F09
   assert.equal(tieOutDone({ status: "Nothing to tie out yet: no billing or payments held.", balanced: true, months: 0 }), false);
   assert.equal(tieOutDone({ status: "Ties to the cent to the QuickBooks month totals (10 months).", balanced: true, months: 10 }), true);
 });
+
+// --- F09.6: the job page for a client (D-50) ---------------------------------------------
+
+// A stand-in job in the shape of GET /api/jobs/{id}: the fields the page reads, nothing else.
+function elm() {
+  return {
+    name: "67 Elm Street",
+    estimate_number: "6115758",
+    sold_on: "2026-06-12",
+    sold_on_set_when_created: false,
+    status_label: "In progress",
+    division_code: "EX",
+    tenant_name: "Sample Landscaping",
+    as_of: "2026-10-27",
+    revised_contract: "465469.59",
+    unapproved_change_orders: "49275.00",
+    unapproved_change_order_count: 9,
+    eac_in_basis: "327929.93",
+    eac_note: null,
+    qbo_linked: true,
+    qbo_names: ["67 Elm Street"],
+    billing: {
+      billed_to_date: "49275.00",
+      remaining_to_bill: "416194.59",
+      remaining_to_bill_note: null,
+      collected_to_date: "38325.00",
+      open_ar: "10950.00",
+      deposit_invoiced: "0.00",
+    },
+    estimates: [{ estimate_id: "e1" }, { estimate_id: "e2" }],
+    work_areas: [
+      { id: "w1", order_no: 1, name: "Site prep", kept: true, kind: "original", confirmed: true, kind_label: "Original, confirmed", estimate_role: "original", approval_label: null, price: "100000.00", billed_to_date: "0.00", left_to_bill: "100000.00" },
+      { id: "w2", order_no: 2, name: "Ledge", kept: true, kind: "change_order", confirmed: true, kind_label: "Change order, confirmed", estimate_role: "original", approved: true, approval_label: "Change order, approved 2026-09-14 by Pat Lee", price: "5475.00", billed_to_date: "5475.00", left_to_bill: "0.00" },
+      { id: "w3", order_no: 3, name: "Walls", kept: false, kind: null, confirmed: false, kind_label: "Omitted", estimate_role: "original", approval_label: null, price: "2000.00", billed_to_date: null, left_to_bill: null },
+      { id: "w4", order_no: 4, name: "Drainage", kept: true, kind: null, confirmed: false, kind_label: "Original (suggested)", estimate_role: "original", approval_label: null, price: "3000.00", billed_to_date: "0.00", left_to_bill: "3000.00" },
+    ],
+    change_order_work_areas: [
+      { id: "c1", order_no: 1, name: "Extra fill", kept: true, kind: null, confirmed: true, kind_label: "Change order", estimate_role: "change_order", approved: false, approval_label: "Change order, not approved", price: "5475.00", billed_to_date: "5475.00", left_to_bill: null },
+      { id: "c2", order_no: 2, name: "Dropped", kept: false, kind: null, confirmed: false, kind_label: "Omitted", estimate_role: "change_order", approval_label: null, price: "1.00", billed_to_date: null, left_to_bill: null },
+    ],
+    billing_history: [
+      { billing_id: "b2", doc_number: "1042", txn_date: "2026-09-30", kind_label: "Invoice", billed: "10950.00", counted: true, is_deposit: false, state_label: "" },
+      { billing_id: "b1", doc_number: "1031", txn_date: "2026-08-31", kind_label: "Invoice", billed: "38325.00", counted: true, is_deposit: false, state_label: "" },
+      { billing_id: "b0", doc_number: "1020", txn_date: "2026-07-15", kind_label: "Invoice", billed: "0.00", counted: false, is_deposit: false, state_label: "Voided" },
+    ],
+    invoice_lines: {
+      lines: [
+        { billing_line_id: "l1", billing_id: "b1", work_area_id: "w2", work_area_label: "#2 Ledge" },
+        { billing_line_id: "l2", billing_id: "b1", work_area_id: "c1", work_area_label: "#1 Extra fill (6115760)" },
+        { billing_line_id: "l3", billing_id: "b1", work_area_id: "w2", work_area_label: "#2 Ledge" },
+        { billing_line_id: "l4", billing_id: "b2", work_area_id: null, work_area_label: null },
+      ],
+    },
+  };
+}
+
+test("F09.6: the head line names the estimate, the sold date, the status and the division", async () => {
+  const { headLine } = await import("./jobs.js");
+  assert.equal(headLine(elm()), "Estimate 6115758 · Sold 2026-06-12 · In progress · EX");
+  assert.equal(
+    headLine({ ...elm(), sold_on_set_when_created: true, division_code: null }),
+    "Estimate 6115758 · Sold 2026-06-12 (set when created) · In progress · No division",
+  );
+  assert.equal(headLine({ ...elm(), estimate_number: null }), "Sold 2026-06-12 · In progress · EX");
+});
+
+test("F09.6: the facts are the same fields as before, formatted the same, with the words for a missing one", async () => {
+  const { jobFacts, factsSentence } = await import("./jobs.js");
+  const facts = jobFacts(elm());
+  assert.deepEqual(
+    facts.map((f) => [f.label, f.value, f.bold, f.note]),
+    [
+      ["Revised contract", "465,469.59", true, null],
+      ["Billed to date", "49,275.00", true, null],
+      ["Remaining to bill", "416,194.59", true, null],
+      ["Collected to date", "38,325.00", false, null],
+      ["Open A/R", "10,950.00", false, null],
+      ["Unapproved change orders", "49,275.00", false, "9 change orders"],
+      ["EAC in the WIP basis", "327,929.93", false, null],
+    ],
+  );
+  const bare = jobFacts({
+    ...elm(),
+    revised_contract: null,
+    unapproved_change_orders: null,
+    unapproved_change_order_count: 0,
+    eac_in_basis: null,
+    eac_note: "Labor burden is in the basis and is not computed.",
+    billing: { ...elm().billing, billed_to_date: null, remaining_to_bill: null, remaining_to_bill_note: "Fixed-price jobs only" },
+  });
+  assert.deepEqual(
+    bare.map((f) => [f.label, f.value, f.note]),
+    [
+      ["Revised contract", "None", null],
+      ["Billed to date", "Not decided", null],
+      ["Remaining to bill", "Fixed-price jobs only", null],
+      ["Collected to date", "38,325.00", null],
+      ["Open A/R", "10,950.00", null],
+      ["Unapproved change orders", "None", null],
+      ["EAC in the WIP basis", "Not computed", "Labor burden is in the basis and is not computed."],
+    ],
+  );
+  assert.equal(jobFacts({ ...elm(), unapproved_change_order_count: 1 })[5].note, "1 change order");
+  // The as-of and contract sentences, joined, with no decision number.
+  const sentence = factsSentence(elm());
+  assert.ok(sentence.startsWith("Sample Landscaping. Figures to date as of 2026-10-27, computed from QuickBooks when read; nothing is stored."));
+  assert.ok(sentence.includes("A deposit is the invoice numbered estimate_DEP on a deposit item; fuel surcharge lines and sales tax are outside billed to date."));
+  assert.ok(sentence.includes("A change order joins the revised contract when the project manager records that the customer agreed, at its price that day; until then it is shown unapproved, outside the contract."));
+  assert.ok(sentence.endsWith("EAC counts the estimated cost of every kept work area, approved or not."));
+  assert.ok(!/D-\d\d/.test(sentence));
+});
+
+test("F09.6: one work-areas table lists every kept row of the original and of the change-order estimates", async () => {
+  const { workAreaRows, changeOrderWords, unapprovedWords } = await import("./jobs.js");
+  const rows = workAreaRows(elm());
+  assert.deepEqual(rows.map((w) => w.id), ["w1", "w2", "w4", "c1"]); // omitted rows are not shown
+  assert.deepEqual(rows.map(changeOrderWords), ["No", "Approved 2026-09-14 by Pat Lee", "Not confirmed", "Not approved"]);
+  assert.equal(unapprovedWords(9), "Unapproved change orders (9)");
+  assert.equal(unapprovedWords(1), "Unapproved change orders (1)");
+  assert.equal(unapprovedWords(0), "Unapproved change orders (0)");
+});
+
+test("F09.6: the invoices are the billing history regrouped by document, the deposit first, with the tied work areas", async () => {
+  const { invoiceRows } = await import("./jobs.js");
+  const rows = invoiceRows(elm());
+  assert.deepEqual(
+    rows.map((r) => [r.key, r.document, r.sub, r.date, r.amount, r.workAreas]),
+    [
+      ["deposit", "6115758_DEP", "Deposit", "", "0.00", ""],
+      ["b2", "1042", "Invoice", "2026-09-30", "10,950.00", "Not assigned to a work area"],
+      ["b1", "1031", "Invoice", "2026-08-31", "38,325.00", "#2 Ledge; #1 Extra fill (6115760)"],
+      ["b0", "1020 (Voided)", "Invoice", "2026-07-15", "Not counted", ""],
+    ],
+  );
+  // A deposit invoice on the job is the first row itself, not a stand-in.
+  const withDeposit = elm();
+  withDeposit.billing_history.push({ billing_id: "bd", doc_number: "6115758_DEP", txn_date: "2026-06-20", kind_label: "Invoice", billed: "25000.00", counted: true, is_deposit: true, state_label: "" });
+  const dep = invoiceRows(withDeposit);
+  assert.deepEqual(dep.map((r) => r.key), ["bd", "b2", "b1", "b0"]);
+  assert.deepEqual([dep[0].document, dep[0].sub, dep[0].date, dep[0].amount], ["6115758_DEP", "Deposit", "2026-06-20", "25,000.00"]);
+  // No invoices: the deposit row alone, reading 0.00; "Not decided" in words while the key is undecided.
+  const none = { ...elm(), billing_history: [], invoice_lines: { lines: [] } };
+  assert.deepEqual(invoiceRows(none).map((r) => [r.document, r.amount]), [["6115758_DEP", "0.00"]]);
+  const undecided = { ...none, billing: { ...none.billing, deposit_invoiced: null } };
+  assert.equal(invoiceRows(undecided)[0].amount, "Not decided");
+  assert.equal(invoiceRows({ ...none, estimate_number: null })[0].document, "Deposit");
+});
+
+test("F09.6: the firm line reads the counts the page already holds, in words", async () => {
+  const { firmLineWords } = await import("./jobs.js");
+  assert.equal(
+    firmLineWords(elm()),
+    "2 estimates attached · 2 of 3 work areas confirmed · QuickBooks: 67 Elm Street · 3 of 4 invoice lines tied",
+  );
+  assert.equal(
+    firmLineWords({ ...elm(), estimates: [{}], qbo_linked: false, qbo_names: [], work_areas: [], invoice_lines: { lines: [] } }),
+    "1 estimate attached · 0 of 0 work areas confirmed · Not linked to QuickBooks · 0 of 0 invoice lines tied",
+  );
+});
+
+test("F09.6: the head's primary action is the billing request, with the label the section used", async () => {
+  const { requestLabel } = await import("./jobs.js");
+  assert.equal(requestLabel({ applications: [{ status: "issued" }] }), "New billing request");
+  assert.equal(requestLabel({ applications: [{ status: "draft" }] }), "Edit billing request");
+  assert.equal(requestLabel(null), "New billing request");
+});

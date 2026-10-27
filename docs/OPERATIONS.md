@@ -693,6 +693,22 @@ never by name. Names, addresses and jobsites only produce labelled suggestions; 
 makes every job, attachment and link, and each one writes one audit row naming the rows
 it touched. Nothing is ever written to QuickBooks.
 
+### The job page and the set-up view (F09.6, D-50)
+A job's page is the client's: the figures ("Where the job stands"), what needs attention,
+one table of the kept work areas with the change-order approval control in the row, the
+invoices by document with the deposit row first, the pay applications and the approval
+history. Its one primary action is the billing request. A firm role sees one line more
+under the head, the set-up counts (estimates attached, work areas confirmed of kept, the
+QuickBooks link or "Not linked to QuickBooks", invoice lines tied of total) and **Open
+set-up**, which opens the firm's set-up view of the job: the header fields and their edit
+form, the estimates with Detach, the work areas of the original estimate with their kind
+confirm controls and "Confirm all as suggested", the invoice lines with their assignment,
+and the QuickBooks links, suggestions and search. Every control there works as it did on
+the job page before F09.6, with the same requests, audit rows and permission checks. A
+client role never sees the line or the view; `client_admin` is a client role on the
+screens although the API's `can_manage_jobs` still includes it (a later brief aligns it).
+**← Back to the job** returns to the client's page, which reads the job again.
+
 ### Reviewing sold estimates
 Jobs → **Review sold estimates (n)** shows every Sold estimate that is on no job, one at a
 time (pending and lost estimates never appear). Roles `firm_admin`, `firm_staff`,
@@ -1018,7 +1034,8 @@ rows and totals (D-40). Every role that reads jobs can export.
 For a fixed-price job (D-24), operations says how far along each work area is and the
 platform says what to bill and gives the customer the document.
 - **Entering the request** (`client_pm`, `client_admin`, `firm_staff`, `firm_admin`): on
-  the job, **Pay applications → New billing request**: the application date; whether the
+  the job, **New billing request** (the page's primary action, in its head; **Edit billing
+  request** while a draft exists; the form opens under Pay applications): the application date; whether the
   fuel surcharge applies to this application (no default, D-39); one percent for every
   listed work area, or a cumulative percent complete to date per work area (D-26). The
   form starts from what has been billed (F08.3): on a job's first application each work

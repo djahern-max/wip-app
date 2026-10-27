@@ -19,9 +19,11 @@ import {
 // Mount effects only read (GET). Money is shown as the API gives it; percents are sent as
 // typed. F08.3: the form starts from the open draft when there is one, else from the
 // prefill the API gives (what has been billed on each work area); Enter in a field never
-// submits a form (blockEnter); the form reads top to bottom (.request-form).
+// submits a form (blockEnter); the form reads top to bottom (.request-form). F09.6: the
+// control that opens the form is the job page's primary action, in its head; the page
+// bumps `openRequest` and reads `onLoaded` for the control's label.
 
-export default function PayApplications({ jobId, me }) {
+export default function PayApplications({ jobId, me, openRequest, onLoaded }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -33,9 +35,19 @@ export default function PayApplications({ jobId, me }) {
 
   useEffect(() => {
     api("GET", `/api/jobs/${jobId}/pay-applications`)
-      .then(setData)
+      .then((d) => {
+        setData(d);
+        if (onLoaded) onLoaded(d);
+      })
       .catch(() => setError("The pay applications could not be loaded. Refresh the page."));
   }, [me.active_tenant_id, jobId]);
+
+  // F09.6: the head's primary action ("New billing request" / "Edit billing request") opens
+  // the form here, the same way the section's own button did.
+  useEffect(() => {
+    if (!openRequest || !data || !data.fixed_price || !canEnterBillingRequest(me.role)) return;
+    startRequest();
+  }, [openRequest]);
 
   const canRequest = canEnterBillingRequest(me.role);
   const canIssue = canIssuePayApplications(me.role);
@@ -43,6 +55,7 @@ export default function PayApplications({ jobId, me }) {
   async function reload(showId) {
     const d = await api("GET", `/api/jobs/${jobId}/pay-applications`);
     setData(d);
+    if (onLoaded) onLoaded(d);
     if (showId) setOpen(showId);
     return d;
   }
@@ -112,15 +125,17 @@ export default function PayApplications({ jobId, me }) {
       <h3>Pay applications</h3>
       {error && <p className="error">{error}</p>}
       {!data.fixed_price ? (
-        <p className="hint">{data.note || "Only a fixed-price job has pay applications (D-24)."}</p>
+        <p className="hint">{data.note || "Only a fixed-price job has pay applications."}</p>
       ) : (
         <>
           <p className="hint">
             The customer receives the pay application: earned to date by work area and the amount due. The controller
-            keys one invoice in QuickBooks from it, numbered as shown; the platform writes nothing to QuickBooks (D-36).
+            keys one invoice in QuickBooks from it, numbered as shown; the platform writes nothing to QuickBooks.
           </p>
           {data.applications.length === 0 ? (
-            <p className="hint">No pay application yet on this job.</p>
+            <div className="empty">
+              <p>No pay application yet on this job.</p>
+            </div>
           ) : (
             <div className="table-wrap">
               <table className="table">
@@ -155,25 +170,20 @@ export default function PayApplications({ jobId, me }) {
               </table>
             </div>
           )}
-          {canRequest && !form && (
+          {canRequest && !form && draft && (
             <p className="actions">
-              <button type="button" className="button" disabled={busy} onClick={startRequest}>
-                {draft ? "Edit billing request" : "New billing request"}
+              <button type="button" className="link-button" disabled={busy} onClick={() => discard(draft.id)}>
+                {pendingLabel("discard", pending, draft.id) || "Discard draft"}
               </button>
-              {draft && (
-                <button type="button" className="link-button" disabled={busy} onClick={() => discard(draft.id)}>
-                  {pendingLabel("discard", pending, draft.id) || "Discard draft"}
-                </button>
-              )}
             </p>
           )}
           {form && (
             <form onSubmit={submit} onKeyDown={blockEnter} className="request-form">
               <h4>Billing request for pay application {data.next_number}</h4>
               <p className="hint">
-                Cumulative percent complete to date per work area (D-26), starting from what has been billed on each.
+                Cumulative percent complete to date per work area, starting from what has been billed on each.
                 The schedule lists every kept original work area and every change order approved on the application
-                date (D-36). A percent that would earn less than has already been earned on a work area leaves it at
+                date. A percent that would earn less than has already been earned on a work area leaves it at
                 its previous percent, with a sentence saying so.
               </p>
               <label className="label">
@@ -218,7 +228,7 @@ export default function PayApplications({ jobId, me }) {
                 </table>
               </div>
               <fieldset>
-                <legend>Fuel surcharge on this application (D-39)</legend>
+                <legend>Fuel surcharge on this application</legend>
                 <label>
                   <input type="radio" name="surcharge" checked={form.surcharge_applies === "yes"} onChange={() => setForm({ ...form, surcharge_applies: "yes" })} disabled={busy} />{" "}
                   Applies{data.surcharge_percent ? ` (${data.surcharge_percent}%)` : ""}

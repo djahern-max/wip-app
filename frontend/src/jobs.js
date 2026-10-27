@@ -308,3 +308,141 @@ export function jobsListedWords(total) {
 export function tieOutDone(tie) {
   return Boolean(tie && tie.balanced === true && tie.months > 0);
 }
+
+// --- F09.6: the job page for a client (D-50) ---------------------------------------------
+// Display rules only: every value is a field of GET /api/jobs/{id}, formatted as before.
+
+// The line under the job's name: the estimate, the sold-on date, the status, the division.
+export function headLine(job) {
+  const parts = [];
+  if (job.estimate_number) parts.push(`Estimate ${job.estimate_number}`);
+  parts.push(`Sold ${job.sold_on}${job.sold_on_set_when_created ? " (set when created)" : ""}`);
+  parts.push(job.status_label);
+  parts.push(job.division_code || "No division");
+  return parts.join(" · ");
+}
+
+// "Where the job stands": seven facts, the first three bold. The words for a missing
+// figure are the ones the Contract and Billing headings used.
+export function jobFacts(job) {
+  const b = job.billing;
+  const n = job.unapproved_change_order_count;
+  return [
+    { label: "Revised contract", value: amountOr(job.revised_contract, "None"), bold: true, note: job.revised_contract_note || null },
+    { label: "Billed to date", value: figureOr(b.billed_to_date, null, "Not decided"), bold: true, note: null },
+    { label: "Remaining to bill", value: figureOr(b.remaining_to_bill, b.remaining_to_bill_note, "Not decided"), bold: true, note: null },
+    { label: "Collected to date", value: formatMoney(b.collected_to_date), bold: false, note: null },
+    { label: "Open A/R", value: formatMoney(b.open_ar), bold: false, note: null },
+    {
+      label: "Unapproved change orders",
+      value: amountOr(job.unapproved_change_orders, "None"),
+      bold: false,
+      note: n > 0 ? `${n} change ${n === 1 ? "order" : "orders"}` : null,
+    },
+    { label: "EAC in the WIP basis", value: amountOr(job.eac_in_basis, "Not computed"), bold: false, note: job.eac_note || null },
+  ];
+}
+
+// The as-of sentence and the contract sentence that sat under Billing and Contract, as
+// one hint, without their decision numbers.
+export function factsSentence(job) {
+  return (
+    `${job.tenant_name}. Figures to date as of ${job.as_of}, computed from QuickBooks when read; nothing is stored. ` +
+    "A deposit is the invoice numbered estimate_DEP on a deposit item; fuel surcharge lines and sales tax are " +
+    "outside billed to date. Original contract counts the kept work areas of the original estimate confirmed as " +
+    "original. A change order joins the revised contract when the project manager records that the customer " +
+    "agreed, at its price that day; until then it is shown unapproved, outside the contract. EAC counts the " +
+    "estimated cost of every kept work area, approved or not."
+  );
+}
+
+// One table: the kept work areas of the original estimate, then of the estimates attached
+// as change orders. Omitted rows are not shown.
+export function workAreaRows(job) {
+  return [...job.work_areas.filter((w) => w.kept), ...job.change_order_work_areas.filter((w) => w.kept)];
+}
+
+// The "Change order" column: "No" for an original; the API's approval words without the
+// "Change order, " the column heading now carries; "Not confirmed" while the kind is not.
+export function changeOrderWords(w) {
+  if (w.approval_label) {
+    const words = w.approval_label.replace(/^Change order, /, "");
+    return words.charAt(0).toUpperCase() + words.slice(1);
+  }
+  if (w.estimate_role === "original" && w.kind === null) return "Not confirmed";
+  return "No";
+}
+
+export function unapprovedWords(count) {
+  return `Unapproved change orders (${count})`;
+}
+
+// The invoices table: the billing history regrouped by document with the work areas its
+// lines are tied to (D-45), the deposit first. With no deposit invoice, a stand-in row
+// named from the estimate reads the API's deposit invoiced figure (0.00, or "Not decided"
+// while the deposit item is undecided).
+export function invoiceRows(job) {
+  const byDoc = new Map();
+  for (const ln of job.invoice_lines.lines) {
+    const list = byDoc.get(ln.billing_id) || [];
+    list.push(ln);
+    byDoc.set(ln.billing_id, list);
+  }
+  function workAreas(billingId) {
+    const labels = [];
+    let untied = false;
+    for (const ln of byDoc.get(billingId) || []) {
+      if (ln.work_area_label) {
+        if (!labels.includes(ln.work_area_label)) labels.push(ln.work_area_label);
+      } else {
+        untied = true;
+      }
+    }
+    if (untied) labels.push("Not assigned to a work area");
+    return labels.join("; ");
+  }
+  const rows = job.billing_history.map((d) => ({
+    key: d.billing_id,
+    document: `${d.doc_number || `QuickBooks id ${d.external_id}`}${d.state_label ? ` (${d.state_label})` : ""}`,
+    sub: d.is_deposit ? "Deposit" : d.kind_label,
+    date: d.txn_date,
+    amount: d.counted ? figureOr(d.billed, null, "Not decided") : "Not counted",
+    workAreas: workAreas(d.billing_id),
+    deposit: d.is_deposit,
+  }));
+  const deposit = rows.find((r) => r.deposit);
+  if (deposit) return [deposit, ...rows.filter((r) => r !== deposit)];
+  return [
+    {
+      key: "deposit",
+      document: job.estimate_number ? `${job.estimate_number}_DEP` : "Deposit",
+      sub: "Deposit",
+      date: "",
+      amount: figureOr(job.billing.deposit_invoiced, null, "Not decided"),
+      workAreas: "",
+      deposit: true,
+    },
+    ...rows,
+  ];
+}
+
+// The one line a firm user sees under the head: the counts the page already holds.
+export function firmLineWords(job) {
+  const estimates = job.estimates.length;
+  const kept = job.work_areas.filter((w) => w.kept);
+  const confirmed = kept.filter((w) => w.confirmed).length;
+  const lines = job.invoice_lines.lines;
+  const tied = lines.filter((ln) => ln.work_area_id).length;
+  return [
+    `${estimates} estimate${estimates === 1 ? "" : "s"} attached`,
+    `${confirmed} of ${kept.length} work areas confirmed`,
+    job.qbo_linked ? `QuickBooks: ${job.qbo_names.join("; ")}` : "Not linked to QuickBooks",
+    `${tied} of ${lines.length} invoice lines tied`,
+  ].join(" · ");
+}
+
+// The head's primary action: the billing request control, with the label the Pay
+// applications section gave it (a draft is edited; otherwise a new one is entered).
+export function requestLabel(payData) {
+  return openDraft(payData) ? "Edit billing request" : "New billing request";
+}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { formatMoney } from "../money.js";
+import { isFirmRole } from "../roles.js";
 import {
   amountOr,
   boardSentence,
@@ -15,6 +16,7 @@ import {
 import Attention from "./JobAttention.jsx";
 import JobDetail from "./JobDetail.jsx";
 import JobReview from "./JobReview.jsx";
+import JobSetup from "./JobSetup.jsx";
 import UnapprovedChangeOrders from "./UnapprovedChangeOrders.jsx";
 
 // Jobs (F07): every job with its computed contract figures, the review queue for sold
@@ -35,6 +37,8 @@ import UnapprovedChangeOrders from "./UnapprovedChangeOrders.jsx";
 // in its box with the totals and not-on-a-job rows as rows and their explanation under
 // the table, the no-job list as a panel, the pool form as one card. Layout, style and
 // display words only; every figure, request and action is as before.
+// F09.6 (D-50): the job page is the client's; its set-up blocks are a view of their own,
+// "setup", drawn for firm roles only.
 
 export default function Jobs({ me, canManage, target, onOpenEstimate }) {
   const [view, setView] = useState("list");
@@ -124,10 +128,20 @@ export default function Jobs({ me, canManage, target, onOpenEstimate }) {
     // F07.4 (D-42): every unapproved change order on an open job, with its amount and age.
     return <UnapprovedChangeOrders me={me} onBack={backToList} onOpenJob={openJob} />;
   }
-  if (view === "detail" && jobId) {
+  if (view === "setup" && jobId && isFirmRole(me.role)) {
+    // F09.6 (D-50): the firm's set-up view of the job; the client's page never links here.
     return (
-      <JobDetail me={me} jobId={jobId} canManage={canManage} onBack={backToList} onOpenEstimate={onOpenEstimate} />
+      <JobSetup
+        me={me}
+        jobId={jobId}
+        canManage={canManage}
+        onBack={() => setView("detail")}
+        onOpenEstimate={onOpenEstimate}
+      />
     );
+  }
+  if (view === "detail" && jobId) {
+    return <JobDetail me={me} jobId={jobId} onBack={backToList} onOpenSetup={() => setView("setup")} />;
   }
 
   return (

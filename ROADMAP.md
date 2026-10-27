@@ -141,6 +141,14 @@ Design only: section tabs, Accounts with its counts as figures and a labelled Sh
 Design only: page head with the one primary action, the tie-out line in the status colour when every month ties, labelled filters, the board in its box with the not-on-a-job explanation under the table, the pool form as a card. No figure, no API response and no behaviour changed.
 **Accept**: every filter, export and action works as before; no sideways page scroll at 1280 px and 390 px; one primary action.
 
+### F09.6 · The job page for a client  ◐ (built 2026-10-27, no migration, D-50; the owner's pass on jobcost.dev is open; see `docs/briefs/F09.6.md`)
+Design only, for a client reader (D-50): the head with the one primary action (the billing request), the facts block, the attention block, one work-areas table with the approval control in the row, the invoices by document with the deposit row first, the pay applications and the approval history. The set-up blocks (estimates, header edit, work-area confirm, QuickBooks links, invoice-line assignment) moved as they are to a set-up view drawn for firm roles only, linked from a firm line under the head. No figure, no API response and no permission changed.
+**Accept**: every figure the same field as before; no set-up control for a client role; the set-up view with every control it had; no sideways page scroll at 1280 px and 390 px; one primary action per screen; the owner's pass signed in as a client role and as the firm admin.
+
+### F09.7 · The firm's set-up view of a job, designed  ☐
+Design only: the blocks lifted in F09.6 under the F09.1 paint, for firm roles. No figure, request, audit row or permission changes.
+**Accept**: every control works as before; no sideways page scroll at 1280 px and 390 px; one primary action.
+
 > **Release B**: you can answer "who has paid a deposit, what is billed, what is left to bill" for every sold job, with backlog by division and estimator.
 
 ---
