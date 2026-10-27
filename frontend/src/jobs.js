@@ -312,13 +312,14 @@ export function tieOutDone(tie) {
 // --- F09.6: the job page for a client (D-50) ---------------------------------------------
 // Display rules only: every value is a field of GET /api/jobs/{id}, formatted as before.
 
-// The line under the job's name: the estimate, the sold-on date, the status, the division.
+// The line under the job's name: the estimate, the sold-on date, the status. The division
+// is left off until the response carries its name (the owner, 2026-10-27): the code
+// alone ("EX") is not a word a client reads.
 export function headLine(job) {
   const parts = [];
   if (job.estimate_number) parts.push(`Estimate ${job.estimate_number}`);
   parts.push(`Sold ${job.sold_on}${job.sold_on_set_when_created ? " (set when created)" : ""}`);
   parts.push(job.status_label);
-  parts.push(job.division_code || "No division");
   return parts.join(" · ");
 }
 

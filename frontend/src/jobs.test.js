@@ -331,14 +331,15 @@ function elm() {
   };
 }
 
-test("F09.6: the head line names the estimate, the sold date, the status and the division", async () => {
+test("F09.6: the head line names the estimate, the sold date and the status, never the division code", async () => {
   const { headLine } = await import("./jobs.js");
-  assert.equal(headLine(elm()), "Estimate 6115758 · Sold 2026-06-12 · In progress · EX");
+  assert.equal(headLine(elm()), "Estimate 6115758 · Sold 2026-06-12 · In progress");
   assert.equal(
     headLine({ ...elm(), sold_on_set_when_created: true, division_code: null }),
-    "Estimate 6115758 · Sold 2026-06-12 (set when created) · In progress · No division",
+    "Estimate 6115758 · Sold 2026-06-12 (set when created) · In progress",
   );
-  assert.equal(headLine({ ...elm(), estimate_number: null }), "Sold 2026-06-12 · In progress · EX");
+  assert.equal(headLine({ ...elm(), estimate_number: null }), "Sold 2026-06-12 · In progress");
+  assert.ok(!headLine(elm()).includes("EX"));
 });
 
 test("F09.6: the facts are the same fields as before, formatted the same, with the words for a missing one", async () => {
