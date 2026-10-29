@@ -256,6 +256,7 @@ export default function Connections({ me, result, onOpen }) {
               </tbody>
             </table>
           </div>
+          <p className="hint">Cost lines: {held.cost_lines_held} held.</p>
         </>
       )}
     </div>

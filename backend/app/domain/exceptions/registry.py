@@ -2,7 +2,8 @@
 is about, the key that tells two exceptions of one code on one subject apart, and the
 detail fields its sentence *states* (the owner's answer B, 2026-10-08: a dismissed
 exception opens again when those change). Pure; the generators are not touched: the key
-and the stated fields are read from the ``Issue.detail`` they already return.
+and the stated fields are read from the ``Issue.detail`` they already return. F10 adds the two
+cost codes and the ``tenant`` subject (``COST_UNASSIGNED`` on a line coded to no customer).
 
 The identity of an exception is ``(subject_type, subject_id, code, item_key)``; the
 sentence text is never part of it, so a reworded sentence or a changed amount never
@@ -23,7 +24,7 @@ from app.domain.estimates.exceptions import Issue
 
 Key = tuple[str, str, str, str]  # (subject_type, subject_id, code, item_key)
 
-JOB, ESTIMATE, CUSTOMER = "job", "estimate", "customer"
+JOB, ESTIMATE, CUSTOMER, TENANT = "job", "estimate", "customer", "tenant"
 INFO, WARN, BLOCK = "info", "warn", "block_close"
 # The one code whose severity depends on the job: block-close on a fixed-price job.
 FIXED_PRICE_BLOCKS = "EST_NO_CATEGORY_SPLIT"
@@ -42,6 +43,13 @@ def _field(name: str) -> Callable[[dict], str]:
 
 def _order_and_code(detail: dict) -> str:
     return f"{detail.get('order', '')}:{detail.get('cost_code', '')}"
+
+
+def _document(detail: dict) -> str:
+    """F10: the document, by QuickBooks type and id (the brief: ``item_key`` = txn type
+    and id). ``COST_UNASSIGNED`` on one document may name two customers; its subject then
+    differs, so the identity does too."""
+    return f"{detail.get('txn_type', '')}:{detail.get('txn_external_id', '')}"
 
 
 @dataclass(frozen=True)
@@ -101,6 +109,11 @@ SPECS: tuple[CodeSpec, ...] = (
     CodeSpec("PAYAPP_NOT_INVOICED", JOB, WARN, _field("application"), (), True),
     CodeSpec("INVOICE_NO_PAYAPP", JOB, WARN, _field("billing_id"), (), True),
     CodeSpec("PAYAPP_INVOICE_MISMATCH", JOB, WARN, _field("application"), ("difference",), True),
+    # --- the cost set (app/domain/cost/exceptions.py; F10, D-51) ---------------------------
+    # COST_UNASSIGNED is about the customer row the line names, or the company when it
+    # names none (``TENANT``); the run sets the subject, the spec records the usual one.
+    CodeSpec("COST_UNASSIGNED", CUSTOMER, WARN, _document, ("amount", "account_no"), True),
+    CodeSpec("COST_DIVISION_MISMATCH", JOB, WARN, _document, ("amount", "account_no"), True),
 )
 
 BY_CODE: dict[str, CodeSpec] = {s.code: s for s in SPECS}

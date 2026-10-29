@@ -1,89 +1,63 @@
 # current-feature.md
 
-**F09.6 · The job page for a client** (design; built 2026-10-27, no migration, D-50 appended;
-the owner's pass on jobcost.dev is open, to be made signed in as a client role first;
-`docs/briefs/F09.6.md`). The job page is the client's: the head with the billing request
-as its one primary action, "Where the job stands" (seven facts from the fields the
-Contract and Billing headings held), Attention with a plain left rule, one work-areas
-table with the approval control in the row and Price-only totals and aside rows, the
-invoices by document with the deposit row first, the pay applications and the approval
-history. The set-up blocks moved as they are to `JobSetup.jsx`, a view under Jobs drawn
-for firm roles only, reached from the firm line under the head ("Open set-up"). No figure,
-request, audit row or permission changed; `client_admin` is a client role on the screens.
-Next design feature: **F09.7 · The firm's set-up view of a job, designed** (the owner
-supplies the mockup first; the blocks, requests and controls are as lifted).
-
-**F09.5 · Jobs: the Sold Jobs Board** (design; built 2026-10-16, no migration, D-49 appended;
-the owner's pass on jobcost.dev is open; `docs/briefs/F09.5.md`). The Jobs page under
-the F09.1 paint: page head with the one primary action, the tie-out line in the status
-colour when every month ties, labelled filters, the board in its box with the
-not-on-a-job explanation under the table, the pool form as a card. No figure, request or
-action changed. The Review queue and Unapproved change orders are later design features.
-
-_No feature in flight (2026-10-15)._ **F05.3 · History start is closed** (built 2026-10-15,
-commit f2fb590; D-48 appended; **the owner's pass on jobcost.dev, tenant `rye-beach`,
-passed 2026-10-15 after a full database rebuild; ROADMAP ☑**). The brief, with the Plan,
-the six picks, the step-1 proof, the build notes, the pass record and the Discovered
-list, is `docs/briefs/F05.3.md`. What it changed: each company has one `history_start`
-(a calendar date on Configuration, Policy, no default, first on the list and first in
-`REQUIRED_POLICY_KEYS`); QuickBooks cannot be connected and nothing is pulled until it
-is set (connect, Sync now and a fresh backfill answer 409 with one sentence; Connections
-offers "Set history start"; a poll or nightly check on a company connected before the
-key ends `failed` with `history_start_not_set` and no successor); reference entities are
-held whole and transactional entities are paged and counted with `TxnDate >=` the start
-(`fetch.py`, the date read once onto `sync_run.detail`); a pre-start record arriving by
-poll is stored raw, skipped by its normalizer and counted under "Before history start";
-a held record re-dated before the start gets `deleted_at`; the key cannot change after
-the first completed backfill. Rye Beach's history start is 2026-01-01; its backfill from
-it held 885 invoices, 953 payments, 2,041 purchases, 819 bills, 335 deposits, 264 journal
-entries (every entity's counts in the brief and in OPERATIONS.md "Rye Beach connection
-record"), with the exact duration still to be read from `sync_run` and pasted there, and
-the ten proof lines still to be pasted into the brief's Progress. Nothing in `app/wip/`,
-`app/domain/jobs/` or `figures.py`; no figure changed; no migration. The proof script
-was deleted at close-out (CLAUDE.md, Code conventions).
-
-Open passes carried: **F09.6** (`docs/briefs/F09.6.md`; signed in as a client role first), **F09.5** (`docs/briefs/F09.5.md`), **F09.4** (`docs/briefs/F09.4.md`), **F09.3** (`docs/briefs/F09.3.md`),
-**F09.2** (`docs/briefs/F09.2.md`), **F07.3** (`docs/briefs/F07.3.md`), **F07.2**
-(`docs/briefs/F07.2.md`; deploying it runs migration 0012), **F07.1**
-(`docs/briefs/F07.1.md`) and **F07** (the pass job by job; 67 Elm Street passed
-2026-10-01). Production was rebuilt from an empty database on 2026-10-15, so `rye-beach`
-holds no job yet: the F07 passes need the estimates uploaded again first. D-08 is still
-open. Retainage is owed as a later feature with its own decision before any tenant that
-holds it (D-43; a Later line in ROADMAP). D-50 (one practice operates the platform; a
-client works only on its jobs; D-17 extended) was made in F09.6 on 2026-10-27.
-
-Next per ROADMAP: **F09.7** (design, above), then **F10 · GL cost sync**: Bills, Vendor Credits, Purchases (card, check,
-cash) and Journal Entries to `ledger_line` at line level with job reference, account and
-vendor; `account_map` applied; `COST_UNASSIGNED` and `COST_DIVISION_MISMATCH` exceptions
-(F09 queues them once they exist: a registry row each with its severity, §10); accept:
-GL-direct job cost + unassigned = QuickBooks P&L cost of goods sold by account for each
-closed month; a Ramp-synced expense with a Customer/Job value lands on the right job with
-its receipt link. Every cost-side entity is held from the history start (D-48), so the
-first tie-out runs from 2026-01. Not started; the owner supplies the brief. Copy it here,
+**F10 · GL cost sync** (built 2026-10-29 in one commit, migration 0017, D-51 appended, in
+express mode; the owner's pass on jobcost.dev, tenant `rye-beach`, is open: deploying it runs
+the migration and the worker's start-up cost run fills `ledger_line`; `docs/briefs/F10.md`).
+Every QuickBooks line that posts to an expense-side account (Bill, Vendor Credit, Purchase,
+Journal Entry, the cost lines of a Deposit) is held in `ledger_line` with its account, vendor,
+the line's customer reference, the job it aliases to and the signed amount; division, cost
+category, job cost and WIP-basis membership are read from `account_map` and the policy when a
+figure is computed (D-51). The Cost page (firm roles and `client_admin`, under Connections):
+the tie-out by month and account in five parts that equal the ledger total by construction
+(on jobs, owned equipment and fuel on jobs, unassigned, labor in the ledger, outside job
+cost), the unassigned list by document, labor in the ledger by month and division, the XLSX
+export. The client's job page gains the "Cost to date" fact and a table by cost category.
+`COST_UNASSIGNED` and `COST_DIVISION_MISMATCH` are in the F09 queue (the first on the
+customer row, or on the company for "no customer"). Next per ROADMAP: **F08.4 · Pay
+application per work area** (a patch: percent per work area, overrides per line, earlier
+invoices netted per work area, rounding per line; the design partner's call of 2026-10-29,
+before F11). Not started; the owner or the design partner supplies the brief. Copy it here,
 expand it, and restate the acceptance criteria before coding.
 
-Standing state from F07 to F09.4 and F05.3: the job is the reporting unit; matching is
-by alias (`job_alias`), never by name. The original contract, approved change orders,
-revised contract, unapproved change orders, EAC and every billing figure are computed on
-read (`app/domain/jobs/contract.py`, `app/domain/billing/figures.py`, `board.py`,
-`work_areas.py`, `pay_applications.py`), never stored; the rows written by F07.4, F08.1
-and F09 are approvals and withdrawals (`change_order_approval`), assignments and clears
-(`billing_line_work_area`, both append-only), the pay applications with their schedule as
-it stood at issue and the three figures frozen at issue (`pay_application`,
-`pay_application_line`; a draft is edited until issued, or discarded, F08.3; never voided),
-and the exceptions with their history (`exception`, `exception_event` append-only; the
-sentence and detail as last raised, never the truth); nothing in `app/wip/` has been
-touched. Billed to date is total − sales tax − fuel surcharge lines, the deposit invoice
-counted from its date; per work area it is the tied lines and the pay applications (D-45).
-Collected to date is cash (D-41). The copy and every month tie-out begin at the history
-start (D-48). `REQUIRED_POLICY_KEYS` holds the six keys read today, the history start
-first. The interface follows D-47 (F09.1 to F09.6: header, Home, Estimates, Imports,
-Configuration, the Jobs board, the job page) and D-50 (a screen is written for one reader;
-firm screens and client screens, CLAUDE.md Vocabulary); the set-up view of a job (F09.7),
-Connections, Customers, the Review queue, Unapproved change orders and Exceptions are later
-design features.
+**F09.6 · The job page for a client** (design; built 2026-10-27, no migration, D-50 appended;
+the owner's pass on jobcost.dev is open, to be made signed in as a client role first;
+`docs/briefs/F09.6.md`). **F09.5 · Jobs: the Sold Jobs Board** (design; built 2026-10-16,
+D-49; the owner's pass is open; `docs/briefs/F09.5.md`). **F09.7 · The firm's set-up view of
+a job** moved to directly after F12 on 2026-10-29 (express mode): the set-up view is designed
+once, after F12 reshapes the job page.
+
+Open passes carried: **F10** (`docs/briefs/F10.md`; Connections' held counts, the Cost page
+for 2026-09 against the QuickBooks Profit and Loss by account, the unassigned list, one Ramp
+card transaction on its job with its memo, 67 Elm Street as `client_pm` against the
+Transaction Detail by Customer; `backend/scripts/cost_ramp_fields.py` answers Plan question 2
+at the pass and is deleted at its close-out), **F09.6** (`docs/briefs/F09.6.md`; signed in as
+a client role first), **F09.5** (`docs/briefs/F09.5.md`), **F09.4** (`docs/briefs/F09.4.md`),
+**F09.3** (`docs/briefs/F09.3.md`), **F09.2** (`docs/briefs/F09.2.md`), **F07.3**
+(`docs/briefs/F07.3.md`), **F07.2** (`docs/briefs/F07.2.md`; deploying it runs migration
+0012), **F07.1** (`docs/briefs/F07.1.md`) and **F07** (the pass job by job; 67 Elm Street
+passed 2026-10-01). They are taken together after F10 is deployed, on the pilot job.
+Production was rebuilt from an empty database on 2026-10-15, so `rye-beach` holds no job
+yet: the F07 passes need the estimates uploaded again first. D-08 is still open. Retainage
+is owed as a later feature with its own decision before any tenant that holds it (D-43).
+
+Standing state from F07 to F10: the job is the reporting unit; matching is by alias
+(`job_alias`), never by name. The original contract, approved change orders, revised
+contract, unapproved change orders, EAC, every billing figure and every cost figure are
+computed on read (`app/domain/jobs/contract.py`, `app/domain/billing/figures.py`,
+`app/domain/cost/figures.py`), never stored; the rows written are approvals and
+withdrawals, assignments and clears, the pay applications with their schedule as it stood at
+issue, the exceptions with their history, and the ledger lines as QuickBooks posted them
+(`ledger_line`, rewritten by the normalizer, never by a person); nothing in `app/wip/` has
+been touched. Billed to date is total − sales tax − fuel surcharge lines; collected to date
+is cash (D-41); cost to date is Σ ledger lines on the job on in-job-cost accounts, by cost
+category, in the WIP basis or memo (D-04, D-51); labor-slot lines are tied, never costed
+(F11 costs labor from hours and rates). The copy and every month tie-out begin at the
+history start (D-48). The interface follows D-47 and D-50; the Cost page is a firm screen.
 
 ## Discovered
+Carried from `docs/briefs/F10.md` (copied unchanged 2026-10-29; nothing is dropped):
+Carried from `docs/briefs/F09.6.md` and the live stub (copy unchanged from `git show HEAD:current-feature.md` at the start of the build; nothing is dropped). Closed by this brief when built: none.
+
 Carried from `docs/briefs/F05.3.md` (copied unchanged 2026-10-15; nothing is dropped):
 Carried from F09.4 (copy the Discovered list of `docs/briefs/F09.4.md` here word for word; the design partner could read only these items):
 - The Policy descriptions come from the server and read like notes for a developer: "Period boundaries are tenant-local months.", "1 = January … 12 = December.", "(BLUEPRINT §8.3)", and the decision numbers in four of them. Backend copy in `backend/app/domain/config/policy.py`; the page-side hint for the WIP basis (`WIP_BASIS_HINT` in `policyRow.js`) repeats "(BLUEPRINT §8.3)" and was left to change with them.
@@ -113,3 +87,26 @@ From the owner's pass of 2026-10-15:
 - After a completed backfill, Policy still offers Change on the history start; the refusal sentence shows at the top of the page in red, and the form stays open with Record decision enabled. Offer no Change link and put the sentence in its place (D-47; an F09.4-style patch).
 - The backend suite took 37 minutes on 2026-10-15 (1,008 tests). Find what is slow.
 - The cost-side counts rose by 22 between the 05:06 proof and the 11:32 backfill (Deposit +1, Bill +4, Purchase +12, JournalEntry +5): documents entered in QuickBooks that morning. Expected; noted so F10's first tie-out is not surprised.
+
+From the design partner's working sessions, 2026-10-16 to 2026-10-29, for later briefs (express-mode calls recorded here so they are not asked again):
+- **Pay application per work area (F08.4, a patch after F10)**: the application takes "percent per work area, overrides per line", nets earlier invoices per work area, and rounds per line; the hand workbook on a second pilot job went wrong twice. Owner's call made for him: F08.4 follows F10, before F11.
+- **"C/O …" work areas** inside an LMN estimate: as loaded they are kept work areas and `BILLING_UNAPPROVED_CO` never fires on them. Call: a later F07.4 patch lets a person mark a kept work area as a change order on the review; names only suggest (D-01). Not now.
+- **A work area with cost and 0.00 billed**: a new warn exception once cost per work area exists (F12), not in F10 (lines carry a job, not a work area).
+- **The F13 revenue tie** must read every line posting to an income account from Deposit, JournalEntry, Expense, Check and Bill, not sales documents alone; Square counter sales are the unassigned income side; late fees on 8010 are outside Total Income.
+- **The API's `can_manage_jobs` still includes `client_admin`**; a later brief aligns it with D-50.
+- The unapproved change-order rows' billed and left-to-bill sums (F09.6) are a later API figure.
+- Legacy COGS accounts outside the slot scheme (F05.1): postings to them read "Not in the chart" on the Cost page until the owner renumbers in QuickBooks.
+- The tie-out's "Does not tie" has no colour (D-49); the Cost page's tick follows F09.5's tie-out line.
+- "Days since last activity" reads "No activity" in a numeric column (`daysWords`).
+- The Review queue and Unapproved change orders carry the shared paint only; design features after F09.7.
+- A "needs attention" status colour needs its own decision line.
+- `design-process.md` in the Claude Project; corrected outside the repo.
+
+From this build (2026-10-29):
+- Connections' "Could not be read" for the five cost entities re-reads every latest raw payload on each page load (Not verified); an SQL anti-join with a stored marker is the fix if it matters.
+- An Item's `ExpenseAccountRef` change reaches item-based lines through the full cost run (queued by a poll that stored the Item), not through the document's own normalize task.
+- The F09 Exceptions page opens a "No customer" subject on the Cost page only for a role that reads it; a `client_pm` pressing it goes nowhere. The brief gave the subject no page for a client.
+- The Cost page's unassigned "Open the customer" opens the Customers page, not the row (the Customers page has no deep link to a row).
+- `ROADMAP` F10's "with its receipt link" waits on Plan answer 2 at the owner's pass (`scripts/cost_ramp_fields.py`); if the link is an `Attachable`, a later patch fetches it.
+- The nightly check's cost side (`sync_run.detail.cost`) names the QuickBooks account id, not the number; Connections prints it as "QuickBooks account <id>".
+

@@ -1,0 +1,42 @@
+[
+ {
+  "Id": "3301",
+  "TxnDate": "2026-10-02",
+  "DepositToAccountRef": {
+   "value": "308",
+   "name": "Bank account 01"
+  },
+  "Line": [
+   {
+    "Id": "1",
+    "LineNum": 1,
+    "Amount": 275.0,
+    "DetailType": "DepositLineDetail",
+    "Description": "Refund, short pour",
+    "DepositLineDetail": {
+     "AccountRef": {
+      "value": "304",
+      "name": "Subcontractors - EX"
+     },
+     "Entity": {
+      "value": "201",
+      "type": "Customer"
+     }
+    }
+   }
+  ],
+  "TotalAmt": 275.0,
+  "CurrencyRef": {
+   "value": "USD"
+  },
+  "SyncToken": "0",
+  "MetaData": {
+   "CreateTime": "2026-10-02T09:00:00-04:00",
+   "LastUpdatedTime": "2026-10-02T09:00:00-04:00"
+  },
+  "PrivateNote": "Vendor refund",
+  "TxnTaxDetail": {},
+  "domain": "QBO",
+  "sparse": false
+ }
+]

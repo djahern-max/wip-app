@@ -1,0 +1,164 @@
+[
+ {
+  "Id": "301",
+  "AcctNum": "5110",
+  "Name": "Gross Payroll - LS",
+  "FullyQualifiedName": "Gross Payroll - LS",
+  "AccountType": "Cost of Goods Sold",
+  "Classification": "Expense",
+  "Active": true,
+  "SubAccount": false,
+  "CurrentBalance": 0,
+  "domain": "QBO",
+  "sparse": false,
+  "SyncToken": "0",
+  "MetaData": {
+   "CreateTime": "2026-01-02T09:00:00-04:00",
+   "LastUpdatedTime": "2026-01-02T09:00:00-04:00"
+  }
+ },
+ {
+  "Id": "302",
+  "AcctNum": "5210",
+  "Name": "Gross Payroll - EX",
+  "FullyQualifiedName": "Gross Payroll - EX",
+  "AccountType": "Cost of Goods Sold",
+  "Classification": "Expense",
+  "Active": true,
+  "SubAccount": false,
+  "CurrentBalance": 0,
+  "domain": "QBO",
+  "sparse": false,
+  "SyncToken": "0",
+  "MetaData": {
+   "CreateTime": "2026-01-02T09:00:00-04:00",
+   "LastUpdatedTime": "2026-01-02T09:00:00-04:00"
+  }
+ },
+ {
+  "Id": "303",
+  "AcctNum": "5230",
+  "Name": "Materials - EX",
+  "FullyQualifiedName": "Materials - EX",
+  "AccountType": "Cost of Goods Sold",
+  "Classification": "Expense",
+  "Active": true,
+  "SubAccount": false,
+  "CurrentBalance": 0,
+  "domain": "QBO",
+  "sparse": false,
+  "SyncToken": "0",
+  "MetaData": {
+   "CreateTime": "2026-01-02T09:00:00-04:00",
+   "LastUpdatedTime": "2026-01-02T09:00:00-04:00"
+  }
+ },
+ {
+  "Id": "304",
+  "AcctNum": "5240",
+  "Name": "Subcontractors - EX",
+  "FullyQualifiedName": "Subcontractors - EX",
+  "AccountType": "Cost of Goods Sold",
+  "Classification": "Expense",
+  "Active": true,
+  "SubAccount": false,
+  "CurrentBalance": 0,
+  "domain": "QBO",
+  "sparse": false,
+  "SyncToken": "0",
+  "MetaData": {
+   "CreateTime": "2026-01-02T09:00:00-04:00",
+   "LastUpdatedTime": "2026-01-02T09:00:00-04:00"
+  }
+ },
+ {
+  "Id": "305",
+  "AcctNum": "5135",
+  "Name": "Supplies - LS",
+  "FullyQualifiedName": "Supplies - LS",
+  "AccountType": "Cost of Goods Sold",
+  "Classification": "Expense",
+  "Active": true,
+  "SubAccount": false,
+  "CurrentBalance": 0,
+  "domain": "QBO",
+  "sparse": false,
+  "SyncToken": "0",
+  "MetaData": {
+   "CreateTime": "2026-01-02T09:00:00-04:00",
+   "LastUpdatedTime": "2026-01-02T09:00:00-04:00"
+  }
+ },
+ {
+  "Id": "306",
+  "AcctNum": "2110",
+  "Name": "Accrued Payroll",
+  "FullyQualifiedName": "Accrued Payroll",
+  "AccountType": "Other Current Liability",
+  "Classification": "Liability",
+  "Active": true,
+  "SubAccount": false,
+  "CurrentBalance": 0,
+  "domain": "QBO",
+  "sparse": false,
+  "SyncToken": "0",
+  "MetaData": {
+   "CreateTime": "2026-01-02T09:00:00-04:00",
+   "LastUpdatedTime": "2026-01-02T09:00:00-04:00"
+  }
+ },
+ {
+  "Id": "307",
+  "AcctNum": "2000",
+  "Name": "Accounts Payable (A/P)",
+  "FullyQualifiedName": "Accounts Payable (A/P)",
+  "AccountType": "Accounts Payable",
+  "Classification": "Liability",
+  "Active": true,
+  "SubAccount": false,
+  "CurrentBalance": 0,
+  "domain": "QBO",
+  "sparse": false,
+  "SyncToken": "0",
+  "MetaData": {
+   "CreateTime": "2026-01-02T09:00:00-04:00",
+   "LastUpdatedTime": "2026-01-02T09:00:00-04:00"
+  }
+ },
+ {
+  "Id": "308",
+  "AcctNum": "1010",
+  "Name": "Bank account 01",
+  "FullyQualifiedName": "Bank account 01",
+  "AccountType": "Bank",
+  "Classification": "Asset",
+  "Active": true,
+  "SubAccount": false,
+  "CurrentBalance": 0,
+  "domain": "QBO",
+  "sparse": false,
+  "SyncToken": "0",
+  "MetaData": {
+   "CreateTime": "2026-01-02T09:00:00-04:00",
+   "LastUpdatedTime": "2026-01-02T09:00:00-04:00"
+  }
+ },
+ {
+  "Id": "309",
+  "AcctNum": "2510",
+  "Name": "Company card",
+  "FullyQualifiedName": "Company card",
+  "AccountType": "Credit Card",
+  "Classification": "Liability",
+  "Active": true,
+  "SubAccount": false,
+  "CurrentBalance": 0,
+  "domain": "QBO",
+  "sparse": false,
+  "SyncToken": "0",
+  "MetaData": {
+   "CreateTime": "2026-01-02T09:00:00-04:00",
+   "LastUpdatedTime": "2026-01-02T09:00:00-04:00"
+  }
+ }
+]

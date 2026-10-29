@@ -1,0 +1,47 @@
+{
+ "Id": "98893",
+ "DocNumber": "A-1042",
+ "TxnDate": "2026-09-10",
+ "DueDate": "2026-09-10",
+ "VendorRef": {
+  "value": "7001"
+ },
+ "APAccountRef": {
+  "value": "307",
+  "name": "Accounts Payable (A/P)"
+ },
+ "Line": [
+  {
+   "Id": "1",
+   "Amount": 2000.0,
+   "DetailType": "AccountBasedExpenseLineDetail",
+   "AccountBasedExpenseLineDetail": {
+    "AccountRef": {
+     "value": "304"
+    },
+    "BillableStatus": "NotBillable",
+    "TaxCodeRef": {
+     "value": "NON"
+    },
+    "CustomerRef": {
+     "value": "201"
+    }
+   },
+   "LineNum": 1,
+   "Description": "Saw cutting"
+  }
+ ],
+ "TotalAmt": 2000.0,
+ "Balance": 2000.0,
+ "CurrencyRef": {
+  "value": "USD",
+  "name": "United States Dollar"
+ },
+ "SyncToken": "1",
+ "MetaData": {
+  "CreateTime": "2026-09-10T09:00:00-04:00",
+  "LastUpdatedTime": "2026-09-10T09:00:00-04:00"
+ },
+ "domain": "QBO",
+ "sparse": false
+}

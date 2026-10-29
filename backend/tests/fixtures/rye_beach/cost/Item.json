@@ -1,0 +1,40 @@
+[
+ {
+  "Id": "601",
+  "Name": "Crushed stone",
+  "Type": "NonInventory",
+  "Active": true,
+  "ExpenseAccountRef": {
+   "value": "303",
+   "name": "Materials - EX"
+  },
+  "IncomeAccountRef": {
+   "value": "79"
+  },
+  "PurchaseCost": 0,
+  "domain": "QBO",
+  "sparse": false,
+  "SyncToken": "0",
+  "MetaData": {
+   "CreateTime": "2026-01-02T09:00:00-04:00",
+   "LastUpdatedTime": "2026-01-02T09:00:00-04:00"
+  }
+ },
+ {
+  "Id": "602",
+  "Name": "Site service",
+  "Type": "Service",
+  "Active": true,
+  "IncomeAccountRef": {
+   "value": "79"
+  },
+  "UnitPrice": 0,
+  "domain": "QBO",
+  "sparse": false,
+  "SyncToken": "0",
+  "MetaData": {
+   "CreateTime": "2026-01-02T09:00:00-04:00",
+   "LastUpdatedTime": "2026-01-02T09:00:00-04:00"
+  }
+ }
+]

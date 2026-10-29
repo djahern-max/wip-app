@@ -6,6 +6,7 @@ import { roleWords } from "../roles.js";
 import Logo from "../Logo.jsx";
 import Config from "./Config.jsx";
 import Connections from "./Connections.jsx";
+import Cost from "./Cost.jsx";
 import Customers from "./Customers.jsx";
 import Estimates from "./Estimates.jsx";
 import Exceptions from "./Exceptions.jsx";
@@ -18,7 +19,7 @@ import Jobs from "./Jobs.jsx";
 // are read by every role, so that link needs only an active company.
 const IMPORT_ROLES = ["firm_admin", "firm_staff", "client_admin"];
 const CONFIG_ROLES = ["firm_admin", "firm_staff", "client_admin"];
-const CONNECTION_ROLES = ["firm_admin", "firm_staff", "client_admin"]; // can_view_connections
+const CONNECTION_ROLES = ["firm_admin", "firm_staff", "client_admin"]; // can_view_connections; F10: can_view_cost too
 // F07: every role reads jobs; can_manage_jobs and can_view_customer_duplicates are these.
 const JOB_MANAGER_ROLES = ["firm_admin", "firm_staff", "client_admin"];
 
@@ -216,6 +217,16 @@ export default function Shell({ me, onChanged, onLogout }) {
                 Connections
               </button>
             )}
+            {canConnections && (
+              <button
+                type="button"
+                className="nav-link"
+                aria-current={view === "cost" ? "page" : undefined}
+                onClick={() => go("cost")}
+              >
+                Cost
+              </button>
+            )}
           </nav>
         )}
         <div className={menuOpen ? "header-account header-open" : "header-account"}>
@@ -240,7 +251,13 @@ export default function Shell({ me, onChanged, onLogout }) {
         ) : active && view === "jobs" ? (
           <Jobs me={me} canManage={canManageJobs} target={jobTarget} onOpenEstimate={openEstimate} />
         ) : active && view === "exceptions" ? (
-          <Exceptions me={me} onOpenJob={openJob} onOpenEstimate={openEstimate} onOpenCustomers={() => go("customers")} />
+          <Exceptions
+            me={me}
+            onOpenJob={openJob}
+            onOpenEstimate={openEstimate}
+            onOpenCustomers={() => go("customers")}
+            onOpenCost={canConnections ? () => go("cost") : null}
+          />
         ) : active && view === "customers" && canManageJobs ? (
           <Customers me={me} onOpenJob={openJob} />
         ) : active && view === "imports" && canImport ? (
@@ -249,6 +266,8 @@ export default function Shell({ me, onChanged, onLogout }) {
           <Config me={me} target={configTarget} />
         ) : active && view === "connections" && canConnections ? (
           <Connections me={me} result={returned ? returned.result : ""} onOpen={openLink} />
+        ) : active && view === "cost" && canConnections ? (
+          <Cost me={me} onOpenCustomers={() => go("customers")} />
         ) : active ? (
           <Home me={me} companyName={active.name} onOpen={openLink} />
         ) : (

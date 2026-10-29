@@ -143,6 +143,9 @@ def _routes() -> list[Route]:
         # that does not exist in tenant A is 404 for a role the guard let through, so
         # no cell changes data. The duplicates list is for the same three roles.
         Route("GET", "/api/jobs", ALL),
+        # F10 (D-50): the Cost page is a firm screen, read by the roles that read Connections.
+        Route("GET", "/api/cost", frozenset({FA, FS, CA})),
+        Route("GET", "/api/cost/export.xlsx", frozenset({FA, FS, CA})),
         # F08: the two exports follow the jobs read (every role).
         Route("GET", "/api/jobs/export.xlsx", ALL),
         Route("GET", "/api/jobs/export.pdf", ALL),

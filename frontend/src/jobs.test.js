@@ -305,6 +305,24 @@ function elm() {
       deposit_invoiced: "0.00",
     },
     estimates: [{ estimate_id: "e1" }, { estimate_id: "e2" }],
+    cost: {
+      cost_to_date: "2361.25",
+      cost_to_date_note: null,
+      memo_cost_to_date: "0.00",
+      memo_estimated: "25500.00",
+      memo_label: "Owned equipment, vehicles and fuel",
+      estimated_in_basis: "327929.93",
+      lines: 8,
+      categories: [
+        { slot: "10", name: "Labor", estimated: "98000.00", cost_to_date: null, difference: null, in_basis: true, note: "From hours and rates, not the ledger (later)." },
+        { slot: "20", name: "Labor Burden", estimated: "19198.80", cost_to_date: null, difference: null, in_basis: true, note: "From hours and rates, not the ledger (later)." },
+        { slot: "30", name: "Materials", estimated: "120000.00", cost_to_date: "1436.25", difference: "118563.75", in_basis: true, note: null },
+        { slot: "40", name: "Subcontractors", estimated: "60000.00", cost_to_date: "925.00", difference: "59075.00", in_basis: true, note: null },
+        { slot: "45", name: "Equipment (owned)", estimated: "20000.00", cost_to_date: "0.00", difference: "20000.00", in_basis: false, note: null },
+        { slot: "65", name: "Fuel", estimated: "5500.00", cost_to_date: "0.00", difference: "5500.00", in_basis: false, note: null },
+        { slot: "90", name: "Other", estimated: "0.00", cost_to_date: "0.00", difference: "0.00", in_basis: true, note: null },
+      ],
+    },
     work_areas: [
       { id: "w1", order_no: 1, name: "Site prep", kept: true, kind: "original", confirmed: true, kind_label: "Original, confirmed", estimate_role: "original", approval_label: null, price: "100000.00", billed_to_date: "0.00", left_to_bill: "100000.00" },
       { id: "w2", order_no: 2, name: "Ledge", kept: true, kind: "change_order", confirmed: true, kind_label: "Change order, confirmed", estimate_role: "original", approved: true, approval_label: "Change order, approved 2026-09-14 by Pat Lee", price: "5475.00", billed_to_date: "5475.00", left_to_bill: "0.00" },
@@ -355,6 +373,7 @@ test("F09.6: the facts are the same fields as before, formatted the same, with t
       ["Open A/R", "10,950.00", false, null],
       ["Unapproved change orders", "49,275.00", false, "9 change orders"],
       ["EAC in the WIP basis", "327,929.93", false, null],
+      ["Cost to date", "2,361.25", false, "before owned equipment and fuel"],
     ],
   );
   const bare = jobFacts({
@@ -376,9 +395,15 @@ test("F09.6: the facts are the same fields as before, formatted the same, with t
       ["Open A/R", "10,950.00", null],
       ["Unapproved change orders", "None", null],
       ["EAC in the WIP basis", "Not computed", "Labor burden is in the basis and is not computed."],
+      ["Cost to date", "2,361.25", "before owned equipment and fuel"],
     ],
   );
   assert.equal(jobFacts({ ...elm(), unapproved_change_order_count: 1 })[5].note, "1 change order");
+  // F10: the cost fact reads the API's words while the basis is not decided, and is left out
+  // of a response without the block.
+  const undecided = jobFacts({ ...elm(), cost: { ...elm().cost, cost_to_date: null, cost_to_date_note: "Not computed: the WIP basis is not decided." } });
+  assert.deepEqual([undecided[7].value, undecided[7].note], ["Not computed: the WIP basis is not decided.", "before owned equipment and fuel"]);
+  assert.equal(jobFacts({ ...elm(), cost: undefined }).length, 7);
   // The as-of and contract sentences, joined, with no decision number.
   const sentence = factsSentence(elm());
   assert.ok(sentence.startsWith("Sample Landscaping. Figures to date as of 2026-10-27, computed from QuickBooks when read; nothing is stored."));
@@ -441,4 +466,32 @@ test("F09.6: the head's primary action is the billing request, with the label th
   assert.equal(requestLabel({ applications: [{ status: "issued" }] }), "New billing request");
   assert.equal(requestLabel({ applications: [{ status: "draft" }] }), "Edit billing request");
   assert.equal(requestLabel(null), "New billing request");
+});
+
+test("F10: the cost table lists the basis categories with estimated, cost to date and the difference, and folds the memo ones", async () => {
+  const { costRows, costSentence, LABOR_COST_WORDS } = await import("./jobs.js");
+  const { rows, memo } = costRows(elm());
+  assert.deepEqual(
+    rows.map((r) => [r.name, r.estimated, r.cost, r.difference]),
+    [
+      ["Labor", "98,000.00", LABOR_COST_WORDS, ""],
+      ["Labor Burden", "19,198.80", LABOR_COST_WORDS, ""],
+      ["Materials", "120,000.00", "1,436.25", "118,563.75"],
+      ["Subcontractors", "60,000.00", "925.00", "59,075.00"],
+      ["Other", "0.00", "0.00", "0.00"],
+    ],
+  );
+  assert.deepEqual([memo.label, memo.estimated, memo.cost, memo.difference], ["Owned equipment, vehicles and fuel", "25,500.00", "0.00", "25,500.00"]);
+  // No estimate on the job: the words, never a dash; a job with no block: no rows.
+  const bare = costRows({ ...elm(), cost: { ...elm().cost, memo_estimated: null, categories: elm().cost.categories.map((c) => ({ ...c, estimated: null, difference: null })) } });
+  assert.equal(bare.rows[2].estimated, "None");
+  assert.equal(bare.rows[2].difference, "");
+  assert.deepEqual([bare.memo.estimated, bare.memo.difference], ["None", ""]);
+  assert.deepEqual(costRows({ ...elm(), cost: undefined }), { rows: [], memo: null });
+  // While the basis is not decided every category is a row and the memo row still shows.
+  const undecided = costRows({ ...elm(), cost: { ...elm().cost, categories: elm().cost.categories.map((c) => ({ ...c, in_basis: null })) } });
+  assert.equal(undecided.rows.length, 7);
+  const sentence = costSentence(elm());
+  assert.ok(sentence.startsWith("Cost to date is what QuickBooks posted to this job's cost accounts, by cost category, as of 2026-10-27."));
+  assert.ok(!/D-\d\d/.test(sentence));
 });

@@ -1129,10 +1129,76 @@ job in `app/domain/exceptions/collect.py`) and held as exceptions by the F09 run
 applied (D-41), the unapproved flag, the three pay-application ties, then the F07.4
 needs, first rule that applies; a dismissed exception is not a need anywhere.
 
+## Cost (F10, D-51)
+
+The ledger's cost side, line by line. The sync already holds every Bill, Vendor Credit,
+Purchase (card, check, cash), Journal Entry and Deposit raw from the history start (D-48);
+F10 normalizes them into `ledger_line`: one row per line that posts to an expense-side
+account (a chart account typed Cost of Goods Sold or Expense, an account whose confirmed
+mapping makes it job cost or gives it a cost category, or a QuickBooks account of those
+types the chart does not hold), with the account, the vendor, the line's customer
+reference, the job it aliases to and the signed amount as QuickBooks posted it. Lines to
+balance-sheet accounts (A/P, a bank, accrued payroll, a card) are never stored. Nothing is
+written to QuickBooks or to Ramp.
+
+- **What the normalizer does** (`qbo.normalize` for a changed document; `cost.run` for every
+  document after a backfill, after a poll that stored an Item, and once per tenant when
+  the worker starts): a Bill line is positive, a Vendor Credit line negative, a Purchase
+  line positive (negative with `Credit = true`), a Journal Entry line positive for a debit
+  and negative for a credit, a Deposit line negative; an item-based line takes the item's
+  expense account, an item with none leaves the line under "No account"; a delete stub or
+  a void sets `deleted_at` on every line; a document that returns with fewer lines loses
+  them; a payload that cannot be read is skipped and counted on Connections under "Could
+  not be read" for its entity. **A line's job is the customer or project on the line in
+  QuickBooks, by alias, and nothing else**: the platform never decides a job for a line.
+  A link or an unlink queues one `cost.run` (job ids only) so the lines on that row take or
+  leave the job.
+- **The Cost page** (firm roles and `client_admin`; under Connections): the tie-out by
+  month and account with five parts, on jobs, owned equipment and fuel on jobs (the
+  categories outside the WIP basis, D-04), unassigned, labor in the ledger, outside job
+  cost (unmapped, not in the chart, no account, or mapped with job cost off such as shared
+  fuel), and the ledger total they add up to by construction, so the tick means "every
+  payload read" and shows the skipped count beside it. **The external check is yours**:
+  compare each account's ledger total to the QuickBooks Profit and Loss by account for the
+  month (accrual); a difference is a line the platform could not read (the skipped count)
+  or a document dated outside the month in QuickBooks, never a line it reclassified. Under
+  it, **Unassigned** by document (date, document, vendor, account, amount, the customer row
+  it names or "No customer", "Open the customer" for a tracked row) and **Labor in the
+  ledger** by month and division. One action: Export (XLSX, the tie-out tab and the
+  unassigned tab). The nightly check gains the cost side: `ledger_line` sums by month and
+  account against a re-sum of the raw payloads; a difference ends the run `drift` and the
+  page names the month and account.
+- **Reading unassigned, and what to fix where.** A line coded to no customer, or to a
+  customer or project that has no job, is unassigned: it is in no job's cost to date and
+  raises `COST_UNASSIGNED` (one per document; the subject is the customer row, or the
+  company for "no customer"). Fix it at the source, never on the platform: in Ramp, code
+  the Customer/Job on the line (the sync picks the change up on the next poll); in
+  QuickBooks, set the customer on the line; or, when the row is right and only the link is
+  missing, link the row to its job on Customers (or make the job first). A line to the
+  pool project is on the pool job (D-30), never unassigned. Labor posted to 5n10 and 5n20
+  is never unassigned: it is labor in the ledger until F11 costs it from hours and rates.
+  `COST_DIVISION_MISMATCH` (a 5240 line on a Landscaping job) is a coding question for the
+  project manager; dismiss it with a note when the coding is right.
+- **On the job page** a client reads cost to date in the WIP basis as one fact ("before
+  owned equipment and fuel") and one table by cost category: estimated (the estimate's cost
+  lines, burden computed), cost to date, difference; the owned equipment, vehicles and fuel
+  categories folded into one row; Labor reads "From hours and rates, later". No drill-down
+  until F12.
+- **Confirming a mapping later** changes every figure at once: division, cost category,
+  job cost and WIP-basis membership are read from `account_map` and the policy when the
+  page is read, never stored on the line. An account that is not mapped, or a QuickBooks
+  account the chart does not hold ("Not in the chart", the legacy COGS accounts outside the
+  slot scheme), shows under outside job cost until it is mapped or renumbered.
+
+Reading the lines by hand (as `app_rw`, with `SET LOCAL app.tenant_id`):
+`SELECT txn_date, txn_type, doc_number, account_external_id, customer_external_id, job_id,
+amount FROM ledger_line WHERE deleted_at IS NULL ORDER BY txn_date;`
+
 ## Exceptions (F09, D-46)
 
 An **exception** is a review sentence with an identity that lasts: the subject (a job, an
-estimate or a QuickBooks customer row), the code and the item it is about (a work area, a
+estimate, a QuickBooks customer row or, since F10, the company for a cost line coded to no
+customer), the code and the item it is about (a work area, a
 document, a payment, an approval). It is **open** until its cause is gone (**resolved**,
 set only by the run) or a person **dismisses** it with a note. The Exceptions page (every
 role) lists the company's exceptions, open first, then by severity, then oldest first,

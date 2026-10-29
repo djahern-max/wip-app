@@ -145,19 +145,15 @@ Design only: page head with the one primary action, the tie-out line in the stat
 Design only, for a client reader (D-50): the head with the one primary action (the billing request), the facts block, the attention block, one work-areas table with the approval control in the row, the invoices by document with the deposit row first, the pay applications and the approval history. The set-up blocks (estimates, header edit, work-area confirm, QuickBooks links, invoice-line assignment) moved as they are to a set-up view drawn for firm roles only, linked from a firm line under the head. No figure, no API response and no permission changed.
 **Accept**: every figure the same field as before; no set-up control for a client role; the set-up view with every control it had; no sideways page scroll at 1280 px and 390 px; one primary action per screen; the owner's pass signed in as a client role and as the firm admin.
 
-### F09.7 · The firm's set-up view of a job, designed  ☐
-Design only: the blocks lifted in F09.6 under the F09.1 paint, for firm roles. No figure, request, audit row or permission changes.
-**Accept**: every control works as before; no sideways page scroll at 1280 px and 390 px; one primary action.
-
 > **Release B**: you can answer "who has paid a deposit, what is billed, what is left to bill" for every sold job, with backlog by division and estimator.
 
 ---
 
 ## Phase C — Costs
 
-### F10 · GL cost sync  ☐
-Bills, Vendor Credits, Purchases (card/check/cash), Journal Entries → `ledger_line` at **line** level with job reference, account, vendor. Apply `account_map`. `COST_UNASSIGNED` and `COST_DIVISION_MISMATCH` exceptions.
-**Accept**: GL-direct job cost + unassigned = QBO P&L COGS by account for each closed month; a Ramp-synced expense with a Customer/Job value lands on the right job with its receipt link.
+### F10 · GL cost sync  ◐ (built 2026-10-29 in one commit, migration 0017, D-51; express mode; the owner's pass on jobcost.dev, tenant `rye-beach`, is open; see `docs/briefs/F10.md`)
+Bills, Vendor Credits, Purchases (card/check/cash), Journal Entries and the cost lines of Deposits → `ledger_line` at **line** level with job reference (the line's `CustomerRef` by alias, D-51), account, vendor and the signed amount. `account_map` and the WIP basis applied on read, never stored. `COST_UNASSIGNED` and `COST_DIVISION_MISMATCH` exceptions in the F09 queue. The Cost page (firm) with the tie-out by month and account, the unassigned list, labor in the ledger and the XLSX export; cost to date on the client's job page by cost category.
+**Accept**: GL-direct job cost + unassigned = QBO P&L COGS by account for each closed month; a Ramp-synced expense with a Customer/Job value lands on the right job with its receipt link. As built: on the constructed fixture every month and account ties (on jobs + memo on jobs + unassigned + labor in the ledger + outside job cost = the lines held = the raw re-sum); the P&L comparison and the Ramp card transaction are the owner's pass.
 
 ### F11 · Labor import & costing  ☐
 `LaborSource` protocol, LMN timesheet parser, isolved register parser → `employee_rate` (effective-dated, encrypted, restricted), `labor_entry`, burden application, OT handling where source provides it.
@@ -166,6 +162,10 @@ Bills, Vendor Credits, Purchases (card/check/cash), Journal Entries → `ledger_
 ### F12 · Job Detail (full) & Job Profitability  ☐
 Estimate vs actual by cost category, hours estimated vs actual, drill to source transaction with QBO deep link, all job types.
 **Accept**: a job's cost total equals the sum of its drill-down lines; category totals across jobs tie to F10/F11 tie-outs.
+
+### F09.7 · The firm's set-up view of a job, designed  ☐ (moved 2026-10-29 (express mode): the set-up view is designed once, after F12 reshapes the job page)
+Design only: the blocks lifted in F09.6 under the F09.1 paint, for firm roles. No figure, request, audit row or permission changes.
+**Accept**: every control works as before; no sideways page scroll at 1280 px and 390 px; one primary action.
 
 ### F13 · GL Tie-out screen  ☐
 §8.5 checks 1–4 and 6 on one page per period, with tolerances and waive-with-note.

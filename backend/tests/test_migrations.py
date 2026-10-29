@@ -64,6 +64,8 @@ EXPECTED_TABLES = {
     # F09 (0016): the exceptions queue (D-46); exception_event append-only
     "exception",
     "exception_event",
+    # F10 (0017): the ledger's cost lines (D-51)
+    "ledger_line",
 }
 F06_TABLES = {"estimate", "estimate_version", "estimate_work_area", "estimate_cost"}
 F07_TABLES = {"job", "job_estimate", "job_alias"}
@@ -73,6 +75,7 @@ F07_4_TABLES = {"change_order_approval"}  # 0013 (D-42)
 F08_1_TABLES = {"billing_line_work_area"}  # 0014 (D-45)
 F08_1_PART_2_TABLES = {"pay_application", "pay_application_line"}  # 0015 (D-36)
 F09_TABLES = {"exception", "exception_event"}  # 0016 (D-46)
+F10_TABLES = {"ledger_line"}  # 0017 (D-51)
 F03_TABLES = {"connection", "sync_run", "import_batch", "raw_record", "task"}
 F05_TABLES = {"customer", "billing", "billing_line", "payment", "payment_application"}
 F04_TABLES = {

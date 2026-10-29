@@ -346,6 +346,7 @@ class QboCopyOut(_Out):
     entities: list[QboEntityCountOut]
     month_totals: list[QboMonthTotalsOut]
     attention: list[QboAttentionOut]
+    cost_lines_held: int = 0  # F10: live ledger_line rows ("Cost lines: n held")
     last_sync: QboSyncRunOut | None
     backfill: QboSyncRunOut | None
     backfill_needed: bool
@@ -800,7 +801,35 @@ class JobsOut(_Out):
     unapproved_change_order_count: int
 
 
+class JobCategoryCostOut(_Out):
+    """F10: one cost category on the job page: the F06.1 estimated figure and cost to date
+    from the ledger (money as strings; None where a figure is not shown, the note says why)."""
+
+    slot: str
+    name: str
+    estimated: str | None
+    cost_to_date: str | None
+    difference: str | None  # estimated − cost to date
+    in_basis: bool | None  # None: the WIP basis is not decided
+    note: str | None
+
+
+class JobCostOut(_Out):
+    """F10 (D-51): cost to date on the job, computed on read from ``ledger_line``, in the WIP
+    basis and memo (D-04)."""
+
+    cost_to_date: str | None  # in the WIP basis; None: not computed (basis undecided)
+    cost_to_date_note: str | None
+    memo_cost_to_date: str
+    memo_estimated: str | None
+    memo_label: str
+    estimated_in_basis: str | None  # the job's EAC in the WIP basis (the F06.1 figure)
+    categories: list[JobCategoryCostOut]
+    lines: int
+
+
 class JobDetailOut(JobRowOut):
+    cost: JobCostOut  # F10
     notes: str | None
     created_at: str
     created_by: str | None
@@ -1098,7 +1127,7 @@ class DuplicatesOut(_Out):
 
 
 class ExceptionSubjectOut(_Out):
-    type: str  # job | estimate | customer
+    type: str  # job | estimate | customer | tenant (F10: "No customer")
     id: str
     label: str  # the job's name, the estimate's number, the QuickBooks row's name
 
@@ -1150,3 +1179,65 @@ class ExceptionsOut(_Out):
     counts: ExceptionCountsOut  # open, by severity, whatever the filters
     members: list[ExceptionMemberOut]  # who an exception can be assigned to
     can_manage: bool  # the caller may assign, dismiss and reopen
+
+
+# --- F10: the Cost page (firm reader) -------------------------------------------------------
+
+
+class CostTieRowOut(_Out):
+    """One month and account of the cost tie-out (§8.5 check 2): the five parts and the
+    ledger total, money as strings."""
+
+    month: str
+    account_key: str
+    account_label: str
+    in_chart: bool
+    on_jobs: str
+    memo_on_jobs: str
+    unassigned: str
+    labor_in_ledger: str
+    outside_job_cost: str
+    total: str
+    difference: str
+    balanced: bool
+
+
+class CostUnassignedOut(_Out):
+    """One document (and customer reference) over the unassigned lines, words first."""
+
+    txn_type: str
+    txn_type_label: str
+    txn_external_id: str
+    document: str
+    txn_date: str
+    vendor: str | None
+    accounts: str
+    amount: str
+    customer_label: str  # the row's name, "QuickBooks customer <id>" or "No customer"
+    customer_id: str | None
+    customer_tracked: bool
+    lines: int
+
+
+class CostLaborRowOut(_Out):
+    month: str
+    division_code: str | None
+    division_name: str | None
+    amount: str
+
+
+class CostPageOut(_Out):
+    tenant_name: str
+    as_of: str
+    history_start: str | None
+    status: str  # words first (D-22, D-49)
+    balanced: bool
+    months: int
+    accounts: int
+    skipped: int
+    lines_held: int
+    policy_note: str | None
+    memo_label: str
+    tie_out: list[CostTieRowOut]
+    unassigned: list[CostUnassignedOut]
+    labor: list[CostLaborRowOut]

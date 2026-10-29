@@ -9,6 +9,7 @@ from decimal import Decimal
 import pytest
 
 from app.domain.billing.figures import words
+from app.domain.cost import exceptions as cost
 from app.domain.estimates import exceptions as est
 from app.domain.exceptions import registry
 from app.domain.exceptions.models import SEVERITIES, SEVERITY_LABELS
@@ -47,6 +48,7 @@ BILLING_SET = {
     "INVOICE_NO_PAYAPP",
     "PAYAPP_INVOICE_MISMATCH",
 }
+COST_SET = {"COST_UNASSIGNED", "COST_DIVISION_MISMATCH"}  # F10 (D-51)
 NOT_QUEUED = {
     "BILLING_OVER_100",
     "BILLING_UNPRICED_CO",
@@ -58,13 +60,14 @@ NOT_QUEUED = {
 
 
 def test_every_code_in_scope_has_one_row_and_nothing_else_is_queued() -> None:
-    assert registry.CODES == ESTIMATE_SET | JOB_AND_LINK_SET | BILLING_SET
+    assert registry.CODES == ESTIMATE_SET | JOB_AND_LINK_SET | BILLING_SET | COST_SET
     assert registry.CODES.isdisjoint(NOT_QUEUED)
     # Every sentence a generator in scope can produce has a row (the sentence tables).
     assert ESTIMATE_SET | {"EST_NO_ID"} == set(est.SENTENCES)
     assert JOB_AND_LINK_SET | BILLING_SET | NOT_QUEUED - {"EST_NO_ID"} == set(issues.SENTENCES)
+    assert COST_SET == set(cost.SENTENCES)
     for s in registry.SPECS:
-        assert s.severity in SEVERITIES and s.subject in ("job", "estimate", "customer")
+        assert s.severity in SEVERITIES and s.subject in ("job", "estimate", "customer", "tenant")
     assert set(SEVERITY_LABELS) == set(SEVERITIES)
 
 
@@ -87,6 +90,8 @@ def test_severities_are_section_10s_and_warn_for_the_ten_codes_it_did_not_list()
         "PAYAPP_NOT_INVOICED": "warn",
         "INVOICE_NO_PAYAPP": "warn",
         "PAYAPP_INVOICE_MISMATCH": "warn",
+        "COST_UNASSIGNED": "warn",  # F10 (§10: warn, totals shown on the tie-out)
+        "COST_DIVISION_MISMATCH": "warn",
     }
     added = {s.code for s in registry.SPECS if not s.listed}
     assert len(added) == 10 and all(registry.spec(c).severity == "warn" for c in added)
@@ -118,6 +123,12 @@ def _issue(code: str, **detail) -> est.Issue:
         ("PAYMENT_OTHER_CREDIT", {"payment_id": "p1", "amount": "200.00"}, "p1"),
         ("PAYAPP_NOT_INVOICED", {"application": "a1", "number": 3}, "a1"),
         ("INVOICE_NO_PAYAPP", {"billing_id": "b2"}, "b2"),
+        (
+            "COST_UNASSIGNED",
+            {"txn_type": "Bill", "txn_external_id": "98893", "amount": "2000.00"},
+            "Bill:98893",
+        ),
+        ("COST_DIVISION_MISMATCH", {"txn_type": "Bill", "txn_external_id": "98908"}, "Bill:98908"),
         ("PAYAPP_INVOICE_MISMATCH", {"application": "a1", "difference": "1.00"}, "a1"),
         ("BILLING_UNAPPROVED_CO", {"amount": "49275.00", "work_areas": ["#18"]}, ""),
         ("PAYMENT_UNAPPLIED", {"amount": "100.00", "payments": 1}, ""),

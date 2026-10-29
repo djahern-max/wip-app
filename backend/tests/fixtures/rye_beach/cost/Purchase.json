@@ -1,0 +1,96 @@
+[
+ {
+  "Id": "5001",
+  "DocNumber": "",
+  "TxnDate": "2026-09-15",
+  "PaymentType": "CreditCard",
+  "AccountRef": {
+   "value": "309",
+   "name": "Company card"
+  },
+  "EntityRef": {
+   "value": "7002",
+   "name": "Vendor B Supply",
+   "type": "Vendor"
+  },
+  "Line": [
+   {
+    "Id": "1",
+    "Amount": 315.75,
+    "DetailType": "AccountBasedExpenseLineDetail",
+    "AccountBasedExpenseLineDetail": {
+     "AccountRef": {
+      "value": "303"
+     },
+     "BillableStatus": "NotBillable",
+     "TaxCodeRef": {
+      "value": "NON"
+     },
+     "CustomerRef": {
+      "value": "201"
+     }
+    },
+    "Description": "Pipe fittings"
+   }
+  ],
+  "TotalAmt": 315.75,
+  "CurrencyRef": {
+   "value": "USD"
+  },
+  "SyncToken": "0",
+  "MetaData": {
+   "CreateTime": "2026-09-15T09:00:00-04:00",
+   "LastUpdatedTime": "2026-09-15T09:00:00-04:00"
+  },
+  "PrivateNote": "Ramp card; receipt in Ramp",
+  "domain": "QBO",
+  "sparse": false
+ },
+ {
+  "Id": "5002",
+  "DocNumber": "1077",
+  "TxnDate": "2026-09-20",
+  "PaymentType": "Check",
+  "Credit": true,
+  "AccountRef": {
+   "value": "308",
+   "name": "Bank account 01"
+  },
+  "EntityRef": {
+   "value": "7001",
+   "name": "Vendor A Concrete",
+   "type": "Vendor"
+  },
+  "Line": [
+   {
+    "Id": "1",
+    "Amount": 400.0,
+    "DetailType": "AccountBasedExpenseLineDetail",
+    "AccountBasedExpenseLineDetail": {
+     "AccountRef": {
+      "value": "304"
+     },
+     "BillableStatus": "NotBillable",
+     "TaxCodeRef": {
+      "value": "NON"
+     },
+     "CustomerRef": {
+      "value": "201"
+     }
+    },
+    "Description": "Refund of overpayment"
+   }
+  ],
+  "TotalAmt": 400.0,
+  "CurrencyRef": {
+   "value": "USD"
+  },
+  "SyncToken": "0",
+  "MetaData": {
+   "CreateTime": "2026-09-20T09:00:00-04:00",
+   "LastUpdatedTime": "2026-09-20T09:00:00-04:00"
+  },
+  "domain": "QBO",
+  "sparse": false
+ }
+]

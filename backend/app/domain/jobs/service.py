@@ -1302,6 +1302,7 @@ def link_alias(
             "customer.tracked_at": [before_tracked, row.tracked_at.isoformat()],
         },
     )
+    _request_cost_run(db, tenant_id)  # F10: the lines on this row take the job
     return alias
 
 
@@ -1340,6 +1341,15 @@ def unlink_alias(db: Session, tenant_id: UUID, job_id: UUID, alias_id: UUID, act
             ],
         },
     )
+    _request_cost_run(db, tenant_id)  # F10: the lines on this row leave the job
+
+
+def _request_cost_run(db: Session, tenant_id: UUID) -> None:
+    """F10 (D-51): a link or an unlink queues one cost run that fills and clears
+    ``ledger_line.job_id`` from the aliases, as F09's refresh follows a write."""
+    from app.domain.cost.run import request_cost_run
+
+    request_cost_run(db, tenant_id, full=False)
 
 
 def _original_work_areas(

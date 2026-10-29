@@ -18,7 +18,7 @@ SEVERITY_LABELS: dict[str, str] = {
     "warn": "Needs attention",
     "block_close": "Blocks period close",
 }
-SUBJECT_TYPES: tuple[str, ...] = ("job", "estimate", "customer")
+SUBJECT_TYPES: tuple[str, ...] = ("job", "estimate", "customer", "tenant")  # tenant: F10 (D-51)
 STATUSES: tuple[str, ...] = ("open", "resolved", "dismissed")
 STATUS_LABELS: dict[str, str] = {"open": "Open", "resolved": "Resolved", "dismissed": "Dismissed"}
 EVENT_KINDS: tuple[str, ...] = (
@@ -41,7 +41,7 @@ EVENT_LABELS: dict[str, str] = {
 }
 
 SEVERITY_SQL = "severity IN ('info','warn','block_close')"
-SUBJECT_SQL = "subject_type IN ('job','estimate','customer')"
+SUBJECT_SQL = "subject_type IN ('job','estimate','customer','tenant')"
 STATUS_SQL = "status IN ('open','resolved','dismissed')"
 RESOLVED_SQL = "(status = 'resolved') = (resolved_at IS NOT NULL)"
 DISMISSED_SQL = "(status = 'dismissed') = (dismissed_at IS NOT NULL AND dismissed_by IS NOT NULL)"

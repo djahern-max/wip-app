@@ -97,6 +97,8 @@ can_issue_pay_applications = require_roles(*FIRM_AND_CLIENT_ADMIN)
 can_view_exceptions = require_roles(*ALL_ROLES)
 can_note_exceptions = require_roles(*ALL_ROLES)
 can_manage_exceptions = require_roles(*FIRM_AND_CLIENT_ADMIN)
+# F10 (D-50): the Cost page is a firm screen read by the roles that read Connections.
+can_view_cost = require_roles(*FIRM_AND_CLIENT_ADMIN)
 # Firm-level (no active tenant needed)
 can_manage_users = require_firm_role(Role.firm_admin)
 can_manage_memberships = require_firm_role(Role.firm_admin)
@@ -151,6 +153,7 @@ CAPABILITIES: dict[str, tuple[Guard, frozenset[Role], str]] = {
     "view_exceptions": (can_view_exceptions, frozenset(ALL_ROLES), "tenant"),
     "note_exceptions": (can_note_exceptions, frozenset(ALL_ROLES), "tenant"),
     "manage_exceptions": (can_manage_exceptions, frozenset(FIRM_AND_CLIENT_ADMIN), "tenant"),
+    "view_cost": (can_view_cost, frozenset(FIRM_AND_CLIENT_ADMIN), "tenant"),
     "manage_users": (can_manage_users, frozenset({Role.firm_admin}), "firm"),
     "manage_memberships": (can_manage_memberships, frozenset({Role.firm_admin}), "firm"),
     "manage_firm_memberships": (

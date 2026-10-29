@@ -562,6 +562,7 @@ def test_no_float_conversion_on_ingestion_paths() -> None:
                 "app/core/jsoncodec.py",
                 "app/integrations/",
                 "app/domain/jobs/",  # F07: the contract path
+                "app/domain/cost/",  # F10: the cost path (D-51)
             )
         ):
             for m in re.finditer(r"(?<![\w.])float\(", src):

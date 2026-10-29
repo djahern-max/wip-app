@@ -27,10 +27,12 @@ from app.domain.billing.models import (
 from app.domain.config import burden, policy
 from app.domain.config.audit import Actor
 from app.domain.config.service import create_division
+from app.domain.cost.models import LedgerLine
 from app.domain.exceptions import service as exceptions_service
 from app.domain.exceptions.models import ReviewException
 from app.domain.exceptions.run import refresh
 from app.domain.jobs.models import ChangeOrderApproval
+from app.ingest.models import RawRecord
 from app.tenancy import catalog
 from app.tenancy.models import RlsProbe, Tenant, UserSession
 from scripts import delete_tenant
@@ -165,6 +167,23 @@ def _fill_every_tenant_table(
                 estimate_work_area_id=approval.estimate_work_area_id,
                 scheduled_value=approval.price,
                 percent_complete=Decimal("50.00"),
+            )
+        )
+    # F10: one ledger line (the cost side), on a raw record the tenant holds.
+    with tenant_session(owner_engine, tenant_id) as db:
+        raw_id = db.execute(select(RawRecord.id)).scalars().first()
+        db.add(
+            LedgerLine(
+                tenant_id=tenant_id,
+                source="qbo",
+                txn_type="Bill",
+                txn_external_id="98892",
+                line_external_id="1",
+                line_no=1,
+                txn_date=date(2026, 9, 4),
+                account_external_id="304",
+                amount=Decimal("1250.00"),
+                raw_record_id=raw_id,
             )
         )
     # F09: the exceptions run (exception, exception_event) and one note.

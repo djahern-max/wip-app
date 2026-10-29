@@ -130,16 +130,14 @@ def test_d49_is_in_decisions_once_directly_after_d48_and_word_for_word() -> None
     assert "does not tie" in entry and "still not allowed" in entry
 
 
-def test_d50_is_in_decisions_once_directly_after_d49_last_and_word_for_word() -> None:
+def test_d50_is_in_decisions_once_directly_after_d49_and_word_for_word() -> None:
     """F09.6: D-50 (2026-10-27) says one practice operates the platform and a client works
     only on its jobs; appended from the brief word for word; it is the one decision after
-    D-49 and the last; the order from D-38 on is unbroken."""
+    D-49 (D-51 follows it since F10)."""
     decisions = DECISIONS.read_text()
     order = [m.group(1) for m in re.finditer(r"^## (D-\d+[a-z]?) ·", decisions, re.M)]
     assert order.count("D-50") == 1
-    assert order.index("D-50") == order.index("D-49") + 1 == len(order) - 1
-    run = [f"D-{n}" for n in range(38, 51)]
-    assert order[order.index("D-38") :] == run
+    assert order.index("D-50") == order.index("D-49") + 1
     brief = _brief("D-50", "F09.6.md")
     assert _entry(decisions, "D-50") == _entry(brief, "D-50")
     entry = _entry(decisions, "D-50")
@@ -147,3 +145,23 @@ def test_d50_is_in_decisions_once_directly_after_d49_last_and_word_for_word() ->
     assert "reached only by firm roles" in entry
     assert "a brief for one states who the reader is before anything else" in entry
     assert "D-17 (extended, not amended" in entry
+
+
+def test_d51_is_in_decisions_once_directly_after_d50_last_and_word_for_word() -> None:
+    """F10: D-51 (2026-10-29, express mode) says job cost comes from the ledger line by
+    line, a line's job is its customer reference, and labor-slot accounts are tied, never
+    costed; appended from the brief word for word; it is the one decision after D-50 and
+    the last; the order from D-38 on is unbroken."""
+    decisions = DECISIONS.read_text()
+    order = [m.group(1) for m in re.finditer(r"^## (D-\d+[a-z]?) ·", decisions, re.M)]
+    assert order.count("D-51") == 1
+    assert order.index("D-51") == order.index("D-50") + 1 == len(order) - 1
+    run = [f"D-{n}" for n in range(38, 52)]
+    assert order[order.index("D-38") :] == run
+    brief = _brief("D-51", "F10.md")
+    assert _entry(decisions, "D-51") == _entry(brief, "D-51")
+    entry = _entry(decisions, "D-51")
+    assert "A line's job is the job aliased to the line's `CustomerRef` and nothing else" in entry
+    assert "never job cost and never unassigned" in entry
+    assert "never stored on the line" in entry
+    assert "Nothing is written to QuickBooks" in entry

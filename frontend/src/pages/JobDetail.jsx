@@ -8,6 +8,8 @@ import {
   canApproveChangeOrders,
   canEnterBillingRequest,
   changeOrderWords,
+  costRows,
+  costSentence,
   factsSentence,
   figureOr,
   firmLineWords,
@@ -36,6 +38,9 @@ import PayApplications from "./PayApplications.jsx";
 // invoice lines are the firm's work, on the set-up view (JobSetup.jsx), which a firm role
 // opens from the line under the head. Every figure is the field it was, formatted by the
 // same function; nothing is computed here. Mount effects only read (GET).
+// F10 (D-04, D-51): one more fact, cost to date in the WIP basis, and one block under
+// Attention, "Cost to date" by cost category (estimated, cost to date, difference) with the
+// owned equipment, vehicles and fuel categories folded into one aside row; no drill-down.
 
 export default function JobDetail({ me, jobId, onBack, onOpenSetup }) {
   const [job, setJob] = useState(null);
@@ -204,6 +209,7 @@ export default function JobDetail({ me, jobId, onBack, onOpenSetup }) {
   const facts = jobFacts(job);
   const areas = workAreaRows(job);
   const invoices = invoiceRows(job);
+  const cost = costRows(job);
 
   return (
     <div>
@@ -264,6 +270,41 @@ export default function JobDetail({ me, jobId, onBack, onOpenSetup }) {
         )}
         <Dismissed items={job.dismissed} />
       </section>
+
+      {cost.memo && (
+        <>
+          <h3>Cost to date</h3>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Category</th>
+                  <th className="num">Estimated</th>
+                  <th className="num">Cost to date</th>
+                  <th className="num">Difference</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cost.rows.map((r) => (
+                  <tr key={r.slot}>
+                    <td>{r.name}</td>
+                    <td className="num">{r.estimated}</td>
+                    <td className="num">{r.cost}</td>
+                    <td className="num">{r.difference}</td>
+                  </tr>
+                ))}
+                <tr className="aside">
+                  <td>{cost.memo.label}</td>
+                  <td className="num">{cost.memo.estimated}</td>
+                  <td className="num">{cost.memo.cost}</td>
+                  <td className="num">{cost.memo.difference}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p className="hint table-note">{costSentence(job)}</p>
+        </>
+      )}
 
       <h3>Work areas</h3>
       {areas.length === 0 ? (

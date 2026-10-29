@@ -1,0 +1,41 @@
+[
+ {
+  "Id": "7001",
+  "DisplayName": "Vendor A Concrete",
+  "Active": true,
+  "Vendor1099": false,
+  "domain": "QBO",
+  "sparse": false,
+  "SyncToken": "0",
+  "MetaData": {
+   "CreateTime": "2026-01-02T09:00:00-04:00",
+   "LastUpdatedTime": "2026-01-02T09:00:00-04:00"
+  }
+ },
+ {
+  "Id": "7002",
+  "DisplayName": "Vendor B Supply",
+  "Active": true,
+  "Vendor1099": false,
+  "domain": "QBO",
+  "sparse": false,
+  "SyncToken": "0",
+  "MetaData": {
+   "CreateTime": "2026-01-02T09:00:00-04:00",
+   "LastUpdatedTime": "2026-01-02T09:00:00-04:00"
+  }
+ },
+ {
+  "Id": "7003",
+  "DisplayName": "Vendor C Seed",
+  "Active": true,
+  "Vendor1099": false,
+  "domain": "QBO",
+  "sparse": false,
+  "SyncToken": "0",
+  "MetaData": {
+   "CreateTime": "2026-01-02T09:00:00-04:00",
+   "LastUpdatedTime": "2026-01-02T09:00:00-04:00"
+  }
+ }
+]

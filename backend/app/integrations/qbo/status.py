@@ -18,6 +18,8 @@ from app.api.schemas import (
 from app.domain.billing.report import before_start_counts, current_counts, skipped_counts
 from app.domain.billing.sync import chart_match, unlinked_deposit_lines
 from app.domain.billing.totals import month_totals
+from app.domain.cost import report as cost_report
+from app.domain.cost.load import lines_held
 from app.ingest.models import Connection, SyncRun
 from app.integrations.qbo.entities import ENTITIES, TRANSACTIONAL
 from app.integrations.qbo.schedule import cursor_too_old, open_backfill, resume_cursor
@@ -69,6 +71,12 @@ def _run_out(run: SyncRun | None) -> QboSyncRunOut | None:
                     f"{month} {column.replace('_', ' ')}: rows {v.get('normalized')}, "
                     f"raw {v.get('raw')}"
                 )
+        for month, accounts in (detail.get("cost") or {}).items():  # F10
+            for account, v in accounts.items():
+                parts.append(
+                    f"{month} cost, QuickBooks account {account}: lines {v.get('lines')}, "
+                    f"raw {v.get('raw')}"
+                )
         message = "; ".join(parts) or "A difference was found."
     return QboSyncRunOut(
         kind=run.kind,
@@ -96,6 +104,7 @@ def copy_status(
 ) -> QboCopyOut:
     counts = current_counts(db, tenant_id, history_start=history_start)
     skipped = skipped_counts(db, tenant_id, history_start=history_start)
+    skipped.update(cost_report.skipped_counts(db, tenant_id, history_start=history_start))  # F10
     before = before_start_counts(db, tenant_id, history_start=history_start)
     entities = [
         QboEntityCountOut(
@@ -224,6 +233,7 @@ def copy_status(
             for m in month_totals(db, tenant_id)
         ],
         attention=attention,
+        cost_lines_held=lines_held(db),
         last_sync=_run_out(_latest_run(db, connection.id, "cdc", "backfill")),
         backfill=_run_out(backfill),
         backfill_needed=backfill_needed,

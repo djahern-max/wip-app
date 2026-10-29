@@ -40,6 +40,7 @@ from app.tenancy.models import Membership, User
 from app.worker.models import Task
 
 SEVERITY_ORDER = {"block_close": 0, "warn": 1, "info": 2}
+NO_CUSTOMER = "No customer"  # F10: the words of the tenant subject
 STATUS_ORDER = {"open": 0, "dismissed": 1, "resolved": 2}
 
 
@@ -150,7 +151,7 @@ def dismissed_for(
 
 @dataclass(frozen=True)
 class SubjectRef:
-    type: str  # job | estimate | customer
+    type: str  # job | estimate | customer | tenant (F10: a line coded to no customer)
     id: str
     label: str  # the job's name, the estimate's number, the customer row's name
 
@@ -217,6 +218,8 @@ def _subjects(db: Session, rows: Sequence[ReviewException]) -> dict[tuple[str, s
     if by_type.get("customer"):
         for c in db.execute(select(Customer).where(Customer.id.in_(by_type["customer"]))).scalars():
             out[("customer", str(c.id))] = SubjectRef("customer", str(c.id), c.display_name)
+    for tenant_id in by_type.get("tenant", ()):  # F10 (D-51): a cost line coded to no customer
+        out[("tenant", str(tenant_id))] = SubjectRef("tenant", str(tenant_id), NO_CUSTOMER)
     return out
 
 

@@ -92,14 +92,18 @@ class BoardReport:
         return f"Figures to date as of {self.as_of.isoformat()}"
 
 
-def _write_money(cell, value: Decimal) -> None:
+def write_money(cell, value: Decimal) -> None:
     """A numeric cell holding exactly the Decimal's digits. openpyxl formats a number
     with ``%.16g`` (72570.85 becomes 72570.85000000001); a string marked numeric is
-    written as it is, so the sheet holds the cents and nothing else."""
+    written as it is, so the sheet holds the cents and nothing else. Public since F10:
+    the Cost page's export writes its cells with it."""
     cell.value = format(value.quantize(Decimal("0.01")), "f")
     cell.data_type = "n"
     cell.number_format = MONEY_FORMAT
     cell.alignment = Alignment(horizontal="right")
+
+
+_write_money = write_money
 
 
 def _cell_text(row: BoardRow, key: str) -> str:

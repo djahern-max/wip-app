@@ -25,7 +25,7 @@ const SEVERITIES = [
   ["info", "For information"],
 ];
 
-export default function Exceptions({ me, onOpenJob, onOpenEstimate, onOpenCustomers }) {
+export default function Exceptions({ me, onOpenJob, onOpenEstimate, onOpenCustomers, onOpenCost }) {
   const [data, setData] = useState(null);
   const [filters, setFilters] = useState({ status: "", severity: "", mine: false });
   const [openId, setOpenId] = useState(null);
@@ -65,7 +65,10 @@ export default function Exceptions({ me, onOpenJob, onOpenEstimate, onOpenCustom
   function openSubject(subject) {
     if (subject.type === "job") onOpenJob(subject.id);
     else if (subject.type === "estimate") onOpenEstimate(subject.id);
-    else onOpenCustomers();
+    else if (subject.type === "tenant") {
+      // F10: a cost line coded to no customer is about the company; the Cost page lists it.
+      if (onOpenCost) onOpenCost();
+    } else onOpenCustomers();
   }
 
   async function act(action, id, body) {

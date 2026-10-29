@@ -1,0 +1,59 @@
+[
+ {
+  "Id": "9001",
+  "DocNumber": "PR-0930",
+  "TxnDate": "2026-09-30",
+  "Adjustment": false,
+  "Line": [
+   {
+    "Id": "0",
+    "Amount": 12500.0,
+    "DetailType": "JournalEntryLineDetail",
+    "Description": "Payroll 2026-09-30",
+    "JournalEntryLineDetail": {
+     "AccountRef": {
+      "value": "301"
+     },
+     "PostingType": "Debit"
+    }
+   },
+   {
+    "Id": "1",
+    "Amount": 9800.0,
+    "DetailType": "JournalEntryLineDetail",
+    "Description": "Payroll 2026-09-30",
+    "JournalEntryLineDetail": {
+     "AccountRef": {
+      "value": "302"
+     },
+     "PostingType": "Debit"
+    }
+   },
+   {
+    "Id": "2",
+    "Amount": 22300.0,
+    "DetailType": "JournalEntryLineDetail",
+    "Description": "Payroll 2026-09-30",
+    "JournalEntryLineDetail": {
+     "AccountRef": {
+      "value": "306"
+     },
+     "PostingType": "Credit"
+    }
+   }
+  ],
+  "TotalAmt": 0,
+  "CurrencyRef": {
+   "value": "USD"
+  },
+  "SyncToken": "0",
+  "MetaData": {
+   "CreateTime": "2026-09-30T09:00:00-04:00",
+   "LastUpdatedTime": "2026-09-30T09:00:00-04:00"
+  },
+  "PrivateNote": "Payroll accrual",
+  "TxnTaxDetail": {},
+  "domain": "QBO",
+  "sparse": false
+ }
+]

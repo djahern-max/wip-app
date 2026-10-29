@@ -1,0 +1,436 @@
+[
+ {
+  "Id": "98892",
+  "DocNumber": "A-1041",
+  "TxnDate": "2026-09-04",
+  "DueDate": "2026-09-04",
+  "VendorRef": {
+   "value": "7001"
+  },
+  "APAccountRef": {
+   "value": "307",
+   "name": "Accounts Payable (A/P)"
+  },
+  "Line": [
+   {
+    "Id": "1",
+    "Amount": 1250.0,
+    "DetailType": "AccountBasedExpenseLineDetail",
+    "AccountBasedExpenseLineDetail": {
+     "AccountRef": {
+      "value": "304"
+     },
+     "BillableStatus": "NotBillable",
+     "TaxCodeRef": {
+      "value": "NON"
+     },
+     "CustomerRef": {
+      "value": "201"
+     }
+    },
+    "LineNum": 1,
+    "Description": "Pour and finish, east apron"
+   },
+   {
+    "Id": "2",
+    "Amount": 480.5,
+    "DetailType": "AccountBasedExpenseLineDetail",
+    "AccountBasedExpenseLineDetail": {
+     "AccountRef": {
+      "value": "303"
+     },
+     "BillableStatus": "NotBillable",
+     "TaxCodeRef": {
+      "value": "NON"
+     },
+     "CustomerRef": {
+      "value": "201"
+     }
+    },
+    "LineNum": 2,
+    "Description": "Rebar and mesh"
+   }
+  ],
+  "TotalAmt": 1730.5,
+  "Balance": 1730.5,
+  "CurrencyRef": {
+   "value": "USD",
+   "name": "United States Dollar"
+  },
+  "SyncToken": "0",
+  "MetaData": {
+   "CreateTime": "2026-09-04T09:00:00-04:00",
+   "LastUpdatedTime": "2026-09-04T09:00:00-04:00"
+  },
+  "domain": "QBO",
+  "sparse": false,
+  "PrivateNote": "Ramp bill; receipt in Ramp"
+ },
+ {
+  "Id": "98893",
+  "DocNumber": "A-1042",
+  "TxnDate": "2026-09-10",
+  "DueDate": "2026-09-10",
+  "VendorRef": {
+   "value": "7001"
+  },
+  "APAccountRef": {
+   "value": "307",
+   "name": "Accounts Payable (A/P)"
+  },
+  "Line": [
+   {
+    "Id": "1",
+    "Amount": 2000.0,
+    "DetailType": "AccountBasedExpenseLineDetail",
+    "AccountBasedExpenseLineDetail": {
+     "AccountRef": {
+      "value": "304"
+     },
+     "BillableStatus": "NotBillable",
+     "TaxCodeRef": {
+      "value": "NON"
+     }
+    },
+    "LineNum": 1,
+    "Description": "Saw cutting"
+   }
+  ],
+  "TotalAmt": 2000.0,
+  "Balance": 2000.0,
+  "CurrencyRef": {
+   "value": "USD",
+   "name": "United States Dollar"
+  },
+  "SyncToken": "0",
+  "MetaData": {
+   "CreateTime": "2026-09-10T09:00:00-04:00",
+   "LastUpdatedTime": "2026-09-10T09:00:00-04:00"
+  },
+  "domain": "QBO",
+  "sparse": false
+ },
+ {
+  "Id": "98890",
+  "DocNumber": "S-3919",
+  "TxnDate": "2026-09-18",
+  "DueDate": "2026-09-18",
+  "VendorRef": {
+   "value": "7003"
+  },
+  "APAccountRef": {
+   "value": "307",
+   "name": "Accounts Payable (A/P)"
+  },
+  "Line": [
+   {
+    "Id": "1",
+    "Amount": 3100.0,
+    "DetailType": "AccountBasedExpenseLineDetail",
+    "AccountBasedExpenseLineDetail": {
+     "AccountRef": {
+      "value": "305"
+     },
+     "BillableStatus": "NotBillable",
+     "TaxCodeRef": {
+      "value": "NON"
+     },
+     "CustomerRef": {
+      "value": "205"
+     }
+    },
+    "LineNum": 1,
+    "Description": "Seed mix"
+   },
+   {
+    "Id": "2",
+    "Amount": 1900.0,
+    "DetailType": "AccountBasedExpenseLineDetail",
+    "AccountBasedExpenseLineDetail": {
+     "AccountRef": {
+      "value": "305"
+     },
+     "BillableStatus": "NotBillable",
+     "TaxCodeRef": {
+      "value": "NON"
+     },
+     "CustomerRef": {
+      "value": "205"
+     }
+    },
+    "LineNum": 2,
+    "Description": "Mulch"
+   },
+   {
+    "Id": "3",
+    "Amount": 1150.0,
+    "DetailType": "AccountBasedExpenseLineDetail",
+    "AccountBasedExpenseLineDetail": {
+     "AccountRef": {
+      "value": "305"
+     },
+     "BillableStatus": "NotBillable",
+     "TaxCodeRef": {
+      "value": "NON"
+     },
+     "CustomerRef": {
+      "value": "205"
+     }
+    },
+    "LineNum": 3,
+    "Description": "Tackifier"
+   },
+   {
+    "Id": "4",
+    "Amount": 860.0,
+    "DetailType": "AccountBasedExpenseLineDetail",
+    "AccountBasedExpenseLineDetail": {
+     "AccountRef": {
+      "value": "305"
+     },
+     "BillableStatus": "NotBillable",
+     "TaxCodeRef": {
+      "value": "NON"
+     },
+     "CustomerRef": {
+      "value": "205"
+     }
+    },
+    "LineNum": 4,
+    "Description": "Fertilizer"
+   },
+   {
+    "Id": "5",
+    "Amount": 610.0,
+    "DetailType": "AccountBasedExpenseLineDetail",
+    "AccountBasedExpenseLineDetail": {
+     "AccountRef": {
+      "value": "305"
+     },
+     "BillableStatus": "NotBillable",
+     "TaxCodeRef": {
+      "value": "NON"
+     },
+     "CustomerRef": {
+      "value": "205"
+     }
+    },
+    "LineNum": 5,
+    "Description": "Lime"
+   },
+   {
+    "Id": "6",
+    "Amount": 300.0,
+    "DetailType": "AccountBasedExpenseLineDetail",
+    "AccountBasedExpenseLineDetail": {
+     "AccountRef": {
+      "value": "305"
+     },
+     "BillableStatus": "NotBillable",
+     "TaxCodeRef": {
+      "value": "NON"
+     },
+     "CustomerRef": {
+      "value": "205"
+     }
+    },
+    "LineNum": 6,
+    "Description": "Freight"
+   },
+   {
+    "Id": "7",
+    "Amount": 200.0,
+    "DetailType": "AccountBasedExpenseLineDetail",
+    "AccountBasedExpenseLineDetail": {
+     "AccountRef": {
+      "value": "305"
+     },
+     "BillableStatus": "NotBillable",
+     "TaxCodeRef": {
+      "value": "NON"
+     },
+     "CustomerRef": {
+      "value": "205"
+     }
+    },
+    "LineNum": 7,
+    "Description": "Delivery"
+   }
+  ],
+  "TotalAmt": 8120.0,
+  "Balance": 8120.0,
+  "CurrencyRef": {
+   "value": "USD",
+   "name": "United States Dollar"
+  },
+  "SyncToken": "0",
+  "MetaData": {
+   "CreateTime": "2026-09-18T09:00:00-04:00",
+   "LastUpdatedTime": "2026-09-18T09:00:00-04:00"
+  },
+  "domain": "QBO",
+  "sparse": false
+ },
+ {
+  "Id": "98894",
+  "DocNumber": "B-2207",
+  "TxnDate": "2026-10-05",
+  "DueDate": "2026-10-05",
+  "VendorRef": {
+   "value": "7002"
+  },
+  "APAccountRef": {
+   "value": "307",
+   "name": "Accounts Payable (A/P)"
+  },
+  "Line": [
+   {
+    "Id": "1",
+    "Amount": 640.0,
+    "DetailType": "ItemBasedExpenseLineDetail",
+    "ItemBasedExpenseLineDetail": {
+     "ItemRef": {
+      "value": "601"
+     },
+     "Qty": 1,
+     "UnitPrice": 640.0,
+     "BillableStatus": "NotBillable",
+     "TaxCodeRef": {
+      "value": "NON"
+     },
+     "CustomerRef": {
+      "value": "201"
+     }
+    },
+    "Description": "Crushed stone, 3/4"
+   },
+   {
+    "Id": "2",
+    "Amount": 90.0,
+    "DetailType": "ItemBasedExpenseLineDetail",
+    "ItemBasedExpenseLineDetail": {
+     "ItemRef": {
+      "value": "602"
+     },
+     "Qty": 1,
+     "UnitPrice": 90.0,
+     "BillableStatus": "NotBillable",
+     "TaxCodeRef": {
+      "value": "NON"
+     },
+     "CustomerRef": {
+      "value": "201"
+     }
+    },
+    "Description": "Site service call"
+   }
+  ],
+  "TotalAmt": 730.0,
+  "Balance": 730.0,
+  "CurrencyRef": {
+   "value": "USD",
+   "name": "United States Dollar"
+  },
+  "SyncToken": "0",
+  "MetaData": {
+   "CreateTime": "2026-10-05T09:00:00-04:00",
+   "LastUpdatedTime": "2026-10-05T09:00:00-04:00"
+  },
+  "domain": "QBO",
+  "sparse": false
+ },
+ {
+  "Id": "98895",
+  "DocNumber": "A-1050",
+  "TxnDate": "2026-10-07",
+  "DueDate": "2026-10-07",
+  "VendorRef": {
+   "value": "7001"
+  },
+  "APAccountRef": {
+   "value": "307",
+   "name": "Accounts Payable (A/P)"
+  },
+  "Line": [
+   {
+    "Id": "1",
+    "Amount": 500.0,
+    "DetailType": "AccountBasedExpenseLineDetail",
+    "AccountBasedExpenseLineDetail": {
+     "AccountRef": {
+      "value": "304"
+     },
+     "BillableStatus": "NotBillable",
+     "TaxCodeRef": {
+      "value": "NON"
+     },
+     "CustomerRef": {
+      "value": "201"
+     }
+    },
+    "LineNum": 1,
+    "Description": "Curb repair"
+   }
+  ],
+  "TotalAmt": 500.0,
+  "Balance": 500.0,
+  "CurrencyRef": {
+   "value": "USD",
+   "name": "United States Dollar"
+  },
+  "SyncToken": "0",
+  "MetaData": {
+   "CreateTime": "2026-10-07T09:00:00-04:00",
+   "LastUpdatedTime": "2026-10-07T09:00:00-04:00"
+  },
+  "domain": "QBO",
+  "sparse": false
+ },
+ {
+  "Id": "98908",
+  "DocNumber": "A-1052",
+  "TxnDate": "2026-10-09",
+  "DueDate": "2026-10-09",
+  "VendorRef": {
+   "value": "7001"
+  },
+  "APAccountRef": {
+   "value": "307",
+   "name": "Accounts Payable (A/P)"
+  },
+  "Line": [
+   {
+    "Id": "1",
+    "Amount": 4000.0,
+    "DetailType": "AccountBasedExpenseLineDetail",
+    "AccountBasedExpenseLineDetail": {
+     "AccountRef": {
+      "value": "304"
+     },
+     "BillableStatus": "NotBillable",
+     "TaxCodeRef": {
+      "value": "NON"
+     },
+     "CustomerRef": {
+      "value": "202"
+     }
+    },
+    "LineNum": 1,
+    "Description": "Retaining wall footing"
+   }
+  ],
+  "TotalAmt": 4000.0,
+  "Balance": 4000.0,
+  "CurrencyRef": {
+   "value": "USD",
+   "name": "United States Dollar"
+  },
+  "SyncToken": "0",
+  "MetaData": {
+   "CreateTime": "2026-10-09T09:00:00-04:00",
+   "LastUpdatedTime": "2026-10-09T09:00:00-04:00"
+  },
+  "domain": "QBO",
+  "sparse": false
+ }
+]

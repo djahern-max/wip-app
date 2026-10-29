@@ -453,7 +453,8 @@ def test_status_shows_counts_attention_items_and_month_totals_as_strings(
         counts["Invoice"]["current"] == len(fixture("Invoice"))
         and counts["Invoice"]["skipped"] == 0
     )
-    assert counts["Bill"]["skipped"] is None  # not normalized in F05
+    assert counts["Bill"]["skipped"] == 0  # F10: the cost side is normalized; none unreadable
+    assert counts["TimeActivity"]["skipped"] is None  # not normalized by any feature yet
     assert [a["code"] for a in held["attention"]] == [
         "accounts_without_number",
         "numbered_not_in_chart",

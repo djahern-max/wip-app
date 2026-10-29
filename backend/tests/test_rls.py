@@ -28,6 +28,7 @@ from app.domain.config.models import (
     GlAccount,
     TenantPolicy,
 )
+from app.domain.cost.models import LedgerLine
 from app.domain.estimates.models import Estimate, EstimateCost, EstimateVersion, EstimateWorkArea
 from app.domain.exceptions.models import ExceptionEvent, ReviewException
 from app.domain.jobs.models import ChangeOrderApproval, Job, JobAlias, JobEstimate
@@ -58,6 +59,7 @@ F08_1_TABLES = (
     "pay_application_line",
 )
 F09_TABLES = ("exception", "exception_event")  # F09 (D-46), 0016; the event table append-only
+F10_TABLES = ("ledger_line",)  # F10 (D-51), 0017
 F04_TABLES = (
     "division",
     "cost_category",
@@ -83,6 +85,7 @@ def test_every_tenant_table_is_enumerated(migrated_db: None, owner_engine: Engin
         *F07_4_TABLES,
         *F08_1_TABLES,
         *F09_TABLES,
+        *F10_TABLES,
     }
 
 
@@ -691,6 +694,45 @@ def test_f09_tables_read_zero_rows_of_another_tenant(
             # D-13: the history is never edited, by any role.
             with pytest.raises(ProgrammingError):
                 s.execute(text(f"UPDATE \"{table}\" SET text = 'x'"))
+
+
+def _seed_f10_rows(owner_engine: Engine, tenant_id: uuid.UUID, marker: str) -> None:
+    """One ledger line in ``tenant_id`` (F10), on a raw record of the tenant."""
+    _seed_f05_rows(owner_engine, tenant_id, marker)
+    with tenant_session(owner_engine, tenant_id) as s:
+        raw = s.execute(select(RawRecord.id)).scalars().first()
+        s.add(
+            LedgerLine(
+                tenant_id=tenant_id,
+                source="qbo",
+                txn_type="Bill",
+                txn_external_id=marker,
+                line_external_id="1",
+                line_no=1,
+                txn_date=date(2026, 9, 4),
+                account_external_id="304",
+                amount=Decimal("1250.00"),
+                raw_record_id=raw,
+            )
+        )
+
+
+@pytest.mark.parametrize("table", F10_TABLES)
+def test_f10_tables_read_zero_rows_of_another_tenant(
+    seed: Seed, owner_engine: Engine, rw_engine: Engine, table: str
+) -> None:
+    """Tenant A reads zero ledger lines of tenant B via ORM and raw SQL as ``app_rw``; B
+    reads its own (the F10 brief's RLS criterion)."""
+    marker = uuid.uuid4().hex[:12]
+    _seed_f10_rows(owner_engine, seed.tenant_b, marker)
+    with tenant_session(rw_engine, seed.tenant_a) as s:
+        orm_tenants = {r.tenant_id for r in s.execute(select(LedgerLine)).scalars()}
+        raw = s.execute(
+            text(f'SELECT count(*) FROM "{table}" WHERE tenant_id = :b'), {"b": seed.tenant_b}
+        ).scalar_one()
+    assert seed.tenant_b not in orm_tenants and raw == 0
+    with tenant_session(rw_engine, seed.tenant_b) as s:
+        assert s.execute(text(f'SELECT count(*) FROM "{table}"')).scalar_one() >= 1
 
 
 @pytest.mark.parametrize("table", F07_4_TABLES)

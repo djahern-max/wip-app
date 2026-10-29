@@ -27,6 +27,8 @@ NAME_LISTS: frozenset[str] = frozenset({"Account", "Customer", "Vendor", "Item"}
 SINGLETONS: frozenset[str] = frozenset({"Preferences", "CompanyInfo"})
 # Normalized in F05 (Account: id attached to gl_account by account number only).
 NORMALIZED: tuple[str, ...] = ("Customer", "Invoice", "CreditMemo", "SalesReceipt", "Payment")
+# F10 (D-51): the cost side, normalized to ``ledger_line`` (app/domain/cost/sync.py).
+COST_NORMALIZED: tuple[str, ...] = ("Bill", "VendorCredit", "Purchase", "JournalEntry", "Deposit")
 # F05.3 (D-48): reference records are held whole; transactional records from the
 # history start. Every entity is one or the other.
 REFERENCE: frozenset[str] = frozenset(

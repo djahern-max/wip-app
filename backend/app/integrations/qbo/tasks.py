@@ -9,7 +9,13 @@ normalized: a page or a poll stores payloads through ``store_raw`` /
   successor first.
 - ``qbo.normalize``: apply the given raw versions (skipping any that are no longer
   the latest).
-- ``qbo.drift_check``: counts and month totals against QuickBooks, nightly.
+- ``qbo.drift_check``: counts and month totals against QuickBooks, nightly; F10: the
+  cost side too, ``ledger_line`` sums by month and account against a re-sum of the raw
+  payloads.
+
+F10 (D-51): the five cost entities (``COST_NORMALIZED``) are enqueued like the billing
+ones and applied by ``app.domain.cost.sync``; a finished backfill and a poll that stored
+an Item queue one full cost run (``cost.run``), the catch-all.
 
 A connection that needs reconnecting ends the task without retries
 (``PermanentTaskError``); the worker keeps running. Log lines carry ids, entity
@@ -33,11 +39,14 @@ from app.domain.billing.report import current_counts, raw_month_totals
 from app.domain.billing.sync import apply_raw, attach_account_ids
 from app.domain.billing.totals import month_totals
 from app.domain.config.policy import HISTORY_START, history_start
+from app.domain.cost import report as cost_report
+from app.domain.cost import sync as cost_sync
+from app.domain.cost.run import request_cost_run
 from app.ingest.models import Connection, RawRecord, SyncRun
 from app.ingest.raw import RawOrigin, latest_raw, store_delete, store_raw
 from app.ingest.sync_runs import finish_sync_run, iso_utc, start_sync_run
 from app.integrations.qbo import SYSTEM, client, fetch
-from app.integrations.qbo.entities import ENTITIES, NORMALIZED, SINGLETONS
+from app.integrations.qbo.entities import COST_NORMALIZED, ENTITIES, NORMALIZED, SINGLETONS
 from app.integrations.qbo.reader import CompanyReader
 from app.integrations.qbo.schedule import (
     BACKFILL_OVERLAP,
@@ -136,7 +145,7 @@ def backfill_page(
         fetched, stored, ids = _store_rows(db, tenant_id, entity, rows, RawOrigin(sync_run_id=rid))
         run.records_fetched += fetched
         run.records_stored += stored
-        if entity in NORMALIZED or entity == "Account":
+        if entity in NORMALIZED or entity in COST_NORMALIZED or entity == "Account":
             _enqueue_normalize(db, tenant_id, cid, entity, ids)
         detail = dict(run.detail or {})
         entities = dict(detail.get("entities", {}))
@@ -188,6 +197,7 @@ def backfill_page(
             if connection is not None:
                 connection.last_success_at = datetime.now(UTC)
             ensure_scheduled(db, tenant_id)
+            request_cost_run(db, tenant_id, full=True)  # F10: items before documents, once
             log.info("qbo backfill finished run=%s tenant=%s", rid, tenant_id)
 
 
@@ -292,8 +302,10 @@ def cdc_poll(tenant_id: UUID, *, engine: Engine, connection_id: str, slot: str |
                 detail["changed"][entity] = len(rows)
             if result.deleted[entity]:
                 detail["deleted"][entity] = len(result.deleted[entity])
-            if ids and (entity in NORMALIZED or entity == "Account"):
+            if ids and (entity in NORMALIZED or entity in COST_NORMALIZED or entity == "Account"):
                 _enqueue_normalize(db, tenant_id, cid, entity, ids)
+            if ids and entity == "Item":
+                request_cost_run(db, tenant_id, full=True)  # F10: an item's expense account
         if result.overflowed:
             detail["overflow"] = list(result.overflowed)
         finish_sync_run(
@@ -325,6 +337,8 @@ def normalize(
         start = history_start(db)
         if start is None:  # D-48: never normalize without the date; the task says so
             raise PermanentTaskError(HISTORY_START_NOT_SET)
+        cost = entity in COST_NORMALIZED  # F10: the cost side has its own applier
+        lookup = cost_sync.load_lookup(db, tenant_id) if cost else None
         for raw_id in raw_record_ids:
             raw = db.get(RawRecord, UUID(str(raw_id)))
             if raw is None:
@@ -333,7 +347,11 @@ def normalize(
             if current is None or current.id != raw.id:
                 stale += 1  # a newer version exists; its own task applies it
                 continue
-            outcome = apply_raw(db, tenant_id, raw, history_start=start)
+            outcome = (
+                cost_sync.apply_raw(db, tenant_id, raw, history_start=start, lookup=lookup)
+                if cost
+                else apply_raw(db, tenant_id, raw, history_start=start)
+            )
             if outcome.result == "skipped":
                 skipped += 1
             elif outcome.result in ("applied", "deleted"):
@@ -423,8 +441,13 @@ def drift_check(tenant_id: UUID, *, engine: Engine, connection_id: str, slot: st
                         "normalized": f"{a:.2f}",
                         "raw": f"{b:.2f}",
                     }
-        detail = {"counts": counts, "months": months, "checked_at": iso_utc(now)}
-        outcome = "drift" if counts or months else "succeeded"
+        # F10: the cost side, ledger_line sums against a re-sum of the raw payloads.
+        cost = cost_report.cost_differences(
+            cost_report.ledger_sums(db, tenant_id),
+            cost_report.raw_sums(db, tenant_id, history_start=start),
+        )
+        detail = {"counts": counts, "months": months, "cost": cost, "checked_at": iso_utc(now)}
+        outcome = "drift" if counts or months or cost else "succeeded"
         finish_sync_run(db, run, outcome=outcome, detail=detail)
         log.info(
             "qbo drift check outcome=%s entities=%d months=%d tenant=%s",

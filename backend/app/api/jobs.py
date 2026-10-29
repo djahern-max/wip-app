@@ -43,6 +43,8 @@ from app.api.schemas import (
     InvoiceLinesOut,
     JobAliasOut,
     JobBillingOut,
+    JobCategoryCostOut,
+    JobCostOut,
     JobDetailOut,
     JobEstimateOut,
     JobRefOut,
@@ -85,9 +87,12 @@ from app.domain.billing.pay_applications import ApplicationView
 from app.domain.billing.work_areas import AreaRef, JobWorkAreas, LineTie
 from app.domain.config.audit import Actor
 from app.domain.config.models import Division
+from app.domain.cost import figures as cost_figures
+from app.domain.cost import load as cost_load
+from app.domain.estimates.burden import BURDEN_SLOT
 from app.domain.estimates.exceptions import Issue
 from app.domain.estimates.models import STATUS_LABELS
-from app.domain.estimates.service import money
+from app.domain.estimates.service import estimate_burden, load_burden_inputs, load_grid, money
 from app.domain.exceptions import service as exceptions
 from app.domain.exceptions.collect import job_attention
 from app.domain.exceptions.registry import Key
@@ -366,12 +371,13 @@ def _row(
     wa: JobWorkAreas | None = None,
     apps: list[ApplicationView] | None = None,
     dismissed: frozenset[Key] = frozenset(),
+    cost: cost_load.JobCostView | None = None,
 ) -> dict:
     job = v.job
     original = v.original
     # F09: one computation per job (collect.job_attention), the dismissed exceptions left out.
     attention = exceptions.without_dismissed(
-        job_attention(v, f, wa, apps), "job", job.id, dismissed
+        job_attention(v, f, wa, apps, cost), "job", job.id, dismissed
     )
     return {
         "id": str(job.id),
@@ -633,6 +639,7 @@ def _detail(db: Session, tenant_id: UUID, v: service.JobView) -> JobDetailOut:
     board = load_board(db, tenant_id, [v], other=False)  # F08.2: this job's rows only
     f = board.per_job[v.job.id]
     wa = board.work_areas[v.job.id]
+    cost = cost_load.job_costs(db, tenant_id, [v.job.id])[v.job.id]  # F10: this job's lines
     documents, payments = _billing_history(f)
     original = v.original
     work_areas: list[JobWorkAreaOut] = []
@@ -650,7 +657,8 @@ def _detail(db: Session, tenant_id: UUID, v: service.JobView) -> JobDetailOut:
         db, "job", v.job.id, [a.estimate.id for a in v.attached if a.link.role != "ignored"]
     )
     return JobDetailOut(
-        **_row(v, f, wa, board.applications.get(v.job.id), exceptions.dismissed_keys(db)),
+        **_row(v, f, wa, board.applications.get(v.job.id), exceptions.dismissed_keys(db), cost),
+        cost=_cost_out(db, v, cost, load_grid(db, tenant_id)),
         dismissed=[
             DismissedOut(
                 id=d.id,
@@ -718,6 +726,75 @@ def _detail(db: Session, tenant_id: UUID, v: service.JobView) -> JobDetailOut:
     )
 
 
+LABOR_NOTE = "From hours and rates, not the ledger (later)."
+NOT_COMPUTED = "Not computed"
+
+
+def _estimated_by_category(db: Session, v: service.JobView, grid) -> dict[str, Decimal | None]:
+    """F10: the F06.1 estimated cost by cost category over the job's attached estimates
+    (``ignored`` excluded): as estimated per slot, the computed burden for the Labor Burden
+    slot (D-34); a slot is None when any estimate's figure is not computed."""
+    out: dict[str, Decimal | None] = {}
+    inputs = load_burden_inputs(db)
+    for a in v.attached:
+        if a.link.role == "ignored" or a.view.work_areas is None:
+            continue
+        totals = a.view.totals(grid)
+        burden = estimate_burden(db, a.view, grid, inputs).result.total
+        for c in totals.by_category:
+            if c.slot is None:
+                continue
+            amount = burden if c.slot == BURDEN_SLOT else c.amount
+            if c.slot in out and out[c.slot] is None:
+                continue
+            out[c.slot] = None if amount is None else out.get(c.slot, ZERO) + amount
+    return out
+
+
+def _cost_out(db: Session, v: service.JobView, cv: cost_load.JobCostView, grid) -> JobCostOut:
+    estimated = _estimated_by_category(db, v, grid)
+    has_estimate = any(
+        a.link.role != "ignored" and a.view.work_areas is not None for a in v.attached
+    )
+    rows: list[JobCategoryCostOut] = []
+    memo_estimated: Decimal | None = ZERO
+    for c in cv.cost.by_category:
+        est = estimated.get(c.slot) if has_estimate else None
+        labor = c.slot in cost_figures.LABOR_SLOTS
+        cost_to_date = None if labor else c.amount
+        difference = est - cost_to_date if est is not None and cost_to_date is not None else None
+        if c.in_basis is False:
+            memo_estimated = None if memo_estimated is None or est is None else memo_estimated + est
+        rows.append(
+            JobCategoryCostOut(
+                slot=c.slot,
+                name=c.name,
+                estimated=money_str(est),
+                cost_to_date=money_str(cost_to_date),
+                difference=money_str(difference),
+                in_basis=c.in_basis,
+                note=LABOR_NOTE
+                if labor
+                else (None if has_estimate else "No estimate on this job."),
+            )
+        )
+    note = None
+    if cv.cost.in_basis is None:
+        note = f"{NOT_COMPUTED}: the WIP basis is not decided."
+    elif v.job.revenue_method == "pool":
+        note = "A pool's cost is allocated at month end; it is never on the WIP schedule."
+    return JobCostOut(
+        cost_to_date=money_str(cv.cost.in_basis),
+        cost_to_date_note=note,
+        memo_cost_to_date=money_str(cv.cost.memo) or "0.00",
+        memo_estimated=money_str(memo_estimated) if has_estimate else None,
+        memo_label=cost_figures.MEMO_LABEL,
+        estimated_in_basis=money(v.contract.eac_in_basis),
+        categories=rows,
+        lines=cv.cost.lines,
+    )
+
+
 def _fresh_detail(db: Session, p: Principal, job_id: UUID) -> JobDetailOut:
     db.flush()
     db.expire_all()
@@ -756,6 +833,8 @@ class _BoardPage:
         self.all_views = service.list_jobs(db, tenant_id)
         self.board: Board = load_board(db, tenant_id, self.all_views)
         self.dismissed = exceptions.dismissed_keys(db)  # F09: one statement for the page
+        # F10: one read of the jobs' cost lines, so the board's attention is the run's.
+        self.costs = cost_load.job_costs(db, tenant_id, [v.job.id for v in self.all_views])
         self.views = [
             v
             for v in self.all_views
@@ -777,6 +856,7 @@ class _BoardPage:
             self.board.work_areas.get(v.job.id),
             self.board.applications.get(v.job.id),
             self.dismissed,
+            self.costs.get(v.job.id),
         )
 
     @property

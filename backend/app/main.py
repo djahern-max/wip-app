@@ -12,6 +12,7 @@ from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
 from app.api.change_orders import router as change_orders_router
 from app.api.config import router as config_router
+from app.api.cost import router as cost_router
 from app.api.estimates import router as estimates_router
 from app.api.exceptions import refresh_after_write
 from app.api.exceptions import router as exceptions_router
@@ -139,6 +140,7 @@ def create_app() -> FastAPI:
         pay_applications_router,
         config_router,
         qbo_router,
+        cost_router,
         estimates_router,
         exceptions_router,
         jobs_router,

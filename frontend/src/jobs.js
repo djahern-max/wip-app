@@ -1,5 +1,5 @@
 // Small display rules for the Jobs screens (F07). Pure: no requests, no state.
-import { formatMoney } from "./money.js";
+import { addMoney, formatMoney } from "./money.js";
 
 // An amount the API may leave out (None = not shown or not computed): the words
 // say which, never a dash (D-22: zero is 0.00; a missing figure is said in words).
@@ -341,7 +341,66 @@ export function jobFacts(job) {
       note: n > 0 ? `${n} change ${n === 1 ? "order" : "orders"}` : null,
     },
     { label: "EAC in the WIP basis", value: amountOr(job.eac_in_basis, "Not computed"), bold: false, note: job.eac_note || null },
+    // F10 (D-04, D-51): cost to date in the WIP basis, from the ledger, read on demand.
+    ...(job.cost
+      ? [
+          {
+            label: "Cost to date",
+            value: figureOr(job.cost.cost_to_date, job.cost.cost_to_date_note, "Not computed"),
+            bold: false,
+            note: COST_NOTE,
+          },
+        ]
+      : []),
   ];
+}
+
+// --- F10: cost to date by cost category (D-04, D-51) ------------------------------------------
+// Display rules only: every value is a field of GET /api/jobs/{id}.cost, formatted as before.
+
+export const COST_NOTE = "before owned equipment and fuel";
+export const LABOR_COST_WORDS = "From hours and rates, later";
+
+// The rows of the "Cost to date" table: every category in the WIP basis (and every category
+// while the basis is not decided), then the memo categories folded into one aside row. A
+// labor category reads its words in place of a figure (the ledger never gives labor to a job).
+export function costRows(job) {
+  const c = job.cost;
+  if (!c) return { rows: [], memo: null };
+  const words = (cat) => (cat.note && cat.cost_to_date === null ? LABOR_COST_WORDS : null);
+  const rows = c.categories
+    .filter((cat) => cat.in_basis !== false)
+    .map((cat) => ({
+      slot: cat.slot,
+      name: cat.name,
+      estimated: amountOr(cat.estimated, "None"),
+      cost: words(cat) || figureOr(cat.cost_to_date, null, "Not computed"),
+      difference: cat.difference === null || cat.difference === undefined ? "" : formatMoney(cat.difference),
+    }));
+  const memo = {
+    label: c.memo_label,
+    estimated: amountOr(c.memo_estimated, "None"),
+    cost: formatMoney(c.memo_cost_to_date),
+    difference:
+      c.memo_estimated === null || c.memo_estimated === undefined
+        ? ""
+        : formatMoney(subtractMoney(c.memo_estimated, c.memo_cost_to_date)),
+  };
+  return { rows, memo };
+}
+
+// Exact subtraction of two decimal strings, through addMoney's digits.
+function subtractMoney(a, b) {
+  const negated = b.startsWith("-") ? b.slice(1) : `-${b}`;
+  return addMoney(a, negated);
+}
+
+export function costSentence(job) {
+  return (
+    `Cost to date is what QuickBooks posted to this job's cost accounts, by cost category, as of ${job.as_of}. ` +
+    "Labor reaches the job from hours and rates, not from the ledger. Owned equipment, vehicles and fuel " +
+    "are outside the WIP basis and are shown apart."
+  );
 }
 
 // The as-of sentence and the contract sentence that sat under Billing and Contract, as
