@@ -266,6 +266,18 @@ def _routes() -> list[Route]:
             body=lambda: {"estimate_work_area_id": str(uuid.uuid4())},
             also_ok=frozenset({404}),
         ),
+        Route(  # F08.4 (D-52): the split body follows the same roles
+            "PUT",
+            f"/api/jobs/{_NO_JOB}/invoice-lines/{uuid.uuid4()}/work-area",
+            frozenset({FA, FS, CA}),
+            body=lambda: {
+                "parts": [
+                    {"estimate_work_area_id": str(uuid.uuid4()), "amount": "1.00"},
+                    {"estimate_work_area_id": str(uuid.uuid4()), "amount": "2.00"},
+                ]
+            },
+            also_ok=frozenset({404}),
+        ),
         Route(
             "DELETE",
             f"/api/jobs/{_NO_JOB}/invoice-lines/{uuid.uuid4()}/work-area",

@@ -3,12 +3,15 @@ import { api } from "../api.js";
 import { formatMoney } from "../money.js";
 import {
   amountOr,
+  canSplit,
   figureOr,
   lineAction,
   offersInProgress,
   pendingLabel,
   pickedWorkArea,
   reasonText,
+  splitParts,
+  splitState,
   suggestedPairs,
 } from "../jobs.js";
 import { KindActions } from "../kindActions.js";
@@ -21,6 +24,10 @@ import { KindActions } from "../kindActions.js";
 // their assignment (F08.1, D-45), and the QuickBooks links, suggestions and search (F07,
 // D-35). The same components, requests, audit rows and permission checks; nothing here is
 // designed yet (F09.7 does that). Mount effects only read (GET).
+// F08.4 (D-52): an offered, untied line also offers Split: a small form in a second row
+// under the line, one amount field per pickable work area, the parts summing to the line;
+// the server refuses in one sentence, shown in place of the sum line. A split line reads
+// "Split: #1 2,750.00; …" in the work-area column and offers Clear, which ends every part.
 
 export default function JobSetup({ me, jobId, canManage, onBack, onOpenEstimate }) {
   const [job, setJob] = useState(null);
@@ -35,6 +42,7 @@ export default function JobSetup({ me, jobId, canManage, onBack, onOpenEstimate 
   const [setInProgress, setSetInProgress] = useState(true); // D-35: offered for a sold job
   const [picks, setPicks] = useState({}); // F08.1: billing line id → the work area picked in its row
   const [lineNotice, setLineNotice] = useState(null); // what "Confirm all as suggested" did on the lines
+  const [split, setSplit] = useState(null); // F08.4: {id, amounts, refused} of the open split form
 
   useEffect(() => {
     api("GET", `/api/jobs/${jobId}`)
@@ -156,6 +164,69 @@ export default function JobSetup({ me, jobId, canManage, onBack, onOpenEstimate 
     }
   }
 
+  function openSplit(ln) {
+    setSplit({ id: ln.billing_line_id, amounts: {}, refused: null });
+  }
+
+  async function submitSplit(e, ln) {
+    e.preventDefault();
+    const parts = splitParts(split.amounts, job.invoice_lines.work_areas);
+    setPending({ id: ln.billing_line_id, action: "split" });
+    setBusy(true);
+    setError(null);
+    try {
+      show(await api("PUT", `/api/jobs/${jobId}/invoice-lines/${ln.billing_line_id}/work-area`, { parts }));
+      setSplit(null);
+    } catch (err) {
+      setSplit({ ...split, refused: err.detail || "The split could not be recorded. Try again." });
+    } finally {
+      setBusy(false);
+      setPending(null);
+    }
+  }
+
+  function splitForm(ln) {
+    if (!split || split.id !== ln.billing_line_id) return null;
+    const areas = job.invoice_lines.work_areas;
+    const state = splitState(split.amounts, areas, ln.amount);
+    const doc = ln.doc_number || `QuickBooks id ${ln.external_id}`;
+    return (
+      <tr key={`${ln.billing_line_id}-split`}>
+        <td></td>
+        <td colSpan={lineColumns - 1}>
+          <form className="split-form" onSubmit={(e) => submitSplit(e, ln)}>
+            <p className="hint">
+              Split line {ln.line_no} of {doc} ({formatMoney(ln.amount)}) across work areas by amount. Leave a work
+              area blank to keep it out of the split; the parts must sum to the line.
+            </p>
+            {areas.map((w) => (
+              <label key={w.id} className="label">
+                <span>
+                  {w.label}, {formatMoney(w.price)}
+                </span>
+                <input
+                  className="input"
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  value={split.amounts[w.id] || ""}
+                  onChange={(e) => setSplit({ ...split, amounts: { ...split.amounts, [w.id]: e.target.value }, refused: null })}
+                  disabled={busy}
+                />
+              </label>
+            ))}
+            <p className="split-sum">{split.refused || state.sentence}</p>
+            <button type="submit" className="button" disabled={busy || !state.ready}>
+              {pendingLabel("split", pending, ln.billing_line_id) || "Record split"}
+            </button>{" "}
+            <button type="button" className="link-button" disabled={busy} onClick={() => setSplit(null)}>
+              Cancel
+            </button>
+          </form>
+        </td>
+      </tr>
+    );
+  }
+
   async function assignSuggested() {
     const pairs = suggestedPairs(job.invoice_lines.lines);
     setPending({ id: "all", action: "assign_all" });
@@ -198,7 +269,7 @@ export default function JobSetup({ me, jobId, canManage, onBack, onOpenEstimate 
     const a = lineAction(ln);
     if (!a) return null;
     const ready = a.action === "clear" || Boolean(pickedWorkArea(ln, picks));
-    return (
+    const action = (
       <button
         type="button"
         className="link-button"
@@ -208,7 +279,18 @@ export default function JobSetup({ me, jobId, canManage, onBack, onOpenEstimate 
         {pendingLabel(a.action, pending, ln.billing_line_id) || a.label}
       </button>
     );
+    if (!canSplit(ln)) return action;
+    return (
+      <span className="actions">
+        {action}
+        <button type="button" className="link-button" disabled={busy} onClick={() => openSplit(ln)}>
+          Split
+        </button>
+      </span>
+    );
   }
+
+  const lineColumns = canManage ? 11 : 10; // the invoice-lines table (F08.4: the split row spans it)
 
   if (!job) {
     return (
@@ -479,7 +561,7 @@ export default function JobSetup({ me, jobId, canManage, onBack, onOpenEstimate 
               </tr>
             </thead>
             <tbody>
-              {job.invoice_lines.lines.map((ln) => (
+              {job.invoice_lines.lines.map((ln) => [
                 <tr key={ln.billing_line_id}>
                   <td>
                     {ln.doc_number || `QuickBooks id ${ln.external_id}`}
@@ -503,8 +585,9 @@ export default function JobSetup({ me, jobId, canManage, onBack, onOpenEstimate 
                     {ln.note && <div className="hint">{ln.note}</div>}
                   </td>
                   {canManage && <td>{lineActionCell(ln)}</td>}
-                </tr>
-              ))}
+                </tr>,
+                splitForm(ln),
+              ])}
             </tbody>
           </table>
         </div>

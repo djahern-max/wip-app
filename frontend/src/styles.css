@@ -690,6 +690,55 @@ h3 {
   margin: 0 0 0.5rem;
 }
 
+/* F08.4 (D-52): the split form sits in a second row under its line, inside the table's
+   scrolling box. It is held beside the first column (sticky at the first column's width),
+   so it stays in view however far the table has been scrolled to reach Split; a stacked
+   list of labelled amount fields, every field at the same right edge; at phone width the
+   form is narrower and the labels wrap. The page never scrolls sideways. */
+.split-form {
+  display: block;
+  position: sticky;
+  left: calc(12rem + 1.2rem + 1px + 0.5rem); /* the held first column (width, padding, border) and a gap */
+  max-width: 24rem;
+  margin: 0.25rem 0 0.5rem;
+}
+
+.split-form .label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0 0 0.35rem;
+}
+
+.split-form .label span {
+  flex: 1 1 auto;
+}
+
+.split-form .input {
+  flex: 0 0 9rem;
+  width: 9rem;
+  margin-top: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.split-form .split-sum {
+  margin: 0.5rem 0;
+}
+
+@media (max-width: 640px) {
+  .split-form {
+    left: calc(9.5rem + 1.2rem + 1px + 0.5rem);
+    max-width: 12.5rem; /* 390 px: the held column, the gap and the form fit side by side */
+  }
+
+  .split-form .input {
+    flex-basis: 7rem;
+    width: 7rem;
+  }
+}
+
 .grid-code {
   font-variant-numeric: tabular-nums;
   font-weight: 600;

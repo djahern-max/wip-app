@@ -41,6 +41,9 @@ import PayApplications from "./PayApplications.jsx";
 // F10 (D-04, D-51): one more fact, cost to date in the WIP basis, and one block under
 // Attention, "Cost to date" by cost category (estimated, cost to date, difference) with the
 // owned equipment, vehicles and fuel categories folded into one aside row; no drill-down.
+// F08.4 (D-52): the work-areas table carries "Percent billed" after "Billed to date", a
+// display figure the API computes (billed to date over the price, half up to 0.01), blank
+// where left to bill is blank; the "%" sits in the header, never in a cell.
 
 export default function JobDetail({ me, jobId, onBack, onOpenSetup }) {
   const [job, setJob] = useState(null);
@@ -112,7 +115,7 @@ export default function JobDetail({ me, jobId, onBack, onOpenSetup }) {
 
   const canApprove = canApproveChangeOrders(me.role);
   const referenceRequired = evidence === "reference";
-  const columns = canApprove ? 8 : 7;
+  const columns = canApprove ? 9 : 8; // F08.4: "Percent billed" after "Billed to date"
 
   function approvalForm(w) {
     if (!approval || approval.id !== w.id) return null;
@@ -321,6 +324,7 @@ export default function JobDetail({ me, jobId, onBack, onOpenSetup }) {
                   <th>Name</th>
                   <th className="num">Price</th>
                   <th className="num">Billed to date</th>
+                  <th className="num">Percent billed (%)</th>
                   <th className="num">Left to bill</th>
                   <th>Kind</th>
                   <th>Change order</th>
@@ -337,6 +341,7 @@ export default function JobDetail({ me, jobId, onBack, onOpenSetup }) {
                     </td>
                     <td className="num">{formatMoney(w.price)}</td>
                     <td className="num">{figureOr(w.billed_to_date, null, "Not decided")}</td>
+                    <td className="num">{w.percent_billed === null || w.percent_billed === undefined ? "" : w.percent_billed}</td>
                     <td className="num">
                       {w.left_to_bill === null || w.left_to_bill === undefined ? "" : formatMoney(w.left_to_bill)}
                     </td>

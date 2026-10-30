@@ -79,18 +79,30 @@ def doc(lines, *, kind: str = "invoice", number: str = "3107", voided: bool = Fa
     return document_figures(d, POLICY, frozenset({"EST6115758"}))
 
 
-def assignment(line_id: str, n: int, name: str, *, estimate: str = ELM) -> AssignmentIn:
+def assignment(
+    line_id: str, n: int, name: str, *, estimate: str = ELM, amount: str = "0.00"
+) -> AssignmentIn:
+    """One current row; ``amount`` matters only for a split (F08.4), where each row
+    carries its part."""
     return AssignmentIn(
-        f"a-{line_id}", line_id, estimate, n, name, "u1", datetime(2026, 10, 7, tzinfo=UTC)
+        f"a-{line_id}-{n}",
+        line_id,
+        estimate,
+        n,
+        name,
+        "u1",
+        datetime(2026, 10, 7, tzinfo=UTC),
+        D(amount),
     )
 
 
 def _tie(d, ln, assigned=None):
+    rows = () if assigned is None else assigned if isinstance(assigned, tuple) else (assigned,)
     return tie_line(
         d,
         ln,
         AREAS,
-        assigned,
+        rows,
         surcharge_items=FUEL,
         estimate_numbers={ELM: "EST6115758", TURLEY: "EST6120638"},
     )
@@ -146,7 +158,7 @@ def test_not_offered_lines_are_listed_and_never_tied_or_suggested() -> None:
     t = _tie(voided, voided.doc.lines[0])
     assert t.not_offered == "Voided document: in no figure." and t.amount == D("0.00")
     undecided = tie_line(
-        voided, voided.doc.lines[0], AREAS, None, surcharge_items=None, estimate_numbers={}
+        voided, voided.doc.lines[0], AREAS, (), surcharge_items=None, estimate_numbers={}
     )
     assert "Fuel surcharge treatment" in undecided.not_offered
 
@@ -199,11 +211,11 @@ def test_billed_per_work_area_the_complement_and_the_flag() -> None:
     assert before.unapproved_billed == D("0.00") and before.unapproved_labels == ()
     assert before.suggested == 3  # Mobilization, Demo, New Retaining Wall; not the ledge lines
     assigned = {
-        "l1": assignment("l1", 1, "Mobilization"),
-        "l3": assignment("l3", 3, "Demo Existing Wall"),
-        "l4": assignment("l4", 4, "New Retaining Wall"),
-        "l5": assignment("l5", 18, "CO: Ledge Removal per Day (07/07/26)"),
-        "l6": assignment("l6", 22, "CO: Ledge Removal per Day (07/17/26"),
+        "l1": (assignment("l1", 1, "Mobilization"),),
+        "l3": (assignment("l3", 3, "Demo Existing Wall"),),
+        "l4": (assignment("l4", 4, "New Retaining Wall"),),
+        "l5": (assignment("l5", 18, "CO: Ledge Removal per Day (07/07/26)"),),
+        "l6": (assignment("l6", 22, "CO: Ledge Removal per Day (07/17/26"),),
     }
     after = job_work_areas(
         [pmt2, ledge, memo], billed_to_date, AREAS, assigned, surcharge_items=FUEL
@@ -240,3 +252,89 @@ def test_billed_per_work_area_the_complement_and_the_flag() -> None:
     assert unapproved_co_billing_issue("J", before) is None
     for word in ("paid", "payment", "collected"):
         assert word not in text.lower()
+
+
+# --- F08.4 (D-52): a line split across work areas by amount ----------------------------------
+
+
+def _split(
+    line_id: str, parts: dict[int, str], areas: tuple[AreaRef, ...] = AREAS
+) -> tuple[AssignmentIn, ...]:
+    names = {a.order_no: a.name for a in areas}
+    return tuple(assignment(line_id, n, names[n], amount=amount) for n, amount in parts.items())
+
+
+def test_a_split_line_counts_each_part_on_its_work_area_and_once_on_the_job() -> None:
+    pmt1 = doc([line("83147.24", "Start of Job", n=1)], number="EST6115758_PMT1")
+    four = {1: "2750.00", 2: "5415.34", 3: "8571.46", 4: "66410.44"}
+    t = _tie(pmt1, pmt1.doc.lines[0], _split("l1", four))
+    assert t.how == "assigned" and t.area is None and t.split and t.note is None
+    assert [(p.area.order_no, p.amount) for p in t.parts] == [(n, D(a)) for n, a in four.items()]
+    assert t.assignment is not None and len(t.assignments) == 4
+    wa = job_work_areas(
+        [pmt1], D("83147.24"), AREAS, {"l1": _split("l1", four)}, surcharge_items=FUEL
+    )
+    assert [wa.billed[(ELM, n)] for n in (1, 2, 3, 4)] == [D(a) for a in four.values()]
+    assert [wa.left_to_bill(AREAS[i]) for i in range(4)] == [
+        D("2750.00"),
+        D("5415.34"),
+        D("8571.46"),
+        D("66410.44"),
+    ]
+    assert [wa.percent_billed(AREAS[i]) for i in range(4)] == [D("50.00")] * 4
+    assert wa.not_assigned == D("0.00") and wa.suggested == 0
+    assert wa.unapproved_billed == D("0.00")
+    # One part on an unapproved change order: the flag names that amount and nothing else.
+    co = {1: "82147.24", 18: "1000.00"}
+    flagged = job_work_areas(
+        [pmt1], D("83147.24"), AREAS, {"l1": _split("l1", co)}, surcharge_items=FUEL
+    )
+    assert flagged.unapproved_billed == D("1000.00") and flagged.unapproved_labels == ("#18",)
+    assert flagged.not_assigned == D("0.00")
+    assert unapproved_co_billing_issue("J", flagged).message.startswith("1,000.00 has been billed")
+    # A single row is the whole line, whatever amount the row carries (F08.1 unchanged).
+    one = _tie(pmt1, pmt1.doc.lines[0], assignment("l1", 1, "Mobilization", amount="1.00"))
+    assert one.area.order_no == 1 and not one.split and one.parts[0].amount == D("83147.24")
+
+
+def test_percent_billed_is_blank_where_left_to_bill_is_and_on_a_zero_price() -> None:
+    pmt1 = doc([line("83147.24", "Start of Job", n=1)], number="EST6115758_PMT1")
+    priced_zero = (*AREAS, area(30, "Allowance", "0.00"))
+    wa = job_work_areas(
+        [pmt1],
+        D("83147.24"),
+        priced_zero,
+        {"l1": _split("l1", {1: "83146.24", 30: "1.00"}, priced_zero)},
+        surcharge_items=FUEL,
+    )
+    assert wa.percent_billed(priced_zero[-1]) is None  # price 0.00
+    assert wa.percent_billed(AREAS[4]) is None  # omitted
+    assert wa.percent_billed(AREAS[5]) is None  # an unapproved change order
+    assert wa.percent_billed(AREAS[0]) == D("1511.75")  # 83,146.24 / 5,500.00: not capped
+    approved = AreaRef(**{**AREAS[5].__dict__, "approved": True})
+    assert wa.percent_billed(approved) == D("0.00")
+    undecided = job_work_areas([pmt1], None, AREAS, {}, surcharge_items=None)
+    assert undecided.percent_billed(AREAS[0]) == D("0.00")  # the caller blanks it with billed
+
+
+def test_a_credit_memo_split_is_negative_and_a_dropped_part_unties_the_line() -> None:
+    memo = doc([line("1000.00", "Credit", n=1)], kind="credit_memo", number="CM2")
+    t = _tie(memo, memo.doc.lines[0], _split("l1", {1: "-400.00", 2: "-600.00"}))
+    assert t.amount == D("-1000.00") and [p.amount for p in t.parts] == [D("-400.00"), D("-600.00")]
+    wa = job_work_areas([memo], D("-1000.00"), AREAS, {"l1": t.assignments}, surcharge_items=FUEL)
+    assert (wa.billed[(ELM, 1)], wa.billed[(ELM, 2)], wa.not_assigned) == (
+        D("-400.00"),
+        D("-600.00"),
+        D("0.00"),
+    )
+    # A part whose work area is not on the latest version: the whole line is untied.
+    gone = _split("l1", {1: "-400.00"}) + (
+        assignment("l1", 29, "CO: Ledge Removal per Day (09/23/26)", amount="-600.00"),
+    )
+    dropped = _tie(memo, memo.doc.lines[0], gone)
+    assert dropped.how == "none" and dropped.parts == () and "#29" in dropped.note
+    # Parts that no longer sum to the line (the line changed in QuickBooks): counted, and said.
+    short = _tie(memo, memo.doc.lines[0], _split("l1", {1: "-400.00", 2: "-500.00"}))
+    assert short.split and short.note == (
+        "The parts sum to (900.00) and the line is (1,000.00); split the line again."
+    )

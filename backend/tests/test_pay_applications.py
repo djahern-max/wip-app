@@ -31,7 +31,15 @@ from tests.billing_helpers import (
 )
 from tests.conftest import CSRF, Seed
 from tests.job_helpers import ELM_ID, TURLEY_ID, Tenant, make_tenant, policy
-from tests.test_invoice_lines import _confirm_all, _ledge, _pmt2, sales_line
+from tests.test_invoice_lines import (
+    FOUR_WAY,
+    _confirm_all,
+    _ledge,
+    _pmt1,
+    _pmt2,
+    _split,
+    sales_line,
+)
 from tests.test_zz_response_scan import _walk
 
 D = Decimal
@@ -1027,3 +1035,22 @@ def test_f083_a_draft_is_reopened_edited_and_discarded(t: Tenant, as_role) -> No
     viewer = as_role(t, "client_viewer", Role.client_viewer)
     again = _request(t, job, {}, on="2026-10-07", surcharge=False)
     assert viewer.delete(f"{_path(job['id'])}/{again['id']}", headers=CSRF).status_code == 403
+
+
+def test_f084_the_first_application_after_a_four_way_split(t: Tenant) -> None:
+    """F08.4 (D-52): a lump-sum line split four ways stands for 50.00% on each work area,
+    so the first application at 100.00 earns the other half and is due exactly that."""
+    job = _elm(t)
+    _pmt1(t)
+    job = t.job(job["id"])
+    ln = next(x for x in job["invoice_lines"]["lines"] if x["doc_number"] == "EST6115758_PMT1")
+    job = _split(t, job, ln["billing_line_id"], FOUR_WAY)
+    prefill = _prefill(t, job["id"])
+    assert [prefill[n] for n in (1, 2, 3, 4)] == ["50.00"] * 4
+    app = _request(t, job, {n: "100.00" for n in (1, 2, 3, 4)}, on="2026-08-01", surcharge=False)
+    lines = _lines(app)
+    for n, half in FOUR_WAY.items():
+        assert (lines[n]["earned_previous"], lines[n]["earned_this_application"]) == (half, half)
+    assert _summary(app) == ("166294.48", "83147.24", "83147.24")
+    assert app["issues"] == [] and app["summary"]["billed_ahead"] is None
+    _no_negative(app)

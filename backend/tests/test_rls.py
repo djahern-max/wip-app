@@ -587,6 +587,7 @@ def _seed_f08_1_rows(
                 order_no=approval.order_no,
                 work_area_name=approval.work_area_name,
                 estimate_work_area_id=approval.estimate_work_area_id,
+                amount=Decimal("1.00"),  # F08.4 (D-52)
                 recorded_by=user_id,
             )
         )

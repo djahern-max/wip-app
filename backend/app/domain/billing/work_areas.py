@@ -12,8 +12,10 @@ no work area's. The description is a **suggestion** only (a kept work area whose
 equals it under ``same_name``, exactly one); nothing else suggests, and no suggestion is
 ever applied by rule (the owner's change a: no suggestion by line position).
 
-Billed to date per work area = Σ of its tied lines, a credit memo's negative. "Not
-assigned to a work area" = the job's billed to date less Σ of every tied line, so the
+Billed to date per work area = Σ of its tied lines' parts (a "#n" line and an
+application line for their whole amount, an assigned line for the amount of each of its
+rows), a credit memo's negative. "Not assigned to a work area" = the job's billed to date
+less Σ of every part, so the
 identity holds by construction: sales tax, fuel surcharge lines (D-39), discount lines
 and the deposit invoice's lines (D-02) are never tied and sit in that complement.
 
@@ -26,15 +28,17 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
-from app.domain.billing.figures import SALES_ITEM, ZERO, DocFigures, LineIn
+from app.domain.billing.figures import SALES_ITEM, ZERO, DocFigures, LineIn, words
 from app.domain.estimates.exceptions import sentence as estimate_sentence
 from app.domain.estimates.versions import same_name
 
 # "#n " at the start of a description (D-26); "#n" alone counts too.
 HASH = re.compile(r"^\s*#(\d+)(?:\s|$)")
 AreaKey = tuple[str, int]  # (estimate id, order number)
+CENT = Decimal("0.01")
+HUNDRED = Decimal("100")
 
 
 @dataclass(frozen=True)
@@ -94,7 +98,9 @@ class AreaRef:
 
 @dataclass(frozen=True)
 class AssignmentIn:
-    """The latest ``assigned`` row of a line (a ``cleared`` row is no assignment)."""
+    """One current ``assigned`` row of a line (a ``cleared`` row is no assignment). A
+    line has one such row, or several when it is split (F08.4, D-52): the rows of its
+    latest event, each with the part's signed ``amount``."""
 
     id: str
     billing_line_id: str
@@ -103,11 +109,21 @@ class AssignmentIn:
     work_area_name: str
     recorded_by: str
     recorded_at: datetime
+    amount: Decimal
     note: str | None = None
 
     @property
     def key(self) -> AreaKey:
         return (self.estimate_id, self.order_no)
+
+
+@dataclass(frozen=True)
+class LinePart:
+    """What a line counts for on one work area (F08.4, D-52): the whole line for a "#n"
+    or application line, one row's amount for an assigned line."""
+
+    area: AreaRef
+    amount: Decimal
 
 
 @dataclass(frozen=True)
@@ -117,15 +133,21 @@ class LineTie:
     amount: Decimal  # signed: a credit memo's line is negative; 0.00 when not counted
     offered: bool  # a person may assign it
     not_offered: str | None  # why not, in words
-    area: AreaRef | None  # the tied work area
+    area: AreaRef | None  # the tied work area; None for a split (two or more parts)
     how: str  # pay_application | number | assigned | none
-    assignment: AssignmentIn | None  # the assignment, tied or not (a dropped work area)
+    assignment: AssignmentIn | None  # the first current row, tied or not (a dropped work area)
     note: str | None  # the renumbered sentence, a dropped work area, an ambiguous "#n"
     suggested: AreaRef | None  # by name; None when tied, not offered, or no single match
+    parts: tuple[LinePart, ...] = ()  # what the line counts for, per work area
+    assignments: tuple[AssignmentIn, ...] = ()  # every current row, tied or not
 
     @property
     def how_label(self) -> str:
         return HOW_LABELS[self.how]
+
+    @property
+    def split(self) -> bool:
+        return len(self.parts) > 1
 
 
 def hash_number(description: str | None) -> int | None:
@@ -183,20 +205,30 @@ def tie_line(
     doc: DocFigures,
     line: LineIn,
     areas: Sequence[AreaRef],
-    assignment: AssignmentIn | None,
+    assignments: Sequence[AssignmentIn],
     *,
     surcharge_items: frozenset[str] | None,
     estimate_numbers: Mapping[str, str],
     application: AppTie | None = None,
 ) -> LineTie:
-    """One line's tie in D-45's order. ``application``: the issued pay application the
-    line's document was keyed from (Part 2), which ties every line of the document.
-    ``estimate_numbers``: id → number of the estimates attached to the job."""
+    """One line's tie in D-45's order. ``assignments``: the line's current ``assigned``
+    rows (none, one, or several for a split, D-52). ``application``: the issued pay
+    application the line's document was keyed from (Part 2), which ties every line of
+    the document. ``estimate_numbers``: id → number of the estimates attached to the job."""
     amount = doc.sign * line.amount if doc.counted else ZERO
     can, why = offered(doc, line, surcharge_items)
     by_key = {a.key: a for a in areas}
+    rows = tuple(assignments)
 
-    def tie(area: AreaRef | None, how: str, note: str | None, suggested: bool) -> LineTie:
+    def tie(
+        area: AreaRef | None,
+        how: str,
+        note: str | None,
+        suggested: bool,
+        parts: tuple[LinePart, ...] | None = None,
+    ) -> LineTie:
+        if parts is None:
+            parts = (LinePart(area, amount),) if area is not None else ()
         return LineTie(
             doc=doc,
             line=line,
@@ -205,9 +237,11 @@ def tie_line(
             not_offered=why,
             area=area,
             how=how,
-            assignment=assignment,
+            assignment=rows[0] if rows else None,
             note=note,
             suggested=suggest_work_area(line.description, areas) if suggested else None,
+            parts=parts,
+            assignments=rows,
         )
 
     if not can:
@@ -221,37 +255,66 @@ def tie_line(
             return tie(area, "number", None, False)
         return (
             tie(None, "none", note, True)
-            if assignment is None
-            else _assigned(tie, assignment, by_key, estimate_numbers)
+            if not rows
+            else _assigned(tie, rows, by_key, estimate_numbers, amount)
         )
-    if assignment is not None:
-        return _assigned(tie, assignment, by_key, estimate_numbers)
+    if rows:
+        return _assigned(tie, rows, by_key, estimate_numbers, amount)
     return tie(None, "none", None, True)
 
 
-def _assigned(tie, assignment: AssignmentIn, by_key: dict[AreaKey, AreaRef], numbers) -> LineTie:
-    area = by_key.get(assignment.key)
-    if area is None:
-        estimate = numbers.get(assignment.estimate_id)
-        where = (
-            f"the latest version of estimate {estimate}" if estimate else "any estimate on this job"
+def _assigned(
+    tie,
+    rows: tuple[AssignmentIn, ...],
+    by_key: dict[AreaKey, AreaRef],
+    numbers,
+    line_amount: Decimal,
+) -> LineTie:
+    """The line's current rows against the latest versions: every row must find its work
+    area, else the whole line counts as not assigned until a person acts (F08.1 Plan
+    answer 2; a split is one decision and is not half kept)."""
+    parts: list[LinePart] = []
+    notes: list[str] = []
+    for row in rows:
+        area = by_key.get(row.key)
+        if area is None:
+            estimate = numbers.get(row.estimate_id)
+            where = (
+                f"the latest version of estimate {estimate}"
+                if estimate
+                else "any estimate on this job"
+            )
+            return tie(
+                None,
+                "none",
+                f'Assigned to work area #{row.order_no} "{row.work_area_name}", which '
+                f"is not on {where}; assign the line again or clear it.",
+                True,
+            )
+        if not same_name(area.name, row.work_area_name):
+            notes.append(
+                estimate_sentence(
+                    "EST_WORK_AREA_RENUMBERED",
+                    order=area.order_no,
+                    old=row.work_area_name,
+                    new=area.name,
+                )
+            )
+        parts.append(LinePart(area, row.amount if len(rows) > 1 else line_amount))
+    if len(parts) > 1:
+        # The pick-list's order: the original's work areas by number, then the estimates
+        # attached as change orders by number (the rows of an event carry no order).
+        parts.sort(
+            key=lambda p: (p.area.role != "original", p.area.estimate_number, p.area.order_no)
         )
-        return tie(
-            None,
-            "none",
-            f'Assigned to work area #{assignment.order_no} "{assignment.work_area_name}", which '
-            f"is not on {where}; assign the line again or clear it.",
-            True,
-        )
-    note = None
-    if not same_name(area.name, assignment.work_area_name):
-        note = estimate_sentence(
-            "EST_WORK_AREA_RENUMBERED",
-            order=area.order_no,
-            old=assignment.work_area_name,
-            new=area.name,
-        )
-    return tie(area, "assigned", note, False)
+        total = sum((p.amount for p in parts), ZERO)
+        if total != line_amount:
+            notes.append(
+                f"The parts sum to {words(total)} and the line is {words(line_amount)}; "
+                "split the line again."
+            )
+        return tie(None, "assigned", " ".join(notes) or None, False, tuple(parts))
+    return tie(parts[0].area, "assigned", " ".join(notes) or None, False)
 
 
 @dataclass(frozen=True)
@@ -275,20 +338,27 @@ class JobWorkAreas:
             return None
         return area.price - self.billed_on(area)
 
+    def percent_billed(self, area: AreaRef) -> Decimal | None:
+        """F08.4 (D-52): billed to date ÷ scheduled value × 100, ``ROUND_HALF_UP`` to
+        0.01, a display figure; None where left to bill is None or the price is 0.00."""
+        if self.left_to_bill(area) is None or area.price == ZERO:
+            return None
+        return (self.billed_on(area) / area.price * HUNDRED).quantize(CENT, ROUND_HALF_UP)
+
 
 def job_work_areas(
     documents: Sequence[DocFigures],
     billed_to_date: Decimal | None,
     areas: Sequence[AreaRef],
-    assignments: Mapping[str, AssignmentIn],
+    assignments: Mapping[str, Sequence[AssignmentIn]],
     *,
     surcharge_items: frozenset[str] | None,
     applications: Sequence[AppTie] = (),
 ) -> JobWorkAreas:
-    """``documents``: the job's documents, each with its lines; ``assignments``: the latest
-    ``assigned`` row per line id; ``applications``: the documents keyed from issued pay
-    applications (Part 2), first in D-45's order. Every figure is computed here and
-    nowhere stored."""
+    """``documents``: the job's documents, each with its lines; ``assignments``: the
+    current ``assigned`` rows per line id (one, or the parts of a split); ``applications``:
+    the documents keyed from issued pay applications (Part 2), first in D-45's order.
+    Every figure is computed here and nowhere stored."""
     numbers = {a.estimate_id: a.estimate_number for a in areas}
     by_doc = {app.billing_id: app for app in applications}
     lines: list[LineTie] = []
@@ -299,7 +369,7 @@ def job_work_areas(
                     d,
                     ln,
                     areas,
-                    assignments.get(ln.id or ""),
+                    assignments.get(ln.id or "", ()),
                     surcharge_items=surcharge_items,
                     estimate_numbers=numbers,
                     application=by_doc.get(d.doc.id),
@@ -308,9 +378,9 @@ def job_work_areas(
     billed_lines: dict[AreaKey, Decimal] = {a.key: ZERO for a in areas}
     tied = ZERO
     for t in lines:
-        if t.area is not None:
-            billed_lines[t.area.key] = billed_lines.get(t.area.key, ZERO) + t.amount
-            tied += t.amount
+        for part in t.parts:  # the row's amount, not the line's (D-52)
+            billed_lines[part.area.key] = billed_lines.get(part.area.key, ZERO) + part.amount
+            tied += part.amount
     billed = dict(billed_lines)
     for app in applications:
         for key, amount in app.allocations.items():
@@ -324,7 +394,7 @@ def job_work_areas(
         not_assigned=None if billed_to_date is None else billed_to_date - tied,
         unapproved_billed=sum((billed[a.key] for a in unapproved), ZERO),
         unapproved_labels=tuple(a.label for a in unapproved),
-        suggested=sum(1 for t in lines if t.offered and t.area is None and t.suggested),
+        suggested=sum(1 for t in lines if t.offered and not t.parts and t.suggested),
         billed_lines=billed_lines,
         application_of={app.billing_id: app.number for app in applications},
     )

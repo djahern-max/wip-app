@@ -127,13 +127,52 @@ def rw_engine() -> Iterator[Engine]:
     engine.dispose()
 
 
+def _clean_slate(cfg: Config, owner_engine: Engine) -> None:
+    """Downgrade to base; if a migration refuses (0018 refuses to drop ``amount`` while an
+    invoice line is split, F08.4, and the test runs leave splits behind), drop every object
+    in ``public`` instead: the test database holds nothing to protect, and the guard is for
+    a real one. Scratch and test databases only (the downgrade guard already says so)."""
+    try:
+        command.downgrade(cfg, "base")
+        return
+    except RuntimeError:
+        pass
+    with owner_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        tables = conn.execute(
+            text(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
+            )
+        ).scalars()
+        for name in list(tables):
+            conn.execute(text(f'DROP TABLE IF EXISTS "{name}" CASCADE'))
+        for name in list(
+            conn.execute(
+                text(
+                    "SELECT t.typname FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace "
+                    "WHERE n.nspname = 'public' AND t.typtype = 'e'"
+                )
+            ).scalars()
+        ):
+            conn.execute(text(f'DROP TYPE IF EXISTS "{name}" CASCADE'))
+        for name in list(
+            conn.execute(
+                text(
+                    "SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
+                    "WHERE n.nspname = 'public'"
+                )
+            ).scalars()
+        ):
+            conn.execute(text(f'DROP FUNCTION IF EXISTS "{name}"() CASCADE'))
+
+
 @pytest.fixture(scope="session")
 def migrated_db(owner_engine: Engine) -> Iterator[None]:
     cfg = alembic_config(OWNER_URL)
-    command.downgrade(cfg, "base")  # clean slate if a previous run aborted
+    _clean_slate(cfg, owner_engine)  # clean slate if a previous run aborted
     command.upgrade(cfg, "head")
     yield
-    command.downgrade(cfg, "base")
+    _clean_slate(cfg, owner_engine)
 
 
 # --- seed -----------------------------------------------------------------------------------

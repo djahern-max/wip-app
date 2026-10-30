@@ -10,7 +10,7 @@ import pytest
 from alembic import command
 from sqlalchemy import create_engine, text
 
-from app.tenancy.rls import APPEND_ONLY_FUNCTION
+from app.tenancy.rls import APPEND_ONLY_FUNCTION, append_only_trigger_names
 from tests.conftest import BACKEND_DIR, alembic_config
 
 EXPECTED_TABLES = {
@@ -76,6 +76,7 @@ F08_1_TABLES = {"billing_line_work_area"}  # 0014 (D-45)
 F08_1_PART_2_TABLES = {"pay_application", "pay_application_line"}  # 0015 (D-36)
 F09_TABLES = {"exception", "exception_event"}  # 0016 (D-46)
 F10_TABLES = {"ledger_line"}  # 0017 (D-51)
+F08_4_INDEX = "uq_billing_line_work_area_event"  # 0018 (D-52)
 F03_TABLES = {"connection", "sync_run", "import_batch", "raw_record", "task"}
 F05_TABLES = {"customer", "billing", "billing_line", "payment", "payment_application"}
 F04_TABLES = {
@@ -135,6 +136,10 @@ def _user_columns(url: str) -> set[str]:
 
 def _triggers(url: str) -> set[str]:
     return _query(url, "SELECT tgname FROM pg_trigger WHERE NOT tgisinternal")
+
+
+def _indexes(url: str, table: str) -> set[str]:
+    return _query(url, f"SELECT indexname FROM pg_indexes WHERE tablename = '{table}'")
 
 
 def _constraints(url: str, table: str) -> set[str]:
@@ -200,6 +205,16 @@ def test_upgrade_head_then_downgrade_base(scratch_db_url: str) -> None:
         "CREATE UNIQUE INDEX uq_job_estimate_one_original ON public.job_estimate "
         "USING btree (tenant_id, job_id) WHERE ((role)::text = 'original'::text)"
     }
+    # 0018 alone is reversible (F08.4, D-52): the amount column and the event index come
+    # and go while no line is split (the refusal is tested below with data).
+    assert "amount" in _columns(scratch_db_url, "billing_line_work_area")
+    assert F08_4_INDEX in _indexes(scratch_db_url, "billing_line_work_area")
+    command.downgrade(cfg, "0017")
+    assert "amount" not in _columns(scratch_db_url, "billing_line_work_area")
+    assert F08_4_INDEX not in _indexes(scratch_db_url, "billing_line_work_area")
+    assert F10_TABLES <= _public_tables(scratch_db_url)
+    command.upgrade(cfg, "head")
+    assert "amount" in _columns(scratch_db_url, "billing_line_work_area")
     # 0016 alone is reversible (F09): the two exception tables, with their RLS policies,
     # their CHECKs and the event table's append-only triggers, come and go.
     assert F09_TABLES <= _public_tables(scratch_db_url)
@@ -795,5 +810,257 @@ def test_0012_data_step_tracks_linked_rows_per_tenant_and_is_reversible(
         assert F07_2_CUSTOMER_COLUMNS.isdisjoint(_columns(scratch_db_url, "customer"))
         command.upgrade(cfg, "head")
         assert tracked() == {"a": expected, "b": expected}  # derived again from the links
+    finally:
+        engine.dispose()
+
+
+def test_0018_backfills_every_row_with_its_line_amount_and_refuses_to_drop_a_split(
+    scratch_db_url: str,
+) -> None:
+    """F08.4 (D-52): F08.1-shaped rows (no amount) at 0017: after 0018 every row carries its
+    line's amount with the document's sign (an invoice line positive, a credit memo's
+    negative, a cleared row too); the downgrade drops the column while every line has
+    one current row and refuses in words, changing nothing, once a line is split. The
+    data step runs per tenant under forced RLS; nothing in ``billing_line`` changes."""
+    cfg = alembic_config(scratch_db_url)
+    command.upgrade(cfg, "0017")
+    engine = create_engine(scratch_db_url)
+    firm, tenant, user = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    conn_id, run_id, batch = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    raw_inv, raw_memo = uuid.uuid4(), uuid.uuid4()
+    invoice, memo, inv_line, memo_line = (uuid.uuid4() for _ in range(4))
+    estimate, version, wa1, wa2 = (uuid.uuid4() for _ in range(4))
+    rows = {
+        "inv_1": (uuid.uuid4(), inv_line, wa1, 1, "assigned"),
+        "inv_cleared": (uuid.uuid4(), inv_line, None, None, "cleared"),
+        "inv_2": (uuid.uuid4(), inv_line, wa2, 2, "assigned"),
+        "memo_1": (uuid.uuid4(), memo_line, wa1, 1, "assigned"),
+    }
+    ids = {
+        "f": firm,
+        "t": tenant,
+        "u": user,
+        "c": conn_id,
+        "r": run_id,
+        "b": batch,
+        "ri": raw_inv,
+        "rm": raw_memo,
+        "inv": invoice,
+        "memo": memo,
+        "il": inv_line,
+        "ml": memo_line,
+        "e": estimate,
+        "v": version,
+        "w1": wa1,
+        "w2": wa2,
+    }
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("INSERT INTO firm (id, name) VALUES (:f, 'F')"), ids)
+            conn.execute(
+                text("INSERT INTO tenant (id, firm_id, name, slug) VALUES (:t, :f, 'T', 't')"), ids
+            )
+            conn.execute(
+                text("INSERT INTO \"user\" (id, email, display_name) VALUES (:u, 'u@x.test', 'U')"),
+                ids,
+            )
+            conn.execute(text("SELECT set_config('app.tenant_id', :t, true)"), {"t": str(tenant)})
+            conn.execute(
+                text("INSERT INTO connection (id, tenant_id, system) VALUES (:c, :t, 'qbo')"), ids
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO sync_run (id, tenant_id, connection_id, kind) "
+                    "VALUES (:r, :t, :c, 'backfill')"
+                ),
+                ids,
+            )
+            for key, entity, ext in (("ri", "Invoice", "1"), ("rm", "CreditMemo", "2")):
+                conn.execute(
+                    text(
+                        "INSERT INTO raw_record (id, tenant_id, source, entity_type, external_id, "
+                        "version, payload, payload_sha256, sync_run_id) "
+                        f"VALUES (:{key}, :t, 'qbo', '{entity}', '{ext}', 1, '{{}}', '{key}', :r)"
+                    ),
+                    ids,
+                )
+            for key, kind, raw, ext in (
+                ("inv", "invoice", "ri", "1"),
+                ("memo", "credit_memo", "rm", "2"),
+            ):
+                conn.execute(
+                    text(
+                        "INSERT INTO billing (id, tenant_id, kind, source, external_id, "
+                        "txn_date, customer_external_id, subtotal, discount_total, tax_total, "
+                        f"total, balance, voided, raw_record_id) VALUES (:{key}, :t, '{kind}', "
+                        f"'qbo', '{ext}', '2026-07-15', '201', 10.00, 0.00, 0.00, 10.00, 10.00, "
+                        f"false, :{raw})"
+                    ),
+                    ids,
+                )
+            conn.execute(
+                text(
+                    "INSERT INTO billing_line (id, tenant_id, billing_id, line_no, line_kind, "
+                    "amount) VALUES (:il, :t, :inv, 1, 'SalesItemLineDetail', 83147.24), "
+                    "(:ml, :t, :memo, 1, 'SalesItemLineDetail', 1000.00)"
+                ),
+                ids,
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO import_batch (id, tenant_id, source_kind, sha256, byte_size, "
+                    "original_filename, object_key) VALUES (:b, :t, 'lmn_estimate', 'x', 1, "
+                    "'e.xlsx', 'tenant/x/e.xlsx')"
+                ),
+                ids,
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO estimate (id, tenant_id, source, external_id, name, status, "
+                    "price) VALUES (:e, :t, 'lmn', 'EST1', 'E', 'Sold', 1.00)"
+                ),
+                ids,
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO estimate_version (id, tenant_id, estimate_id, version_no, "
+                    "import_batch_id) VALUES (:v, :t, :e, 1, :b)"
+                ),
+                ids,
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO estimate_work_area (id, tenant_id, estimate_version_id, order_no, "
+                    "name, kept, change_order_suggested, price) VALUES "
+                    "(:w1, :t, :v, 1, 'One', true, false, 1.00), "
+                    "(:w2, :t, :v, 2, 'Two', true, false, 1.00)"
+                ),
+                ids,
+            )
+            # Four F08.1 events on two lines, one row each, a minute apart: every line's
+            # latest event has one row.
+            for minute, (row_id, line_id, area_id, order, action) in enumerate(rows.values()):
+                conn.execute(
+                    text(
+                        "INSERT INTO billing_line_work_area (id, tenant_id, billing_line_id, "
+                        "action, estimate_id, order_no, work_area_name, estimate_work_area_id, "
+                        "recorded_by, recorded_at) "
+                        "VALUES (:id, :t, :l, :a, :e, :o, :n, :w, :u, :at)"
+                    ),
+                    {
+                        "id": row_id,
+                        "t": tenant,
+                        "l": line_id,
+                        "a": action,
+                        "e": estimate if area_id else None,
+                        "o": order,
+                        "n": f"Area {order}" if order else None,
+                        "w": area_id,
+                        "u": user,
+                        "at": f"2026-10-30 12:{minute:02d}:00+00",
+                    },
+                )
+        command.upgrade(cfg, "head")
+
+        def amounts() -> dict[str, str]:
+            with engine.connect() as conn:
+                conn.execute(
+                    text("SELECT set_config('app.tenant_id', :t, true)"), {"t": str(tenant)}
+                )
+                found = {
+                    str(r.id): str(r.amount)
+                    for r in conn.execute(
+                        text("SELECT id, amount FROM billing_line_work_area")
+                    ).all()
+                }
+            return {name: found[str(row[0])] for name, row in rows.items()}
+
+        assert amounts() == {
+            "inv_1": "83147.24",
+            "inv_cleared": "83147.24",
+            "inv_2": "83147.24",
+            "memo_1": "-1000.00",
+        }
+        with engine.connect() as conn:
+            conn.execute(text("SELECT set_config('app.tenant_id', :t, true)"), {"t": str(tenant)})
+            assert {
+                (r.id, str(r.amount))
+                for r in conn.execute(text("SELECT id, amount FROM billing_line")).all()
+            } == {(inv_line, "83147.24"), (memo_line, "1000.00")}
+            forced = conn.execute(
+                text(
+                    "SELECT relforcerowsecurity FROM pg_class "
+                    "WHERE oid = to_regclass('billing_line_work_area')"
+                )
+            ).scalar_one()
+            assert forced is True
+            enabled = conn.execute(
+                text(
+                    "SELECT tgname, tgenabled FROM pg_trigger "
+                    "WHERE tgrelid = to_regclass('billing_line_work_area') AND NOT tgisinternal"
+                )
+            ).all()
+            assert {r.tgname for r in enabled} == set(
+                append_only_trigger_names("billing_line_work_area")
+            )
+            assert all(r.tgenabled == "O" for r in enabled)  # enabled again after the step
+        # Every line has one current row: the downgrade drops the column, and the upgrade
+        # fills it again.
+        command.downgrade(cfg, "0017")
+        assert "amount" not in _columns(scratch_db_url, "billing_line_work_area")
+        command.upgrade(cfg, "head")
+        assert amounts()["memo_1"] == "-1000.00"
+        # One split event on the invoice line (two rows, one recorded_at): refused in words.
+        with engine.begin() as conn:
+            conn.execute(text("SELECT set_config('app.tenant_id', :t, true)"), {"t": str(tenant)})
+            for area_id, order, amount in ((wa1, 1, "2750.00"), (wa2, 2, "80397.24")):
+                conn.execute(
+                    text(
+                        "INSERT INTO billing_line_work_area (id, tenant_id, billing_line_id, "
+                        "action, estimate_id, order_no, work_area_name, estimate_work_area_id, "
+                        "recorded_by, recorded_at, amount) VALUES (:id, :t, :l, 'assigned', :e, "
+                        ":o, :n, :w, :u, '2026-10-30 13:00:00+00', :amt)"
+                    ),
+                    {
+                        "id": uuid.uuid4(),
+                        "t": tenant,
+                        "l": inv_line,
+                        "e": estimate,
+                        "o": order,
+                        "n": f"Area {order}",
+                        "w": area_id,
+                        "u": user,
+                        "amt": amount,
+                    },
+                )
+        with pytest.raises(RuntimeError) as refused:
+            command.downgrade(cfg, "0017")
+        assert str(refused.value) == (
+            "1 invoice line is split across work areas; the amount column cannot be dropped "
+            "while a split exists (end the splits in the application first; nothing was "
+            "changed)."
+        )
+        assert "amount" in _columns(scratch_db_url, "billing_line_work_area")
+        assert F08_4_INDEX in _indexes(scratch_db_url, "billing_line_work_area")
+        assert _query(scratch_db_url, "SELECT version_num FROM alembic_version") == {"0018"}
+        # The event index: a work area twice in one event is refused by the database too.
+        with engine.begin() as conn, pytest.raises(Exception, match=F08_4_INDEX):
+            conn.execute(text("SELECT set_config('app.tenant_id', :t, true)"), {"t": str(tenant)})
+            conn.execute(
+                text(
+                    "INSERT INTO billing_line_work_area (id, tenant_id, billing_line_id, "
+                    "action, estimate_id, order_no, work_area_name, estimate_work_area_id, "
+                    "recorded_by, recorded_at, amount) VALUES (:id, :t, :l, 'assigned', :e, 1, "
+                    "'Area 1', :w, :u, '2026-10-30 13:00:00+00', 1.00)"
+                ),
+                {
+                    "id": uuid.uuid4(),
+                    "t": tenant,
+                    "l": inv_line,
+                    "e": estimate,
+                    "w": wa1,
+                    "u": user,
+                },
+            )
     finally:
         engine.dispose()

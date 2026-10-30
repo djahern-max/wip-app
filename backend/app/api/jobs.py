@@ -12,6 +12,7 @@ Money is strings with cents (D-22). Suggestions carry their reason; nothing is
 attached or linked except by a person's request naming an id.
 """
 
+import re
 from datetime import date
 from decimal import Decimal
 from typing import Annotated
@@ -19,7 +20,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -51,6 +52,7 @@ from app.api.schemas import (
     JobRowOut,
     JobsOut,
     JobWorkAreaOut,
+    LinePartOut,
     PaymentAppliedOut,
     PaymentHistoryOut,
     QboRowOut,
@@ -81,7 +83,7 @@ from app.domain.billing.board import (
     tie_out,
     tie_out_status,
 )
-from app.domain.billing.figures import ZERO, JobFigures, Totals, totals
+from app.domain.billing.figures import ZERO, JobFigures, Totals, totals, words
 from app.domain.billing.line_details import EMPTY, line_details
 from app.domain.billing.pay_applications import ApplicationView
 from app.domain.billing.work_areas import AreaRef, JobWorkAreas, LineTie
@@ -173,11 +175,39 @@ class ApprovalIn(_In):
     note: str | None = Field(default=None, max_length=2000)
 
 
-class WorkAreaAssignIn(_In):
-    """F08.1: a line to a work area, by the work area's row id."""
+class SplitPartIn(_In):
+    """F08.4 (D-52): one part of a split: the work area's row id and its signed amount, a
+    string with cents, parsed to Decimal (never a float)."""
 
     estimate_work_area_id: UUID
+    amount: str = Field(max_length=20)
+
+
+class WorkAreaAssignIn(_In):
+    """F08.1: a line to a work area, by the work area's row id; or, F08.4 (D-52), the
+    line split across work areas by amount (``parts``), one body or the other."""
+
+    estimate_work_area_id: UUID | None = None
+    parts: list[SplitPartIn] | None = Field(default=None, min_length=1, max_length=500)
     note: str | None = Field(default=None, max_length=2000)
+
+    @model_validator(mode="after")
+    def _one_body(self) -> "WorkAreaAssignIn":
+        if (self.estimate_work_area_id is None) == (self.parts is None):
+            raise ValueError("send either estimate_work_area_id or parts, not both and not neither")
+        return self
+
+
+AMOUNT = re.compile(r"^-?\d{1,12}\.\d{2}$")
+
+
+def _amount(value: str) -> Decimal:
+    text = (value or "").strip()
+    if not AMOUNT.match(text):
+        raise HTTPException(
+            status_code=422, detail="Each part is an amount with cents, such as 2750.00."
+        )
+    return Decimal(text)
 
 
 class AssignPairIn(_In):
@@ -466,13 +496,16 @@ def _work_area_out(
 ) -> JobWorkAreaOut:
     suggestion = suggested_kind(row.change_order_suggested) if row.kept else None
     role = a.link.role
-    billed = left = None
+    billed = left = percent = None
     if wa is not None and (ref := _area_ref(v, a, row)) is not None:
         billed = money_str(wa.billed_on(ref)) if wa.not_assigned is not None else None
         left = money_str(wa.left_to_bill(ref)) if billed is not None else None
+        pct = wa.percent_billed(ref) if billed is not None else None
+        percent = None if pct is None else format(pct, "f")
     return JobWorkAreaOut(
         billed_to_date=billed,
         left_to_bill=left,
+        percent_billed=percent,
         id=str(row.id),
         order_no=row.order_no,
         name=row.name,
@@ -531,6 +564,9 @@ def _invoice_lines(db: Session, v: service.JobView, board: Board) -> InvoiceLine
             how_label = f"Assigned by {who or 'a user'}"
         elif t.how == "pay_application":
             how_label = f"Pay application {wa.application_of.get(t.doc.doc.id, '')}"
+        label = _choice_label(tied) if tied else None
+        if t.split:  # F08.4 (D-52)
+            label = "Split: " + "; ".join(f"{p.area.label} {words(p.amount)}" for p in t.parts)
         return InvoiceLineOut(
             billing_line_id=t.line.id or "",
             billing_id=t.doc.doc.id,
@@ -549,7 +585,7 @@ def _invoice_lines(db: Session, v: service.JobView, board: Board) -> InvoiceLine
             offered=t.offered,
             not_offered=t.not_offered,
             work_area_id=tied.work_area_id if tied else None,
-            work_area_label=_choice_label(tied) if tied else None,
+            work_area_label=label,
             how=t.how,
             how_label=how_label,
             assigned_by=who if t.how == "assigned" else None,
@@ -557,6 +593,14 @@ def _invoice_lines(db: Session, v: service.JobView, board: Board) -> InvoiceLine
             note=t.note,
             suggested_work_area_id=t.suggested.work_area_id if t.suggested else None,
             suggested_label=_choice_label(t.suggested) if t.suggested else None,
+            parts=[
+                LinePartOut(
+                    estimate_work_area_id=p.area.work_area_id,
+                    label=_choice_label(p.area),
+                    amount=money_str(p.amount) or "0.00",
+                )
+                for p in t.parts
+            ],
         )
 
     return InvoiceLinesOut(
@@ -1416,17 +1460,30 @@ def assign_invoice_line(
     billing_line_id: UUID,
     body: WorkAreaAssignIn,
 ):
-    """One line to one work area for its whole amount, by id; one row, one audit row."""
+    """One line to one work area for its whole amount, by id; one row, one audit row. Or
+    (F08.4, D-52) one line split across work areas by amount: one row per part, one audit
+    row for the line."""
     try:
-        assignments.assign_line(
-            db,
-            m.active_tenant_id,
-            job_id,
-            billing_line_id,
-            body.estimate_work_area_id,
-            note=body.note,
-            actor=_actor(m, request),
-        )
+        if body.parts is not None:
+            assignments.split_line(
+                db,
+                m.active_tenant_id,
+                job_id,
+                billing_line_id,
+                [(p.estimate_work_area_id, _amount(p.amount)) for p in body.parts],
+                note=body.note,
+                actor=_actor(m, request),
+            )
+        else:
+            assignments.assign_line(
+                db,
+                m.active_tenant_id,
+                job_id,
+                billing_line_id,
+                body.estimate_work_area_id,
+                note=body.note,
+                actor=_actor(m, request),
+            )
     except service.JobError as exc:
         _raise(exc)
     return _fresh_detail(db, m, job_id)

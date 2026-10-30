@@ -138,31 +138,44 @@ def area_refs(view: JobView) -> list[AreaRef]:
     return out
 
 
-def latest_assignments(db: Session, line_ids: Sequence[UUID]) -> dict[str, AssignmentIn]:
-    """F08.1 (D-45): the latest row per line; a ``cleared`` row is no assignment. One
-    read, bounded by the listed jobs' lines."""
+def latest_assignments(
+    db: Session, line_ids: Sequence[UUID]
+) -> dict[str, tuple[AssignmentIn, ...]]:
+    """F08.1 (D-45), F08.4 (D-52): the rows of the latest event per line; an event is
+    the rows one request wrote (they share ``recorded_at``); a ``cleared`` event is no
+    assignment. One read, bounded by the listed jobs' lines."""
     if not line_ids:
         return {}
-    latest: dict[str, BillingLineWorkArea] = {}
+    latest: dict[str, list[BillingLineWorkArea]] = {}
     for row in db.execute(
         select(BillingLineWorkArea)
         .where(BillingLineWorkArea.billing_line_id.in_(line_ids))
         .order_by(BillingLineWorkArea.recorded_at, BillingLineWorkArea.id)
     ).scalars():
-        latest[str(row.billing_line_id)] = row
+        line_id = str(row.billing_line_id)
+        event = latest.get(line_id)
+        if event and event[0].recorded_at == row.recorded_at:
+            event.append(row)
+        else:
+            latest[line_id] = [row]
     return {
-        line_id: AssignmentIn(
-            id=str(r.id),
-            billing_line_id=line_id,
-            estimate_id=str(r.estimate_id),
-            order_no=r.order_no,
-            work_area_name=r.work_area_name,
-            recorded_by=str(r.recorded_by),
-            recorded_at=r.recorded_at,
-            note=r.note,
+        line_id: tuple(
+            AssignmentIn(
+                id=str(r.id),
+                billing_line_id=line_id,
+                estimate_id=str(r.estimate_id),
+                order_no=r.order_no,
+                work_area_name=r.work_area_name,
+                recorded_by=str(r.recorded_by),
+                recorded_at=r.recorded_at,
+                amount=r.amount,
+                note=r.note,
+            )
+            for r in rows
+            if r.action == "assigned"
         )
-        for line_id, r in latest.items()
-        if r.action == "assigned"
+        for line_id, rows in latest.items()
+        if rows[0].action == "assigned"
     }
 
 

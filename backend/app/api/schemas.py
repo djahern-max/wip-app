@@ -590,6 +590,9 @@ class JobWorkAreaOut(_Out):
     # that; left to bill is None for an omitted row and for an unapproved change order.
     billed_to_date: str | None = None
     left_to_bill: str | None = None
+    # F08.4 (D-52): billed to date ÷ price × 100, half up to 0.01, as "50.00"; None where
+    # left to bill is None or the price is 0.00. A display figure.
+    percent_billed: str | None = None
 
 
 class ApprovalEventOut(_Out):
@@ -704,9 +707,20 @@ class WorkAreaChoiceOut(_Out):
     price: str
 
 
+class LinePartOut(_Out):
+    """F08.4 (D-52): what a line counts for on one work area: the whole line for a "#n"
+    or application line, one part of it for a split line."""
+
+    estimate_work_area_id: str
+    label: str  # as the pick-list prints it
+    amount: str  # signed
+
+
 class InvoiceLineOut(_Out):
     """F08.1 (D-45): one line of an invoice, credit memo or sales receipt on the job, how
-    it is tied to a work area, and the suggestion by name (never applied by rule)."""
+    it is tied to a work area, and the suggestion by name (never applied by rule). F08.4
+    (D-52): a split line carries one part per work area, no ``work_area_id`` and the
+    label "Split: #1 2,750.00; #2 5,415.34"."""
 
     billing_line_id: str
     billing_id: str
@@ -733,6 +747,7 @@ class InvoiceLineOut(_Out):
     note: str | None  # the renumbered sentence, a dropped work area, an ambiguous "#n"
     suggested_work_area_id: str | None
     suggested_label: str | None
+    parts: list[LinePartOut] = []  # F08.4 (D-52): one per work area the line counts on
 
 
 class InvoiceLinesOut(_Out):

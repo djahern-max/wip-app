@@ -143,6 +143,7 @@ export const PENDING_WORDS = {
   withdraw: "Withdrawing…",
   assign: "Assigning…", // F08.1 (D-45)
   clear: "Clearing…",
+  split: "Recording…", // F08.4 (D-52)
   assign_all: "Assigning…",
   draft: "Saving…", // F08.1 Part 2 (D-36)
   issue: "Issuing…",
@@ -208,6 +209,52 @@ export function lineAction(line) {
   if (line.how === "assigned") return { action: "clear", label: "Clear" };
   if (!line.work_area_id) return { action: "assign", label: "Assign" };
   return null;
+}
+
+// --- F08.4 (D-52): a line split across work areas by amount ----------------------------------
+
+// Split is offered exactly where Assign is: an offered line with no tie. A split line reads
+// how === "assigned" and offers Clear through lineAction, as a one-area assignment does.
+export function canSplit(line) {
+  const a = lineAction(line);
+  return Boolean(a && a.action === "assign");
+}
+
+const CENTS = /^-?\d+\.\d{2}$/;
+
+function negate(value) {
+  if (value === "0.00") return value;
+  return value.startsWith("-") ? value.slice(1) : `-${value}`;
+}
+
+// The parts the person typed, in the pick-list's order: blank is "not part of the split".
+// `amounts` is {work area id: text}; `workAreas` the pick-list (ordered).
+export function splitParts(amounts, workAreas) {
+  return (workAreas || [])
+    .map((w) => ({ estimate_work_area_id: w.id, amount: (amounts[w.id] || "").trim() }))
+    .filter((p) => p.amount !== "");
+}
+
+// What the form shows under the fields and whether Record split may be pressed: the sum
+// of the parts to the cent (digits only, never a float), against the line's amount.
+export function splitState(amounts, workAreas, lineAmount) {
+  const parts = splitParts(amounts, workAreas);
+  if (parts.length === 0) {
+    return { sum: "0.00", ready: false, sentence: "Enter an amount for each work area the line billed." };
+  }
+  if (parts.some((p) => !CENTS.test(p.amount))) {
+    return { sum: null, ready: false, sentence: "Each part is an amount with cents, such as 2750.00." };
+  }
+  if (parts.some((p) => p.amount === "0.00" || p.amount === "-0.00")) {
+    return { sum: null, ready: false, sentence: "A part of 0.00 is not allowed; leave that work area blank instead." };
+  }
+  const sum = parts.reduce((acc, p) => addMoney(acc, p.amount), "0.00");
+  const diff = addMoney(sum, negate(lineAmount));
+  const head = `Sum of the parts ${formatMoney(sum)}; the line is ${formatMoney(lineAmount)}`;
+  if (diff === "0.00") return { sum, ready: true, sentence: `${head}.` };
+  const short = diff.startsWith("-");
+  const by = formatMoney(short ? diff.slice(1) : diff);
+  return { sum, ready: false, sentence: `${head}; ${short ? "short" : "over"} by ${by}.` };
 }
 
 // --- F08.1 Part 2 (D-36): the billing request and the pay application -------------------------
@@ -492,7 +539,8 @@ export function firmLineWords(job) {
   const kept = job.work_areas.filter((w) => w.kept);
   const confirmed = kept.filter((w) => w.confirmed).length;
   const lines = job.invoice_lines.lines;
-  const tied = lines.filter((ln) => ln.work_area_id).length;
+  // A line is tied when it counts on a work area: one (work_area_id) or, split, several (parts).
+  const tied = lines.filter((ln) => ln.work_area_id || (ln.parts && ln.parts.length > 0)).length;
   return [
     `${estimates} estimate${estimates === 1 ? "" : "s"} attached`,
     `${confirmed} of ${kept.length} work areas confirmed`,

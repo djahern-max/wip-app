@@ -271,8 +271,12 @@ def test_confirm_all_as_suggested_assigns_the_four_and_changes_no_job_figure(t: 
     assert _figures(after) == before and before[2] == PMT2
     assert [a.action for a in t.audit_actions(since)] == ["billing_line_assigned"] * 4
     first = t.audit_actions(since)[0]
-    assert first.detail["before"] == {"work_area": None}
+    assert first.detail["before"]["work_area"] is None and first.detail["before"]["parts"] == []
     assert first.detail["after"]["work_area"]["order_no"] == 1
+    assert first.detail["after"]["parts"] == [{"work_area": "#1 Mobilization", "amount": "5500.00"}]
+    assert first.detail["summary"] == (
+        "Line 1 of EST6115758_PMT2 (5,500.00) assigned to work area #1 Mobilization 5,500.00."
+    )
     assert first.detail["after"]["work_area"]["estimate"] == ELM_ID
     assert first.detail["rows"]["document"] == "EST6115758_PMT2"
     assert _rows(t) == 4
@@ -711,3 +715,341 @@ def test_money_is_strings_and_only_assignment_rows_are_written(
     assert inspect(rw_engine).get_columns("job") and not any(
         c["name"] == "retainage_pct" for c in inspect(rw_engine).get_columns("job")
     )
+
+
+# --- F08.4 (D-52): a lump-sum line split across work areas by amount ---------------------------
+
+PMT1 = "83147.24"
+FOUR_WAY = {1: "2750.00", 2: "5415.34", 3: "8571.46", 4: "66410.44"}
+SPLIT_LABEL = "Split: #1 2,750.00; #2 5,415.34; #3 8,571.46; #4 66,410.44"
+
+
+def _pmt1(t: Tenant) -> None:
+    """The brief's constructed invoice: keyed before pay applications were in use, one
+    line "Start of Job" for half the contract, no "#n", no name match."""
+    doc = document_payload(
+        "5203",
+        customer=ELM_CUSTOMER,
+        date="2026-07-15",
+        doc_number="EST6115758_PMT1",
+        lines=[sales_line(PMT1, "Start of Job")],
+    )
+    apply_payloads(t.engine, t.id, [("Invoice", doc)])
+
+
+def _split(
+    t: Tenant, job: dict, line_id: str, parts: dict[int, str], status: int = 200, note=None
+) -> dict:
+    body = {
+        "parts": [
+            {"estimate_work_area_id": _choice(job, n), "amount": amount}
+            for n, amount in parts.items()
+        ]
+    }
+    if note is not None:
+        body["note"] = note
+    return t.send("PUT", f"/api/jobs/{job['id']}/invoice-lines/{line_id}/work-area", body, status)
+
+
+def _pmt1_job(t: Tenant) -> tuple[dict, dict]:
+    job = _elm(t)
+    _pmt1(t)
+    job = t.job(job["id"])
+    return job, next(ln for ln in _lines(job) if ln["doc_number"] == "EST6115758_PMT1")
+
+
+def test_f084_the_lump_sum_line_is_offered_with_nothing_tied_and_no_suggestion(t: Tenant) -> None:
+    job, ln = _pmt1_job(t)
+    assert (ln["offered"], ln["how"], ln["suggested_label"], ln["work_area_id"]) == (
+        True,
+        "none",
+        None,
+        None,
+    )
+    assert ln["parts"] == [] and ln["amount"] == PMT1
+    areas = _areas(job)
+    assert [areas[n]["billed_to_date"] for n in (1, 2, 3, 4)] == ["0.00"] * 4
+    assert [areas[n]["percent_billed"] for n in (1, 2, 3, 4)] == ["0.00"] * 4
+    assert areas[18]["percent_billed"] is None and areas[17]["percent_billed"] is None
+    assert job["invoice_lines"]["not_assigned_to_work_area"] == PMT1
+    assert job["billing"]["billed_to_date"] == PMT1
+    assert job["invoice_lines"]["suggested"] == 0
+
+
+def test_f084_a_four_way_split_reads_per_work_area_and_moves_no_job_figure(t: Tenant) -> None:
+    job, ln = _pmt1_job(t)
+    before = _figures(job)
+    since = t.audit_rows()
+    job = _split(t, job, ln["billing_line_id"], FOUR_WAY, note="per the billing workbook")
+    areas = _areas(job)
+    assert [areas[n]["billed_to_date"] for n in (1, 2, 3, 4)] == list(FOUR_WAY.values())
+    assert [areas[n]["left_to_bill"] for n in (1, 2, 3, 4)] == list(FOUR_WAY.values())
+    assert [areas[n]["percent_billed"] for n in (1, 2, 3, 4)] == ["50.00"] * 4
+    assert job["invoice_lines"]["not_assigned_to_work_area"] == "0.00"
+    assert job["billing"]["billed_to_date"] == PMT1 and _figures(job) == before
+    assert job["work_area_totals"]["billed_to_date"] == PMT1
+    line = next(x for x in _lines(job) if x["billing_line_id"] == ln["billing_line_id"])
+    assert (line["how"], line["work_area_id"], line["work_area_label"]) == (
+        "assigned",
+        None,
+        SPLIT_LABEL,
+    )
+    assert line["how_label"].startswith("Assigned by ") and line["assigned_at"]
+    assert [(p["label"], p["amount"]) for p in line["parts"]] == [
+        (f"#{n} {name}", amount)
+        for (n, amount), (name, _p) in zip(FOUR_WAY.items(), FOUR, strict=True)
+    ]
+    rows = t.audit_actions(since)
+    assert [r.action for r in rows] == ["billing_line_split"]
+    detail = rows[0].detail
+    assert detail["before"]["parts"] == [] and detail["before"]["work_area"] is None
+    assert detail["after"]["work_area"] is None and detail["after"]["note"] == (
+        "per the billing workbook"
+    )
+    assert detail["after"]["parts"] == [
+        {"work_area": f"#{n} {name}", "amount": amount}
+        for (n, amount), (name, _p) in zip(FOUR_WAY.items(), FOUR, strict=True)
+    ]
+    assert detail["after"]["line_amount"] == PMT1 and detail["after"]["line_no"] == 1
+    assert detail["summary"] == (
+        "Line 1 of EST6115758_PMT1 (83,147.24) split across 4 work areas: #1 Mobilization "
+        "2,750.00; #2 Erosion Control & Site Prep 5,415.34; #3 Demo Existing Wall 8,571.46; "
+        "#4 New Retaining Wall 66,410.44."
+    )
+    assert len(detail["rows"]["billing_line_work_area"]) == 4
+    assert _rows(t) == 4
+    # The same split again is refused; the job page lists the split in the invoice rows.
+    _split(t, job, ln["billing_line_id"], FOUR_WAY, status=409)
+    assert _rows(t) == 4 and t.audit_rows() == since + 1
+
+
+def test_f084_a_sum_off_by_a_cent_a_twice_named_area_a_zero_part_and_a_stranger_are_refused(
+    t: Tenant,
+) -> None:
+    job, ln = _pmt1_job(t)
+    since = t.audit_rows()
+    line_id = ln["billing_line_id"]
+    off = {**FOUR_WAY, 4: "66410.45"}
+    r = t.client.put(
+        f"/api/jobs/{job['id']}/invoice-lines/{line_id}/work-area",
+        json={
+            "parts": [
+                {"estimate_work_area_id": _choice(job, n), "amount": a} for n, a in off.items()
+            ]
+        },
+        headers=CSRF,
+    )
+    assert r.status_code == 422
+    assert r.json()["detail"] == (
+        "The parts sum to 83,147.25 and the line is 83,147.24; the parts must sum to the line "
+        "exactly."
+    )
+    twice = {
+        "parts": [
+            {"estimate_work_area_id": _choice(job, 2), "amount": "40000.00"},
+            {"estimate_work_area_id": _choice(job, 2), "amount": "43147.24"},
+        ]
+    }
+    r = t.client.put(
+        f"/api/jobs/{job['id']}/invoice-lines/{line_id}/work-area", json=twice, headers=CSRF
+    )
+    assert r.status_code == 422 and "named twice" in r.json()["detail"]
+    zero = {1: "0.00", 2: PMT1}
+    r = t.client.put(
+        f"/api/jobs/{job['id']}/invoice-lines/{line_id}/work-area",
+        json={
+            "parts": [
+                {"estimate_work_area_id": _choice(job, n), "amount": a} for n, a in zero.items()
+            ]
+        },
+        headers=CSRF,
+    )
+    assert r.status_code == 422 and "part of 0.00" in r.json()["detail"]
+    stranger = {
+        "parts": [
+            {"estimate_work_area_id": _choice(job, 1), "amount": "2750.00"},
+            {"estimate_work_area_id": str(uuid.uuid4()), "amount": "80397.24"},
+        ]
+    }
+    r = t.client.put(
+        f"/api/jobs/{job['id']}/invoice-lines/{line_id}/work-area", json=stranger, headers=CSRF
+    )
+    assert r.status_code == 404 and r.json()["detail"] == (
+        "That work area is not on the latest version of an estimate on this job."
+    )
+    omitted = {
+        "parts": [
+            {"estimate_work_area_id": _choice(job, 1), "amount": "2750.00"},
+            {"estimate_work_area_id": _areas(job)[17]["id"], "amount": "80397.24"},
+        ]
+    }
+    r = t.client.put(
+        f"/api/jobs/{job['id']}/invoice-lines/{line_id}/work-area", json=omitted, headers=CSRF
+    )
+    assert r.status_code == 422 and "#17 is omitted" in r.json()["detail"]
+    # Not money: a float-looking string without cents, an empty list, both bodies, neither.
+    for body in (
+        {"parts": [{"estimate_work_area_id": _choice(job, 1), "amount": "83147.2"}]},
+        {"parts": []},
+        {
+            "parts": [{"estimate_work_area_id": _choice(job, 1), "amount": PMT1}],
+            "estimate_work_area_id": _choice(job, 1),
+        },
+        {},
+    ):
+        r = t.client.put(
+            f"/api/jobs/{job['id']}/invoice-lines/{line_id}/work-area", json=body, headers=CSRF
+        )
+        assert r.status_code == 422, body
+    # One part for less than the line is refused; one part for the whole line is an assignment.
+    _split(t, job, line_id, {1: "2750.00"}, status=422)
+    assert _rows(t) == 0 and t.audit_rows() == since
+    job = _split(t, job, line_id, {1: PMT1})
+    assert _areas(job)[1]["billed_to_date"] == PMT1
+    assert [r.action for r in t.audit_actions(since)] == ["billing_line_assigned"]
+    assert _rows(t) == 1
+
+
+def test_f084_a_second_split_replaces_the_first_and_clear_ends_both(t: Tenant) -> None:
+    job, ln = _pmt1_job(t)
+    line_id = ln["billing_line_id"]
+    since = t.audit_rows()
+    job = _split(t, job, line_id, FOUR_WAY)
+    job = _split(t, job, line_id, {1: "5500.00", 4: "77647.24"})
+    areas = _areas(job)
+    assert [areas[n]["billed_to_date"] for n in (1, 2, 3, 4)] == [
+        "5500.00",
+        "0.00",
+        "0.00",
+        "77647.24",
+    ]
+    assert [areas[n]["percent_billed"] for n in (1, 2, 3, 4)] == [
+        "100.00",
+        "0.00",
+        "0.00",
+        "58.46",
+    ]
+    assert job["billing"]["billed_to_date"] == PMT1
+    line = next(x for x in _lines(job) if x["billing_line_id"] == line_id)
+    assert line["work_area_label"] == "Split: #1 5,500.00; #4 77,647.24"
+    rows = t.audit_actions(since)
+    assert [r.action for r in rows] == ["billing_line_split", "billing_line_split"]
+    assert [p["amount"] for p in rows[1].detail["before"]["parts"]] == list(FOUR_WAY.values())
+    assert (
+        rows[1]
+        .detail["summary"]
+        .startswith("Line 1 of EST6115758_PMT1 (83,147.24) split again across 2 work areas: ")
+    )
+    assert _rows(t) == 6  # four rows, then two; the first split is history
+    job = t.send("DELETE", f"/api/jobs/{job['id']}/invoice-lines/{line_id}/work-area")
+    areas = _areas(job)
+    assert [areas[n]["billed_to_date"] for n in (1, 2, 3, 4)] == ["0.00"] * 4
+    assert job["invoice_lines"]["not_assigned_to_work_area"] == PMT1
+    line = next(x for x in _lines(job) if x["billing_line_id"] == line_id)
+    assert (line["how"], line["parts"], line["work_area_label"]) == ("none", [], None)
+    rows = t.audit_actions(since)
+    assert [r.action for r in rows][-1] == "billing_line_cleared" and len(rows) == 3
+    assert rows[-1].detail["summary"] == (
+        "Line 1 of EST6115758_PMT1 (83,147.24) is no longer split across 2 work areas."
+    )
+    assert [p["amount"] for p in rows[-1].detail["before"]["parts"]] == ["5500.00", "77647.24"]
+    assert rows[-1].detail["after"]["parts"] == []
+    assert _rows(t) == 7
+    t.send("DELETE", f"/api/jobs/{job['id']}/invoice-lines/{line_id}/work-area", status=409)
+
+
+def test_f084_a_credit_memo_line_splits_negative(t: Tenant) -> None:
+    job, ln = _pmt1_job(t)
+    job = _split(t, job, ln["billing_line_id"], FOUR_WAY)
+    memo = document_payload(
+        "5204",
+        customer=ELM_CUSTOMER,
+        date="2026-07-20",
+        doc_number="CM-5204",
+        lines=[sales_line("1000.00", "Credit on the start of job")],
+    )
+    apply_payloads(t.engine, t.id, [("CreditMemo", memo)])
+    job = t.job(job["id"])
+    assert job["billing"]["billed_to_date"] == str(D(PMT1) - D("1000.00"))
+    credit = next(x for x in _lines(job) if x["doc_number"] == "CM-5204")
+    assert credit["amount"] == "-1000.00" and credit["offered"]
+    job = _split(t, job, credit["billing_line_id"], {1: "-400.00", 2: "-600.00"})
+    areas = _areas(job)
+    assert (areas[1]["billed_to_date"], areas[2]["billed_to_date"]) == ("2350.00", "4815.34")
+    assert (areas[3]["billed_to_date"], areas[4]["billed_to_date"]) == ("8571.46", "66410.44")
+    assert job["invoice_lines"]["not_assigned_to_work_area"] == "0.00"
+    assert job["billing"]["billed_to_date"] == "82147.24"
+    line = next(x for x in _lines(job) if x["billing_line_id"] == credit["billing_line_id"])
+    assert line["work_area_label"] == "Split: #1 (400.00); #2 (600.00)"
+    assert [p["amount"] for p in line["parts"]] == ["-400.00", "-600.00"]
+    # The parts must carry the memo's sign: a positive split of a credit line is off by 2,000.00.
+    r = t.client.put(
+        f"/api/jobs/{job['id']}/invoice-lines/{credit['billing_line_id']}/work-area",
+        json={
+            "parts": [
+                {"estimate_work_area_id": _choice(job, n), "amount": a}
+                for n, a in {1: "400.00", 2: "600.00"}.items()
+            ]
+        },
+        headers=CSRF,
+    )
+    assert r.status_code == 422 and "1,000.00 and the line is (1,000.00)" in r.json()["detail"]
+
+
+def test_f084_a_part_on_an_unapproved_change_order_is_flagged_and_moves_nothing(t: Tenant) -> None:
+    job, ln = _pmt1_job(t)
+    before = _figures(job)
+    assert _flag(job) == []
+    job = _split(t, job, ln["billing_line_id"], {1: "82147.24", 18: "1000.00"})
+    assert _flag(job) == [
+        '1,000.00 has been billed on job "67 Elm Street | Parking Lot" on 1 change order that is '
+        "not approved: #18 (D-45)."
+    ]
+    assert _figures(job) == before
+    areas = _areas(job)
+    assert (
+        areas[18]["billed_to_date"],
+        areas[18]["left_to_bill"],
+        areas[18]["percent_billed"],
+    ) == (
+        "1000.00",
+        None,
+        None,
+    )
+    assert areas[1]["billed_to_date"] == "82147.24"
+    assert _row_on_board(t, job["id"])["billing"]["billed_to_date"] == PMT1
+
+
+def test_f084_roles_and_strings(t: Tenant, seed: Seed, as_role, login_as) -> None:
+    job, ln = _pmt1_job(t)
+    line_id = ln["billing_line_id"]
+    path = f"/api/jobs/{job['id']}/invoice-lines/{line_id}/work-area"
+    body = {
+        "parts": [
+            {"estimate_work_area_id": _choice(job, n), "amount": a} for n, a in FOUR_WAY.items()
+        ]
+    }
+    clients = {
+        "client_pm": as_role(t, "client_pm", Role.client_pm),
+        "client_viewer": as_role(t, "client_viewer", Role.client_viewer),
+    }
+    assert clients["client_pm"].put(path, json=body, headers=CSRF).status_code == 403
+    assert _rows(t) == 0
+    job = _split(t, job, line_id, FOUR_WAY)
+    for c in clients.values():
+        seen = c.get(f"/api/jobs/{job['id']}").json()
+        assert [
+            w["percent_billed"] for w in seen["work_areas"] if w["order_no"] in (1, 2, 3, 4)
+        ] == ["50.00"] * 4
+        assert all("percent_billed" in w for w in seen["work_areas"])
+        line = next(x for x in seen["invoice_lines"]["lines"] if x["billing_line_id"] == line_id)
+        assert line["work_area_label"] == SPLIT_LABEL and len(line["parts"]) == 4
+    other = login_as("firm_admin", tenant=seed.tenant_b)
+    assert other.put(path, json=body, headers=CSRF).status_code == 404
+    for path_, value in money_values(job):
+        assert value is None or isinstance(value, str), path_
+    for w in job["work_areas"]:
+        assert w["percent_billed"] is None or isinstance(w["percent_billed"], str)
+    problems: list[str] = []
+    _walk(job, "detail", problems)
+    assert problems == []

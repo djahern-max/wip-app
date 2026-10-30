@@ -115,6 +115,7 @@ test("the tie-out line reads checking until its own request answers, then the AP
     withdraw: "Withdrawing…",
     assign: "Assigning…",
     clear: "Clearing…",
+    split: "Recording…", // F08.4 (D-52)
     assign_all: "Assigning…",
     draft: "Saving…",
     issue: "Issuing…",
@@ -459,6 +460,10 @@ test("F09.6: the firm line reads the counts the page already holds, in words", a
     firmLineWords({ ...elm(), estimates: [{}], qbo_linked: false, qbo_names: [], work_areas: [], invoice_lines: { lines: [] } }),
     "1 estimate attached · 0 of 0 work areas confirmed · Not linked to QuickBooks · 0 of 0 invoice lines tied",
   );
+  // F08.4: a split line (no work_area_id, two or more parts) is tied.
+  const withSplit = elm();
+  withSplit.invoice_lines.lines.push({ billing_line_id: "ls", billing_id: "b0", work_area_id: null, work_area_label: "Split: #1 2,750.00; #2 5,415.34", how: "assigned", parts: [{}, {}] });
+  assert.equal(firmLineWords(withSplit).endsWith("4 of 5 invoice lines tied"), true);
 });
 
 test("F09.6: the head's primary action is the billing request, with the label the section used", async () => {
@@ -494,4 +499,39 @@ test("F10: the cost table lists the basis categories with estimated, cost to dat
   const sentence = costSentence(elm());
   assert.ok(sentence.startsWith("Cost to date is what QuickBooks posted to this job's cost accounts, by cost category, as of 2026-10-27."));
   assert.ok(!/D-\d\d/.test(sentence));
+});
+
+test("F08.4 (D-52): Split is offered where Assign is; the parts and their sum are digits only", async () => {
+  const { canSplit, splitParts, splitState, PENDING_WORDS } = await import("./jobs.js");
+  const offered = { billing_line_id: "l1", offered: true, work_area_id: null, suggested_work_area_id: null, how: "none" };
+  const byNumber = { billing_line_id: "l2", offered: true, work_area_id: "w3", suggested_work_area_id: null, how: "number" };
+  const split = { billing_line_id: "l3", offered: true, work_area_id: null, suggested_work_area_id: null, how: "assigned" };
+  const notOffered = { billing_line_id: "l4", offered: false, work_area_id: null, suggested_work_area_id: null, how: "none" };
+  assert.equal(canSplit(offered), true);
+  assert.equal(canSplit(byNumber), false);
+  assert.equal(canSplit(split), false); // Clear is its action
+  assert.equal(canSplit(notOffered), false);
+  assert.equal(PENDING_WORDS.split, "Recording…");
+  const areas = [{ id: "a" }, { id: "b" }, { id: "c" }, { id: "d" }];
+  const four = { a: "2750.00", b: "5415.34", c: "8571.46", d: "66410.44" };
+  assert.deepEqual(splitParts({ d: " 66410.44 ", a: "2750.00", b: "" }, areas), [
+    { estimate_work_area_id: "a", amount: "2750.00" },
+    { estimate_work_area_id: "d", amount: "66410.44" },
+  ]);
+  assert.deepEqual(splitState(four, areas, "83147.24"), {
+    sum: "83147.24",
+    ready: true,
+    sentence: "Sum of the parts 83,147.24; the line is 83,147.24.",
+  });
+  const over = splitState({ ...four, d: "66410.45" }, areas, "83147.24");
+  assert.equal(over.ready, false);
+  assert.equal(over.sentence, "Sum of the parts 83,147.25; the line is 83,147.24; over by 0.01.");
+  const short = splitState({ a: "2750.00" }, areas, "83147.24");
+  assert.equal(short.sentence, "Sum of the parts 2,750.00; the line is 83,147.24; short by 80,397.24.");
+  assert.equal(splitState({}, areas, "83147.24").ready, false);
+  assert.equal(splitState({ a: "2750" }, areas, "83147.24").sentence, "Each part is an amount with cents, such as 2750.00.");
+  assert.equal(splitState({ a: "0.00", b: "83147.24" }, areas, "83147.24").ready, false);
+  const memo = splitState({ a: "-400.00", b: "-600.00" }, areas, "-1000.00");
+  assert.deepEqual([memo.ready, memo.sentence], [true, "Sum of the parts (1,000.00); the line is (1,000.00)."]);
+  assert.equal(splitState({ a: "400.00", b: "600.00" }, areas, "-1000.00").sentence, "Sum of the parts 1,000.00; the line is (1,000.00); over by 2,000.00.");
 });

@@ -53,6 +53,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -96,6 +97,8 @@ BILLING_KIND_BY_ENTITY: dict[str, str] = {
     "SalesReceipt": "sales_receipt",
 }
 
+ASSIGNMENT_EVENT_INDEX = "uq_billing_line_work_area_event"  # F08.4 (D-52)
+ASSIGNMENT_EVENT_INDEX_WHERE = "action = 'assigned'"
 MONEY = Numeric(14, 2)
 
 
@@ -279,6 +282,17 @@ class BillingLineWorkArea(Base):
         ),
         CheckConstraint(ASSIGNMENT_ACTION_CHECK_SQL, name="ck_billing_line_work_area_action"),
         CheckConstraint(ASSIGNMENT_COLUMNS_CHECK_SQL, name="ck_billing_line_work_area_columns"),
+        # F08.4 (D-52): the rows one request writes share recorded_at (one event); a work
+        # area appears once in an event, so once among a line's current rows.
+        Index(
+            ASSIGNMENT_EVENT_INDEX,
+            "tenant_id",
+            "billing_line_id",
+            "recorded_at",
+            "estimate_work_area_id",
+            unique=True,
+            postgresql_where=text(ASSIGNMENT_EVENT_INDEX_WHERE),
+        ),
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
@@ -301,6 +315,9 @@ class BillingLineWorkArea(Base):
         UUID(as_uuid=True), ForeignKey("user.id", ondelete="RESTRICT"), nullable=False
     )
     recorded_at: Mapped[datetime] = _created_at()
+    # F08.4 (D-52): the line's signed amount at the event, or the part of it this row
+    # ties to its work area when the line is split; a credit memo's line is negative.
+    amount: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
 
 
 class PayApplication(Base):

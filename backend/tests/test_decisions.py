@@ -147,16 +147,16 @@ def test_d50_is_in_decisions_once_directly_after_d49_and_word_for_word() -> None
     assert "D-17 (extended, not amended" in entry
 
 
-def test_d51_is_in_decisions_once_directly_after_d50_last_and_word_for_word() -> None:
+def test_d51_is_in_decisions_once_directly_after_d50_and_word_for_word() -> None:
     """F10: D-51 (2026-10-29, express mode) says job cost comes from the ledger line by
     line, a line's job is its customer reference, and labor-slot accounts are tied, never
-    costed; appended from the brief word for word; it is the one decision after D-50 and
-    the last; the order from D-38 on is unbroken."""
+    costed; appended from the brief word for word; it is the one decision after D-50
+    (D-52 follows it since F08.4); the order from D-38 on is unbroken."""
     decisions = DECISIONS.read_text()
     order = [m.group(1) for m in re.finditer(r"^## (D-\d+[a-z]?) ·", decisions, re.M)]
     assert order.count("D-51") == 1
-    assert order.index("D-51") == order.index("D-50") + 1 == len(order) - 1
-    run = [f"D-{n}" for n in range(38, 52)]
+    assert order.index("D-51") == order.index("D-50") + 1
+    run = [f"D-{n}" for n in range(38, 53)]
     assert order[order.index("D-38") :] == run
     brief = _brief("D-51", "F10.md")
     assert _entry(decisions, "D-51") == _entry(brief, "D-51")
@@ -165,3 +165,24 @@ def test_d51_is_in_decisions_once_directly_after_d50_last_and_word_for_word() ->
     assert "never job cost and never unassigned" in entry
     assert "never stored on the line" in entry
     assert "Nothing is written to QuickBooks" in entry
+
+
+def test_d52_is_in_decisions_once_directly_after_d51_last_and_word_for_word() -> None:
+    """F08.4: D-52 (2026-10-30, express mode) says an earlier invoice line may be split
+    across work areas by amount, the parts summing to the line, each counting in its work
+    area's billed to date and the line once in the job's; appended from the brief word
+    for word; it is the one decision after D-51 and the last; the last three are D-50,
+    D-51, D-52."""
+    decisions = DECISIONS.read_text()
+    order = [m.group(1) for m in re.finditer(r"^## (D-\d+[a-z]?) ·", decisions, re.M)]
+    assert order.count("D-52") == 1
+    assert order.index("D-52") == order.index("D-51") + 1 == len(order) - 1
+    assert order[-3:] == ["D-50", "D-51", "D-52"]
+    brief = _brief("D-52", "F08.4.md")
+    assert _entry(decisions, "D-52") == _entry(brief, "D-52")
+    entry = _entry(decisions, "D-52")
+    assert "the parts summing to the line to the cent" in entry
+    assert "Parts are amounts, never percents" in entry
+    assert 'a "#n" line and a pay-application line are never split' in entry
+    assert "One audit row per line, listing the parts" in entry
+    assert "D-45 amended as to how many work areas one assigned line may reach" in entry

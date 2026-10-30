@@ -130,6 +130,8 @@ class TenantEvent(enum.StrEnum):
     billing_line_assigned = "billing_line_assigned"
     billing_line_reassigned = "billing_line_reassigned"
     billing_line_cleared = "billing_line_cleared"
+    # F08.4 (D-52): a line split across work areas by amount, one row per line
+    billing_line_split = "billing_line_split"
     # F08.1 Part 2 (D-36): the billing request's draft, the issue and the void
     pay_application_drafted = "pay_application_drafted"
     pay_application_issued = "pay_application_issued"

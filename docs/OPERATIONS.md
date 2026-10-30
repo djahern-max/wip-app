@@ -1033,6 +1033,23 @@ rows and totals (D-40). Every role that reads jobs can export.
 ### Pay applications (F08.1 Part 2, D-26, D-36, D-39, D-43)
 For a fixed-price job (D-24), operations says how far along each work area is and the
 platform says what to bill and gives the customer the document.
+- **Before the first application: split a lump-sum line** (F08.4, D-52; `firm_admin`,
+  `firm_staff`, `client_admin`, on the job's set-up view under Invoice lines): an invoice
+  keyed before pay applications were in use often bills several work areas on one line
+  ("Start of Job", half the contract). Press **Split** on the line, enter the amount of
+  each work area it billed as the job's billing workbook has them (blank = not part of the
+  split; amounts, never percents; a credit memo's parts negative) and press **Record
+  split**: the parts must sum to the line to the cent, or the sentence under the fields
+  says by how much they differ and nothing is written. Billed to date, Left to bill and
+  Percent billed per work area then read the parts, "Not assigned to a work area" falls by
+  the line, and the job's billed to date is unchanged. A "#n" line and a pay-application
+  line are never split (they are tied by rule, D-26, D-36); a second split replaces the
+  first; **Clear** ends every part. One audit row per line (`billing_line_split`), listing
+  the parts. Do this before the first application: its prefill and "earned on previous
+  applications" read what the parts stand for. Earned to date is rounded per work area, so
+  a total can differ by a cent from a percent of the contract. A deposit is read only when
+  the `_DEP` number and the deposit item are both present (D-02); a `_DEP` invoice on
+  another item raises `DEPOSIT_NOT_IDENTIFIED`.
 - **Entering the request** (`client_pm`, `client_admin`, `firm_staff`, `firm_admin`): on
   the job, **New billing request** (the page's primary action, in its head; **Edit billing
   request** while a draft exists; the form opens under Pay applications): the application date; whether the
